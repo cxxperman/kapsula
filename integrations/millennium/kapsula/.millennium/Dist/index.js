@@ -25,7 +25,7 @@ let PluginEntryPointMain = function () {
         const sock = new WebSocket("ws://127.0.0.1:" + PORT + "/?client=millennium");
         sock.onopen = function () {
           ws = sock;
-          sock.send(JSON.stringify({ type: "hello", plugin: "0.1.0" }));
+          sock.send(JSON.stringify({ type: "hello", plugin: "0.2.0" }));
           queue.splice(0).forEach(function (s) { sock.send(s); });
         };
         sock.onclose = function () { if (ws === sock) ws = null; if (!stopped && !timer) timer = setTimeout(connect, 5000); };
@@ -76,6 +76,53 @@ let PluginEntryPointMain = function () {
       }
     }
 
+    // Shape of an internal Steam object: own fields with their types, and method names from its prototypes.
+    function describe(o) {
+      if (!o) return null;
+      const own = {}, methods = [];
+      let n = 0;
+      try { for (const k of Object.getOwnPropertyNames(o)) { if (n++ >= 80) break; let t; try { const v = o[k]; t = Array.isArray(v) ? "array(" + v.length + ")" : v === null ? "null" : typeof v; } catch (e) { t = "?"; } own[k] = t; } } catch (e) { }
+      try {
+        let p = Object.getPrototypeOf(o), level = 0;
+        while (p && p !== Object.prototype && level++ < 3)
+          for (const k of Object.getOwnPropertyNames(p)) if (k !== "constructor" && methods.length < 150 && methods.indexOf(k) < 0) methods.push(k);
+      } catch (e) { }
+      return { own: own, methods: methods };
+    }
+
+    // Reports calls of an object's methods whose names match `filter`, then runs the original untouched.
+    let callBudget = 1500;
+    function watch(target, o, filter) {
+      if (!o) return;
+      const names = [];
+      try {
+        let p = Object.getPrototypeOf(o), level = 0;
+        while (p && p !== Object.prototype && level++ < 3)
+          for (const k of Object.getOwnPropertyNames(p)) {
+            if (k === "constructor" || names.indexOf(k) >= 0 || !filter.test(k)) continue;
+            const d = Object.getOwnPropertyDescriptor(p, k);
+            if (d && typeof d.value === "function") names.push(k);
+          }
+      } catch (e) { }
+      names.slice(0, 40).forEach(function (k) {
+        const orig = o[k];
+        if (typeof orig !== "function") return;
+        let left = 25;
+        const wrapped = function () {
+          if (left > 0 && callBudget > 0) {
+            left--; callBudget--;
+            try { send({ type: "call", target: target, method: k, args: safe(Array.prototype.slice.call(arguments)) }); } catch (e) { }
+          }
+          return orig.apply(this, arguments);
+        };
+        try {
+          o[k] = wrapped;
+          cleanup.push(function () { try { if (o[k] === wrapped) delete o[k]; } catch (e) { } });
+        } catch (e) { }
+      });
+      send({ type: "watching", target: target, methods: names.slice(0, 40) });
+    }
+
     function stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
@@ -109,6 +156,17 @@ let PluginEntryPointMain = function () {
             listen("Screenshot", function (cb) { return sc.GameSessions.RegisterForScreenshotNotification(cb); });
         }
       }
+      // Second probe: how Steam's own notification store and toaster are built, and what they are called with.
+      send({
+        type: "shape",
+        NotificationStore: describe(window.NotificationStore),
+        toaster: describe(window.__TOASTER_INSTANCE),
+        clientNotifications: sc ? keys(sc.ClientNotifications) : null,
+        friendsUIApp: describe(window.g_FriendsUIApp),
+        friendStore: describe(window.friendStore)
+      });
+      watch("NotificationStore", window.NotificationStore, /notif|toast|show|add|process|queue|display|invite|chat|friend/i);
+      watch("toaster", window.__TOASTER_INSTANCE, /./);
       return { icon: null, onDismount: stop };
     };
     Object.defineProperty(exports, "__esModule", { value: !0 });
