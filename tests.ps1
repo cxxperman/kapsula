@@ -138,5 +138,35 @@ T 'релиз: контрольная сумма из digest' $r.Args[3] $h
 $r = Call 'Updater' 'PickRelease' @('[]', $null, $null, $null, $null)
 T 'релиз: пустой список' $r.Result $false
 
+# --- Discord: разбор уведомления от плагина XSOverlay (Vencord)
+$notif = '{"type":1,"timeout":3,"title":"Аня (#общий, Сервер)","content":"привет <color=#7289da>@Макс</color>, идём?","useBase64Icon":false,"icon":"default","sourceApp":"Vencord"}'
+$envl = '{"sender":"Vencord","target":"xsoverlay","command":"SendNotification","jsonData":' + (ConvertTo-Json $notif) + ',"rawData":null}'
+$r = Call 'DiscordBridge' 'Parse' @($envl, $null, $null, $null)
+T 'Discord: уведомление разобрано' $r.Result $true
+T 'Discord: заголовок' $r.Args[1] 'Аня (#общий, Сервер)'
+T 'Discord: теги цвета убраны' $r.Args[2] 'привет @Макс, идём?'
+$r = Call 'DiscordBridge' 'Parse' @('{"command":"Other","jsonData":"{}"}', $null, $null, $null)
+T 'Discord: чужая команда отклонена' $r.Result $false
+$r = Call 'DiscordBridge' 'Parse' @('не json', $null, $null, $null)
+T 'Discord: мусор отклонён' $r.Result $false
+T 'Discord: источник discord.com разрешён' (Call 'DiscordBridge' 'OriginAllowed' @('https://discord.com')).Result $true
+T 'Discord: источник canary разрешён' (Call 'DiscordBridge' 'OriginAllowed' @('https://canary.discord.com')).Result $true
+T 'Discord: посторонний сайт запрещён' (Call 'DiscordBridge' 'OriginAllowed' @('https://evil.example')).Result $false
+T 'Discord: подделка под discord.com запрещена' (Call 'DiscordBridge' 'OriginAllowed' @('https://discord.com.evil.example')).Result $false
+
+# --- Steam: разбор файлов библиотеки
+$vdf = "`"libraryfolders`"`n{`n`t`"0`"`n`t{`n`t`t`"path`"`t`t`"C:\\Program Files (x86)\\Steam`"`n`t}`n`t`"1`"`n`t{`n`t`t`"path`"`t`t`"D:\\SteamLibrary`"`n`t}`n}"
+$libs = (Call 'Steam' 'LibraryPaths' @($vdf)).Result
+T 'Steam: две библиотеки' $libs.Count 2
+T 'Steam: путь второй библиотеки' $libs[1] 'D:\SteamLibrary'
+$acf = "`"AppState`"`n{`n`t`"appid`"`t`t`"1145360`"`n`t`"name`"`t`t`"Hades`"`n`t`"StateFlags`"`t`t`"4`"`n`t`"BytesToDownload`"`t`t`"100`"`n`t`"BytesDownloaded`"`t`t`"100`"`n}"
+$g = (Call 'Steam' 'ParseManifest' @($acf)).Result
+T 'Steam: название игры' $g.Name 'Hades'
+T 'Steam: игра готова' $g.Ready $true
+$g2 = (Call 'Steam' 'ParseManifest' @($acf.Replace('"4"', '"1026"'))).Result
+T 'Steam: игра в загрузке не готова' $g2.Ready $false
+$svc = (Call 'Steam' 'ParseManifest' @($acf.Replace('Hades', 'Steamworks Common Redistributables'))).Result
+T 'Steam: служебный пакет пропущен' ($svc -eq $null) $true
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

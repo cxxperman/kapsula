@@ -79,6 +79,7 @@ namespace Kapsula
             sp.Children.Add(Row("Размер", "Для больших мониторов.", Chips(new string[] { "80%", "100%", "125%", "150%", "175%", "200%" }, si, delegate(int i) { island.ApplyScale(scales[i]); }), true));
 
             sp.Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
+            sp.Children.Add(Row("Смена трека поверх игр и видео", "В полноэкранной программе остров спрятан. С этой настройкой он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
             sp.Children.Add(Row("Глаза в капсуле", "Следят за курсором, моргают и засыпают, когда вы отошли.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
             if (island.MonitorCount > 1)
             {
@@ -102,6 +103,33 @@ namespace Kapsula
             sp.Children.Add(Row("Ключ Claude API", "Нужен свой ключ: console.anthropic.com → API Keys. Он хранится только на этом компьютере, зашифрованный Windows, и отправляется только на api.anthropic.com.", BuildKeyEditor(), true));
             sp.Children.Add(Row("Модель", "Opus 5.5 — умнее; Sonnet 5.5 — быстрее и дешевле.", Chips(new string[] { "Opus 5.5", "Sonnet 5.5" }, ClaudeChat.Model() == "claude-sonnet-5-5" ? 1 : 0, delegate(int i) { island.SetClaudeModel(i == 1 ? "claude-sonnet-5-5" : "claude-opus-5-5"); }), true));
 
+            sp.Children.Add(Header("Интеграции"));
+            if (DiscordBridge.VencordFound)
+            {
+                var dRow = Row("Discord через Vencord", "—", Toggle(Store.Get("discordVencord") != "0", delegate(bool v) { island.SetFlag("discordVencord", v); if (v) DiscordBridge.Start(); else DiscordBridge.Stop(); }), false);
+                var dText = ((StackPanel)((Grid)((Border)dRow).Child).Children[0]).Children[1] as TextBlock;
+                Action dShow = delegate
+                {
+                    string st = Store.Get("discordVencord") == "0" ? "Выключено."
+                        : DiscordBridge.Error != null ? "Не работает: " + DiscordBridge.Error + "."
+                        : DiscordBridge.Clients > 0 ? "Подключено: сообщения и звонки Discord появляются на острове."
+                        : "Discord пока не подключился. В Vencord откройте Настройки → Плагины и включите XSOverlay.";
+                    if (dText != null) dText.Text = "Kapsula только принимает уведомления; в Discord ничего не меняется. " + st;
+                };
+                dShow();
+                var dTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                dTimer.Tick += delegate { dShow(); };
+                dTimer.Start();
+                Closed += delegate { dTimer.Stop(); };
+                sp.Children.Add(dRow);
+            }
+            else
+            {
+                sp.Children.Add(Row("Discord через Vencord", "Сообщения и звонки Discord на острове. Нужен Vencord — неофициальная модификация Discord; ставить её или нет, решаете вы.", LinkButton("Сайт Vencord", "https://vencord.dev/"), false));
+            }
+            if (Steam.Found)
+                sp.Children.Add(Row("Steam", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
+
             sp.Children.Add(Header("Прочее"));
             sp.Children.Add(Row("Секунды в часах", null, Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
             sp.Children.Add(Row("Запись экрана со звуком", "В запись попадает то, что играет на колонках или в наушниках. Микрофон не записывается.", Toggle(Store.Get("recAudio") != "0", delegate(bool v) { island.SetFlag("recAudio", v); }), false));
@@ -119,6 +147,14 @@ namespace Kapsula
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
             scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
             Content = scroller;
+        }
+
+        // Кнопка, открывающая страницу в браузере. Сама Kapsula ничего оттуда не скачивает и не ставит.
+        FrameworkElement LinkButton(string text, string url)
+        {
+            var b = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = new TextBlock { Text = text, Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold } };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(url); } catch { } };
+            return b;
         }
 
         FrameworkElement Header(string text)

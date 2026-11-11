@@ -240,7 +240,9 @@ namespace Kapsula
         TranslateTransform slide = new TranslateTransform();
         ScaleTransform expandScale = new ScaleTransform(1, 1);
         Spring sw = new Spring(190, 250, 23), sh = new Spring(CH, 250, 23), sr = new Spring(CR, 250, 26), sy = new Spring(0, 200, 26);
-        bool frameOn, hiddenFs, snipActive;
+        bool frameOn, hiddenFs, snipActive, fsPeeking;
+        int fsPeekUntil;
+        public bool TestFs;   // ключ --fstest: в демо-режиме через 4 с «переключает трек»
         int state; // 0 — капсула, 1 — мини-плеер, 2 — панель, 3 — карточка события, 4 — командная строка
         bool expanded { get { return state == 2; } }
         Spring[] so = { new Spring(1, 340, 37), new Spring(0, 340, 37), new Spring(0, 340, 37), new Spring(0, 340, 37), new Spring(0, 340, 37) };
@@ -454,6 +456,8 @@ namespace Kapsula
 
             watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; media = m; RenderMedia(); })); };
             watcher.Start();
+            DiscordBridge.Notified += delegate(string t, string x, byte[] i) { Dispatcher.BeginInvoke(new Action(delegate { DiscordNotify(t, x, i); })); };
+            DiscordBridge.Start();
 
             BuildTray();
             RenderMedia();
@@ -983,6 +987,23 @@ namespace Kapsula
                     if (HasKey(ql, "запис", "record", "видео")) AddCmd(Recorder.Active ? "Остановить запись экрана" : "Записать экран", "Ctrl+Alt+R", "", null, delegate { ToggleRecord(false); });
                     if (HasKey(ql, "скрин", "снимок", "screenshot")) AddCmd("Снимок области", "Ctrl+Alt+S", "", null, delegate { StartSnip(false); });
                     if (HasKey(ql, "пипет", "цвет", "color")) AddCmd("Пипетка", "Ctrl+Alt+C", "", null, delegate { StartSnip(true); });
+                }
+
+                // Игры Steam: набрали название — запустили
+                if (ql.Length >= 2 && Steam.Enabled)
+                {
+                    int games = 0;
+                    for (int pass = 0; pass < 2 && games < 3; pass++)
+                        foreach (SteamGame sg in steamGames)
+                        {
+                            if (games >= 3) break;
+                            string low = sg.Name.ToLowerInvariant();
+                            bool starts = low.StartsWith(ql);
+                            if (pass == 0 ? !starts : (starts || !low.Contains(ql))) continue;
+                            string id = sg.Id;
+                            AddCmd(sg.Name, sg.Ready ? "Игра Steam" : "Игра Steam · скачивается", "", null, delegate { Steam.Launch(id); });
+                            games++;
+                        }
                 }
 
                 int found = 0;
@@ -2947,6 +2968,88 @@ namespace Kapsula
             t.Start();
         }
 
+        // ------------------------------------------------------ Discord и Steam
+        List<SteamGame> steamGames = new List<SteamGame>();
+        bool steamScanning, steamFirst = true;
+        int steamRunId;
+        DateTime steamRunAt;
+
+        static ImageSource ImageFrom(byte[] data)
+        {
+            if (data == null) return null;
+            try
+            {
+                var bi = new BitmapImage();
+                bi.BeginInit();
+                bi.CacheOption = BitmapCacheOption.OnLoad;
+                bi.DecodePixelWidth = 96;
+                bi.StreamSource = new System.IO.MemoryStream(data);
+                bi.EndInit();
+                bi.Freeze();
+                return bi;
+            }
+            catch { return null; }
+        }
+
+        // Сообщение или звонок из Discord (приходит от плагина XSOverlay в Vencord)
+        public void DiscordNotify(string title, string text, byte[] icon)
+        {
+            Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
+            ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
+            cardUntil = Environment.TickCount + 6000;
+        }
+
+        string SteamName(int id)
+        {
+            SteamGame g = steamGames.Find(delegate(SteamGame x) { return x.Id == id.ToString(); });
+            return g != null ? g.Name : "Игра Steam";
+        }
+
+        // Раз в 2 секунды: что запущено. Раз в 15 секунд: список игр и загрузки (чтение файлов — в фоне).
+        void PollSteam()
+        {
+            if (!Steam.Enabled) return;
+            int run = Steam.RunningAppId();
+            if (run != steamRunId)
+            {
+                if (steamRunId != 0 && run == 0)
+                {
+                    TimeSpan played = DateTime.Now - steamRunAt;
+                    if (played.TotalMinutes >= 1) Toast("", SteamName(steamRunId) + " · " + (played.TotalHours >= 1 ? (int)played.TotalHours + " ч " + played.Minutes + " мин" : played.Minutes + " мин"), null, -1, accent);
+                }
+                else if (run != 0 && !steamFirst) Toast("", SteamName(run), null, -1, accent);
+                if (run != 0) steamRunAt = DateTime.Now;
+                steamRunId = run;
+            }
+            if ((tick % 30 == 0 || steamFirst) && !steamScanning)
+            {
+                steamScanning = true;
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<SteamGame> fresh = null;
+                    try { fresh = Steam.Scan(); } catch (Exception ex) { Store.LogError("Steam", ex); }
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        steamScanning = false;
+                        if (fresh == null) return;
+                        if (!steamFirst)
+                            foreach (SteamGame g in fresh)
+                            {
+                                // Была в загрузке, стала готова — сообщаем карточкой
+                                SteamGame old = steamGames.Find(delegate(SteamGame x) { return x.Id == g.Id; });
+                                if (g.Ready && (old == null || !old.Ready) && g.Id != steamRunId.ToString())
+                                {
+                                    string id = g.Id;
+                                    ShowCardEx(null, "", "Steam: игра готова", g.Name, delegate { Steam.Launch(id); }, "Играть", delegate { Steam.Launch(id); }, false);
+                                }
+                            }
+                        steamGames = fresh;
+                        steamFirst = false;
+                    }));
+                });
+            }
+        }
+
         // -------------------------------------------- положение, автоскрытие
         void PlaceWindow()
         {
@@ -3051,6 +3154,12 @@ namespace Kapsula
                 media = new MediaInfo { Has = true, Playing = true, Title = "Ночной маршрут", Artist = "Kapsula Demo", Cover = DemoCover(), Pos = 47, Dur = 204, PosAt = DateTime.UtcNow };
                 RenderMedia();
                 LoadLauncher();
+                if (TestFs)
+                {
+                    var next = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(4000) };
+                    next.Tick += delegate { next.Stop(); media.Title = "Утренний перегон"; media.Pos = 0; media.PosAt = DateTime.UtcNow; RenderMedia(); };
+                    next.Start();
+                }
                 var once = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
                 once.Tick += delegate
                 {
@@ -3182,7 +3291,9 @@ namespace Kapsula
             sh.Target = StateH();
             sr.Target = state == 2 ? ER : (state == 1 ? MR : (state == 0 ? CR : 28));
             for (int i = 0; i < so.Length; i++) so[i].Target = state == i ? 1 : 0;
-            sy.Target = (hiddenFs || autoHidden) && state == 0 ? -(CH + 28) : 0;
+            // В полноэкранной программе остров спрятан, но выглядывает на несколько секунд при смене трека (fsPeekUntil).
+            bool fsHide = hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0;
+            sy.Target = (fsHide || autoHidden) && state == 0 ? -(CH + 28) : 0;
             Wake();
         }
 
@@ -3548,9 +3659,20 @@ namespace Kapsula
                 string lk = media.Title + "|" + media.Artist;
                 if (lk != lyricsKey)
                 {
+                    bool changed = lyricsKey != null;
                     lyricsKey = lk;
                     lyricsDur = media.Dur;
                     SetLyrics(null);
+                    // В игре или в видео на весь экран остров спрятан — на смену трека выглядываем с названием.
+                    if (changed && hiddenFs && state == 0 && media.Playing && Store.Get("fsTrack") != "0")
+                    {
+                        Toast("", string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist, null, -1, accent);
+                        toastUntil = Environment.TickCount + 3500;
+                        fsPeekUntil = toastUntil + 200;
+                        fsPeeking = true;
+                        if (AutoHide) revealUntil = fsPeekUntil;
+                        SetTargets();
+                    }
                     if (LyricsOn() && !TestLyrics) FetchLyrics(lk, media.Title, media.Artist, media.Dur);
                 }
                 else if (Math.Abs(media.Dur - lyricsDur) > 2 && LyricsOn() && !TestLyrics)
@@ -3960,8 +4082,10 @@ namespace Kapsula
             if (!Native.GetWindowRect(fg, out r)) return false;
             var mi = new Native.MONITORINFO();
             mi.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
-            if (!Native.GetMonitorInfo(Native.MonitorFromWindow(fg, 2), ref mi)) return false;
-            if ((mi.dwFlags & 1) == 0) return false;
+            IntPtr mon = Native.MonitorFromWindow(fg, 2);
+            if (!Native.GetMonitorInfo(mon, ref mi)) return false;
+            // Прячемся только от окна на том же мониторе, где стоит остров (а не обязательно на основном).
+            if (hwnd != IntPtr.Zero ? mon != Native.MonitorFromWindow(hwnd, 2) : (mi.dwFlags & 1) == 0) return false;
             return r.L <= mi.rcMonitor.L && r.T <= mi.rcMonitor.T && r.R >= mi.rcMonitor.R && r.B >= mi.rcMonitor.B;
         }
 
@@ -3971,6 +4095,7 @@ namespace Kapsula
             UpdateHover();
 
             if (toastOn && unchecked(Environment.TickCount - toastUntil) >= 0) { toastOn = false; RenderCompact(); SetTargets(); }
+            if (fsPeeking && unchecked(Environment.TickCount - fsPeekUntil) >= 0) { fsPeeking = false; SetTargets(); }
 
             if (pollN % 3 == 0)
             {
@@ -4021,6 +4146,7 @@ namespace Kapsula
             if (!fs && tick % 6 == 0 && hwnd != IntPtr.Zero && !snipActive)
                 Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
 
+            if (tick % 4 == 1) PollSteam();
             if (tick % 2 == 0) SampleCpu();
             if (tick % 2 == 1) PollDownloads();
             if (tick % 2 == 0) CheckReminders();
