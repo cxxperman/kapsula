@@ -305,10 +305,66 @@ namespace Kapsula
         }
 
         static readonly object logGate = new object();
+        public static bool Logging;   // запись всего, что прислал плагин, в файл: только для отладки (ключ --steamtest)
+
+        public static void Send(string json) { if (server != null) server.Broadcast(json); }
+
+        // Значок уведомления качаем только с серверов Steam
+        public static bool IconAllowed(string url)
+        {
+            Uri u;
+            if (!Uri.TryCreate(url ?? "", UriKind.Absolute, out u) || u.Scheme != "https") return false;
+            string h = u.Host.ToLowerInvariant();
+            return h.EndsWith(".steamstatic.com") || h.EndsWith(".steampowered.com");
+        }
+
+        public static byte[] FetchIcon(string url)
+        {
+            if (!IconAllowed(url)) return null;
+            try
+            {
+                System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+                var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                req.Timeout = 4000; req.ReadWriteTimeout = 4000; req.UserAgent = "Kapsula";
+                using (var resp = req.GetResponse())
+                using (var s = resp.GetResponseStream())
+                using (var ms = new System.IO.MemoryStream())
+                {
+                    var buf = new byte[8192]; int n;
+                    while ((n = s.Read(buf, 0, buf.Length)) > 0) { ms.Write(buf, 0, n); if (ms.Length > 2 * 1024 * 1024) return null; }
+                    return ms.ToArray();
+                }
+            }
+            catch { return null; }
+        }
+
+        // Названия видов уведомлений, как их называет сам Steam, по-русски. Для незнакомых остаётся исходное.
+        public static string KindName(string kind)
+        {
+            switch ((kind ?? "").ToLowerInvariant())
+            {
+                case "friend message": return "Сообщение";
+                case "friend invite": return "Заявка в друзья";
+                case "friend invite rollup": return "Заявки в друзья";
+                case "friend online": return "Друг в сети";
+                case "friend ingame": case "friend in-game": case "friend in game": return "Друг в игре";
+                case "achievement": return "Достижение";
+                case "download complete": return "Загрузка завершена";
+                case "screenshot": return "Снимок экрана";
+                case "group chat message": return "Сообщение в группе";
+                case "group chat mention": return "Упоминание в группе";
+                case "trade offer": return "Предложение обмена";
+                case "gift": return "Подарок";
+                case "wishlist": return "Список желаемого";
+                case "incoming voice chat": return "Голосовой вызов";
+                case "": return "Steam";
+                default: return kind;
+            }
+        }
 
         static void OnMessage(string json)
         {
-            lock (logGate)
+            if (Logging) lock (logGate)
             {
                 try
                 {

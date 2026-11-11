@@ -461,8 +461,25 @@ namespace Kapsula
             SteamBridge.Received += delegate(Dictionary<string, object> d)
             {
                 object type;
-                if (d.TryGetValue("type", out type) && (type as string) == "hello")
+                d.TryGetValue("type", out type);
+                if ((type as string) == "hello")
+                {
                     Dispatcher.BeginInvoke(new Action(delegate { Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
+                    // Проверочный режим: просим Steam показать его собственные образцы уведомлений.
+                    if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestFriendInvite\",\"TestAchievement\",\"TestDownloadComplete\"]}");
+                }
+                else if ((type as string) == "toast")
+                {
+                    Func<string, string> get = delegate(string k) { object v; return d.TryGetValue(k, out v) && v != null ? v.ToString() : ""; };
+                    string title = DiscordBridge.Clean(get("title"), 80), body = DiscordBridge.Clean(get("body"), 300), kind = SteamBridge.KindName(get("kind"));
+                    string url = get("url");
+                    // Уведомление приходит уже в фоновом потоке — значок можно скачать прямо здесь.
+                    byte[] icon = SteamBridge.FetchIcon(get("icon"));
+                    if (title == "" && body == "") { title = "Steam"; body = kind; }
+                    else if (title == "") title = kind;
+                    else if (body == "") body = kind;
+                    Dispatcher.BeginInvoke(new Action(delegate { SteamNotify(title, body, icon, url); }));
+                }
             };
             SteamBridge.Start();
 
@@ -3003,6 +3020,18 @@ namespace Kapsula
         {
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
+            cardUntil = Environment.TickCount + 6000;
+        }
+
+        public bool TestSteam;   // ключ --steamtest
+
+        // Всплывающее уведомление Steam (приходит от плагина Kapsula для Millennium)
+        public void SteamNotify(string title, string text, byte[] icon, string url)
+        {
+            // По клику открываем то, что открыл бы сам Steam; посторонние адреса не запускаем.
+            string target = url != null && url.StartsWith("steam://", StringComparison.OrdinalIgnoreCase) ? url : "steam://open/friends";
+            Action open = delegate { try { System.Diagnostics.Process.Start(target); } catch { } };
+            ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             cardUntil = Environment.TickCount + 6000;
         }
 

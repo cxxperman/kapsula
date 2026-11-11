@@ -1,13 +1,15 @@
-// Kapsula plugin for Millennium (probe version).
-// Runs inside the Steam client and forwards its notification events to Kapsula on this PC
-// over ws://127.0.0.1:42071. Nothing is sent to the internet. Written by hand in the same
-// wrapper format Millennium's bundler produces, so it needs no build step.
+// Kapsula plugin for Millennium.
+// Runs inside the Steam client. Whenever Steam decides to show one of its pop-up notifications
+// (friend message, invite, friend online, achievement, download finished…), the plugin sends its
+// title, text and icon to Kapsula on this PC over ws://127.0.0.1:42071. Nothing goes to the internet,
+// and Steam's own notification is left exactly as it was.
+// Written by hand in the same wrapper format Millennium's bundler produces, so it needs no build step.
 const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 (window.PLUGIN_LIST ||= {})[pluginName] ||= {}, window.MILLENNIUM_SIDEBAR_NAVIGATION_PANELS ||= {};
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071;
+    const PORT = 42071, VERSION = "0.3.0";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -15,7 +17,7 @@ let PluginEntryPointMain = function () {
       let s;
       try { s = JSON.stringify(obj); } catch (e) { return; }
       if (ws && ws.readyState === 1) ws.send(s);
-      else if (queue.length < 200) queue.push(s);
+      else if (queue.length < 50) queue.push(s);
     }
 
     function connect() {
@@ -25,9 +27,10 @@ let PluginEntryPointMain = function () {
         const sock = new WebSocket("ws://127.0.0.1:" + PORT + "/?client=millennium");
         sock.onopen = function () {
           ws = sock;
-          sock.send(JSON.stringify({ type: "hello", plugin: "0.2.0" }));
+          sock.send(JSON.stringify({ type: "hello", plugin: VERSION, hooked: hooked }));
           queue.splice(0).forEach(function (s) { sock.send(s); });
         };
+        sock.onmessage = function (e) { try { command(JSON.parse(e.data)); } catch (err) { } };
         sock.onclose = function () { if (ws === sock) ws = null; if (!stopped && !timer) timer = setTimeout(connect, 5000); };
         sock.onerror = function () { };
       } catch (e) {
@@ -35,92 +38,56 @@ let PluginEntryPointMain = function () {
       }
     }
 
-    // Turns whatever Steam hands us into plain JSON: short strings, limited depth, bytes as base64.
-    function safe(v, depth) {
-      depth = depth || 0;
-      if (v === null || v === undefined) return null;
-      const t = typeof v;
-      if (t === "string") return v.length > 300 ? v.slice(0, 300) + "…" : v;
-      if (t === "number" || t === "boolean") return v;
-      if (t === "bigint") return v.toString();
-      if (t === "function") return "[function]";
-      if (v instanceof ArrayBuffer) v = new Uint8Array(v);
-      if (ArrayBuffer.isView(v)) {
-        const bytes = new Uint8Array(v.buffer, v.byteOffset, Math.min(v.byteLength, 4096));
-        let bin = "";
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return { bytes: v.byteLength, base64: btoa(bin) };
-      }
-      if (depth >= 4) return "[deep]";
-      if (Array.isArray(v)) return v.slice(0, 40).map(function (x) { return safe(x, depth + 1); });
-      const out = {};
-      let n = 0;
-      for (const k in v) {
-        if (n++ >= 40) break;
-        try { out[k] = safe(v[k], depth + 1); } catch (e) { out[k] = "[error]"; }
-      }
+    // The only command Kapsula can give: show Steam's own built-in sample notifications (used to check the link).
+    function command(msg) {
+      if (!msg || msg.cmd !== "test" || !Array.isArray(msg.names)) return;
+      const store = window.NotificationStore;
+      msg.names.slice(0, 12).forEach(function (name, i) {
+        if (typeof name !== "string" || !/^Test[A-Za-z]{1,40}$/.test(name) || !store || typeof store[name] !== "function") return;
+        setTimeout(function () { try { store[name](); } catch (e) { send({ type: "error", name: name, message: String(e) }); } }, 400 + i * 2500);
+      });
+    }
+
+    // Notification data comes either as plain fields or as getter functions, depending on its kind.
+    function field(d, name) {
+      try {
+        if (!d) return "";
+        let v = d[name];
+        if (typeof v === "function") v = v.call(d);
+        if (typeof v === "string") return v.length > 400 ? v.slice(0, 400) + "…" : v;
+        if (typeof v === "number") return String(v);
+      } catch (e) { }
+      return "";
+    }
+
+    function describeToast(config, n) {
+      const d = n && n.data;
+      const out = {
+        type: "toast",
+        kind: config && typeof config.strTest === "string" ? config.strTest : "",
+        eType: n && typeof n.eType === "number" ? n.eType : -1,
+        title: field(d, "title"), body: field(d, "body"), icon: field(d, "icon"),
+        steamid: field(d, "steamid"), url: field(d, "response_steamurl"),
+        extra: ""
+      };
+      try { if (d && d.item && typeof d.item.body_data === "string") out.extra = d.item.body_data.slice(0, 400); } catch (e) { }
       return out;
     }
 
-    function keys(o) { try { return o ? Object.keys(o) : null; } catch (e) { return null; } }
-
-    function listen(name, register) {
-      try {
-        const handle = register(function () {
-          send({ type: "event", name: name, args: safe(Array.prototype.slice.call(arguments)) });
-        });
-        if (handle && typeof handle.unregister === "function") cleanup.push(function () { handle.unregister(); });
-        send({ type: "registered", name: name });
-      } catch (e) {
-        send({ type: "error", name: name, message: String(e) });
-      }
-    }
-
-    // Shape of an internal Steam object: own fields with their types, and method names from its prototypes.
-    function describe(o) {
-      if (!o) return null;
-      const own = {}, methods = [];
-      let n = 0;
-      try { for (const k of Object.getOwnPropertyNames(o)) { if (n++ >= 80) break; let t; try { const v = o[k]; t = Array.isArray(v) ? "array(" + v.length + ")" : v === null ? "null" : typeof v; } catch (e) { t = "?"; } own[k] = t; } } catch (e) { }
-      try {
-        let p = Object.getPrototypeOf(o), level = 0;
-        while (p && p !== Object.prototype && level++ < 3)
-          for (const k of Object.getOwnPropertyNames(p)) if (k !== "constructor" && methods.length < 150 && methods.indexOf(k) < 0) methods.push(k);
-      } catch (e) { }
-      return { own: own, methods: methods };
-    }
-
-    // Reports calls of an object's methods whose names match `filter`, then runs the original untouched.
-    let callBudget = 1500;
-    function watch(target, o, filter) {
-      if (!o) return;
-      const names = [];
-      try {
-        let p = Object.getPrototypeOf(o), level = 0;
-        while (p && p !== Object.prototype && level++ < 3)
-          for (const k of Object.getOwnPropertyNames(p)) {
-            if (k === "constructor" || names.indexOf(k) >= 0 || !filter.test(k)) continue;
-            const d = Object.getOwnPropertyDescriptor(p, k);
-            if (d && typeof d.value === "function") names.push(k);
-          }
-      } catch (e) { }
-      names.slice(0, 40).forEach(function (k) {
-        const orig = o[k];
-        if (typeof orig !== "function") return;
-        let left = 25;
-        const wrapped = function () {
-          if (left > 0 && callBudget > 0) {
-            left--; callBudget--;
-            try { send({ type: "call", target: target, method: k, args: safe(Array.prototype.slice.call(arguments)) }); } catch (e) { }
-          }
-          return orig.apply(this, arguments);
-        };
-        try {
-          o[k] = wrapped;
-          cleanup.push(function () { try { if (o[k] === wrapped) delete o[k]; } catch (e) { } });
-        } catch (e) { }
-      });
-      send({ type: "watching", target: target, methods: names.slice(0, 40) });
+    let hooked = false;
+    function hook() {
+      const store = window.NotificationStore;
+      if (!store || typeof store.BShowToast !== "function") return false;
+      const orig = store.BShowToast;
+      const wrapped = function (config, notification) {
+        const show = orig.apply(this, arguments);
+        // Forward only what Steam itself is about to show, so the island follows the user's Steam settings.
+        try { if (show) send(describeToast(config, notification)); } catch (e) { }
+        return show;
+      };
+      store.BShowToast = wrapped;
+      cleanup.push(function () { try { if (store.BShowToast === wrapped) delete store.BShowToast; } catch (e) { } });
+      return true;
     }
 
     function stop() {
@@ -131,42 +98,8 @@ let PluginEntryPointMain = function () {
     }
 
     exports.default = async function () {
+      hooked = hook();
       connect();
-      const sc = window.SteamClient;
-      send({
-        type: "probe",
-        where: { title: document.title, href: String(location.href).split("?")[0] },
-        steamClient: keys(sc),
-        notifications: sc ? keys(sc.Notifications) : null,
-        friends: sc ? keys(sc.Friends) : null,
-        gameSessions: sc ? keys(sc.GameSessions) : null,
-        messaging: sc ? keys(sc.Messaging) : null,
-        webChat: sc ? keys(sc.WebChat) : null,
-        globals: Object.keys(window).filter(function (k) { return /store|friend|notif|chat|toast/i.test(k); }).slice(0, 120)
-      });
-      if (sc) {
-        if (sc.Notifications && sc.Notifications.RegisterForNotifications)
-          listen("Notifications", function (cb) { return sc.Notifications.RegisterForNotifications(cb); });
-        if (sc.GameSessions) {
-          if (sc.GameSessions.RegisterForAchievementNotification)
-            listen("Achievement", function (cb) { return sc.GameSessions.RegisterForAchievementNotification(cb); });
-          if (sc.GameSessions.RegisterForAppLifetimeNotifications)
-            listen("AppLifetime", function (cb) { return sc.GameSessions.RegisterForAppLifetimeNotifications(cb); });
-          if (sc.GameSessions.RegisterForScreenshotNotification)
-            listen("Screenshot", function (cb) { return sc.GameSessions.RegisterForScreenshotNotification(cb); });
-        }
-      }
-      // Second probe: how Steam's own notification store and toaster are built, and what they are called with.
-      send({
-        type: "shape",
-        NotificationStore: describe(window.NotificationStore),
-        toaster: describe(window.__TOASTER_INSTANCE),
-        clientNotifications: sc ? keys(sc.ClientNotifications) : null,
-        friendsUIApp: describe(window.g_FriendsUIApp),
-        friendStore: describe(window.friendStore)
-      });
-      watch("NotificationStore", window.NotificationStore, /notif|toast|show|add|process|queue|display|invite|chat|friend/i);
-      watch("toaster", window.__TOASTER_INSTANCE, /./);
       return { icon: null, onDismount: stop };
     };
     Object.defineProperty(exports, "__esModule", { value: !0 });

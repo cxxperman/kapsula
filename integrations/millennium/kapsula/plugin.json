@@ -3,7 +3,7 @@
   "name": "kapsula",
   "common_name": "Kapsula",
   "description": "Sends Steam notifications to the Kapsula island running on this PC. Nothing leaves the computer.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "useBackend": false,
   "backendType": "lua"
 }
