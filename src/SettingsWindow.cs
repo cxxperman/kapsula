@@ -42,7 +42,7 @@ namespace Kapsula
         {
             island = owner;
             Title = "Kapsula — настройки";
-            Width = 560; Height = 700;
+            Width = 560; Height = Math.Min(700, SystemParameters.WorkArea.Height - 16);   // на небольших экранах окно не должно уходить за край
             Background = Bg;
             ResizeMode = ResizeMode.CanMinimize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -50,6 +50,26 @@ namespace Kapsula
             UseLayoutRounding = true;
 
             var sp = new StackPanel { Margin = new Thickness(22, 16, 22, 22) };
+            // Версия и обновление — первой строкой, чтобы не искать
+            var checkLabel = new TextBlock { Text = "Проверить обновления", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
+            var checkBtn = new Border { Background = OnBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = checkLabel };
+            var verRow = Row("Kapsula " + Updater.CurrentText, "—", checkBtn, false);
+            TextBlock verStatus = ((StackPanel)((Grid)((Border)verRow).Child).Children[0]).Children[1] as TextBlock;
+            Action showStatus = delegate
+            {
+                string s = Updater.StatusText;
+                if (!Updater.Configured) s = "Автообновление в этой сборке не настроено.";
+                else if (s == "") s = Store.Get("autoUpdate") == "0" ? "Автообновление выключено. Проверить можно кнопкой." : "Обновления проверяются сами раз в час.";
+                if (verStatus != null) verStatus.Text = s;
+            };
+            showStatus();
+            var statusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            statusTimer.Tick += delegate { showStatus(); };
+            statusTimer.Start();
+            Closed += delegate { statusTimer.Stop(); };
+            checkBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (verStatus != null) verStatus.Text = "Проверяю…"; Updater.CheckNow(); };
+            sp.Children.Add(verRow);
+
             sp.Children.Add(Header("Внешний вид"));
             sp.Children.Add(Row("Цвет острова", "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.", BuildSwatches(), true));
             sp.Children.Add(Row("Как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false));

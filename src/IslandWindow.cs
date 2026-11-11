@@ -78,7 +78,7 @@ namespace Kapsula
         public bool FollowWindows, PillTitle, HoverMini = true, LiquidOn = true, ShowSeconds, ShowInCapture;
         public double Scale = 1;
         public string TestColor;
-        public bool TestSettings;
+        public bool TestSettings, TestSettingsTop;
         ScaleTransform scaleT = new ScaleTransform(1, 1);
         SettingsWindow settingsWin;
         bool lastWinDark;
@@ -221,7 +221,7 @@ namespace Kapsula
             if (settingsWin != null) { settingsWin.Activate(); return; }
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
-            if (TestSettings) { settingsWin.ScrollToBottom(); settingsWin.Topmost = true; settingsWin.Height = 1280; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 560) / 2; }
+            if (TestSettings) { if (!TestSettingsTop) settingsWin.ScrollToBottom(); settingsWin.Topmost = true; settingsWin.Height = 1280; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 560) / 2; }
             settingsWin.Show();
             settingsWin.Activate();
         }
@@ -675,6 +675,8 @@ namespace Kapsula
             if (Recorder.Active || timerRinging || timerEnd > DateTime.Now) return false;
             return Native.IdleMs() >= idleMs;
         }
+
+        public void UpdateToast(string text) { Toast("", text, null, -1, null); }
 
         public void NotifyUpdated()
         {
@@ -3135,7 +3137,7 @@ namespace Kapsula
                 tray.Icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hi).Clone();
                 Native.DestroyIcon(hi);
             }
-            tray.Text = "Kapsula";
+            tray.Text = "Kapsula " + Updater.CurrentText;
             var menu = new WF.ContextMenuStrip();
             var auto = new WF.ToolStripMenuItem("Запускать вместе с Windows");
             menu.Opening += delegate { auto.Checked = Autostart.IsOn(); };
@@ -3153,6 +3155,7 @@ namespace Kapsula
             menu.Items.Add(lyr);
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
+            menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add("Выход", null, delegate { tray.Visible = false; Application.Current.Shutdown(); });
             tray.ContextMenuStrip = menu;

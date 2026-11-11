@@ -25,6 +25,27 @@ namespace Kapsula
         public static bool Configured { get { return Repo != "" || FeedOverride != null; } }
         public static bool Enabled { get { return Configured && Store.Get("autoUpdate") != "0"; } }
 
+        // Ключ --noapi: для проверки запасного пути, как будто GitHub не отдал список релизов.
+        public static bool SkipApi;
+
+        static readonly AutoResetEvent wake = new AutoResetEvent(false);
+        static volatile bool manual, installed;
+        static volatile string status = "";
+
+        // Чем кончилась последняя проверка — показывается в настройках, чтобы было видно, работает ли обновление.
+        public static string StatusText { get { return status; } }
+        static void SetStatus(string text) { status = "Проверено в " + DateTime.Now.ToString("HH:mm") + ": " + text; }
+        static void Say(string text) { if (island != null) island.Dispatcher.BeginInvoke(new Action(delegate { island.UpdateToast(text); })); }
+
+        // Кнопка «Проверить обновления»: не ждём очередного часа.
+        public static void CheckNow()
+        {
+            if (!Configured) return;
+            if (installed) { island.RestartForUpdate(); return; }
+            manual = true;
+            wake.Set();
+        }
+
         static string ExePath { get { return System.Reflection.Assembly.GetExecutingAssembly().Location; } }
 
         public static void Start(IslandWindow w)
@@ -35,24 +56,34 @@ namespace Kapsula
             if (!Configured) return;
             var t = new Thread(delegate()
             {
-                Thread.Sleep(FeedOverride != null ? 2000 : 20000);
+                wake.WaitOne(FeedOverride != null ? 2000 : 20000);
                 int fails = 0;
                 while (true)
                 {
                     int wait = 60 * 60 * 1000;   // проверяем раз в час
-                    if (Enabled)
+                    bool byHand = manual; manual = false;
+                    if (Enabled || byHand)
                     {
-                        try { if (Check()) break; fails = 0; }
+                        try
+                        {
+                            if (Check()) break;
+                            fails = 0;
+                            SetStatus("у вас последняя версия");
+                            if (byHand) Say("У вас последняя версия — " + CurrentText);
+                        }
                         catch (Exception ex)
                         {
                             // Сразу после включения компьютера сети часто ещё нет — первые попытки повторяем через пару минут.
-                            if (fails == 0) Store.LogError("обновление", ex);
+                            if (fails == 0 || byHand) Store.LogError("обновление", ex);
                             fails++;
                             if (fails <= 5) wait = 2 * 60 * 1000;
+                            SetStatus("не удалось проверить: " + ex.Message);
+                            if (byHand) Say("Не удалось проверить обновления");
                         }
                     }
-                    Thread.Sleep(wait);
+                    wake.WaitOne(wait);
                 }
+                SetStatus("скачана новая версия, включится после перезапуска");
                 // Новая версия уже на диске. Перезапускаемся сами, как только это никому не помешает.
                 int idleNeeded = FeedOverride != null ? 0 : 120000;
                 while (true)
@@ -131,6 +162,18 @@ namespace Kapsula
             return version != null;
         }
 
+        // Запасной путь без списка релизов: номер версии из version.txt, файлы — по известным адресам релиза.
+        static bool FindDirect(out Version v, out string url, out string shaUrl)
+        {
+            url = null; shaUrl = null;
+            string text = System.Text.Encoding.ASCII.GetString(Get("https://raw.githubusercontent.com/" + Repo + "/main/version.txt"));
+            if (!TryParseVersion(text, out v)) return false;
+            string tag = "v" + v.Major + "." + v.Minor + "." + v.Build;
+            url = "https://github.com/" + Repo + "/releases/download/" + tag + "/Kapsula.exe";
+            shaUrl = url + ".sha256";
+            return true;
+        }
+
         static bool AllowedUrl(string url)
         {
             if (url == null) return false;
@@ -160,9 +203,21 @@ namespace Kapsula
         {
             string feed = FeedOverride ?? "https://api.github.com/repos/" + Repo + "/releases?per_page=10";
             if (FeedOverride != null && !feed.StartsWith("http://127.0.0.1:")) return false;
-            string json = System.Text.Encoding.UTF8.GetString(Get(feed));
             Version v; string url, sha, shaUrl;
-            if (!PickRelease(json, out v, out url, out sha, out shaUrl)) return false;
+            try
+            {
+                if (SkipApi) throw new System.Net.WebException("список релизов отключён ключом --noapi");
+                string json = System.Text.Encoding.UTF8.GetString(Get(feed));
+                if (!PickRelease(json, out v, out url, out sha, out shaUrl)) return false;
+            }
+            catch (System.Net.WebException)
+            {
+                // GitHub ограничивает число запросов списка релизов с одного адреса (общий Wi-Fi, VPN, мобильная сеть),
+                // а где-то этот адрес недоступен вовсе. Тогда узнаём версию по файлу version.txt в репозитории.
+                if (FeedOverride != null) throw;
+                if (!FindDirect(out v, out url, out shaUrl)) return false;
+                sha = null;
+            }
             if (v <= Current) return false;
             if (!AllowedUrl(url)) throw new Exception("неожиданный адрес файла: " + url);
 
@@ -191,6 +246,7 @@ namespace Kapsula
             try { System.IO.File.Move(fresh, exe); }
             catch { System.IO.File.Move(old, exe); throw; }
 
+            installed = true;
             string text2 = inside.Major + "." + inside.Minor + "." + inside.Build;
             if (island != null) island.Dispatcher.BeginInvoke(new Action(delegate { island.UpdateInstalled(text2); }));
             return true;

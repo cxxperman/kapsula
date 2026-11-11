@@ -54,6 +54,7 @@ namespace Kapsula
                 double y; int n;
                 if (args[i] == "--updatefeed" && i + 1 < args.Length) { Updater.FeedOverride = args[i + 1]; i++; continue; }
                 if (args[i] == "--updated") { updated = true; continue; }
+                if (args[i] == "--noapi") { Updater.SkipApi = true; continue; }
                 if (args[i] != "--wait") plain = false;
                 if (args[i] == "--capturable") w.Capturable = true;
                 if (args[i] == "--mini") w.ForceOpen = -2;
@@ -61,6 +62,7 @@ namespace Kapsula
                 if (args[i] == "--lyrictest") w.TestLyrics = true;
                 if (args[i] == "--notetest") w.TestNote = true;
                 if (args[i] == "--settings") w.TestSettings = true;
+                if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
                 if (args[i] == "--bt") w.TestBt = true;
                 if (args[i] == "--chattest") w.TestChat = true;
                 if (args[i] == "--notif") w.ShowNotifications = true;   // только на этот запуск
