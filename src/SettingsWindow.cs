@@ -113,7 +113,7 @@ namespace Kapsula
                     string st = Store.Get("discordVencord") == "0" ? "Выключено."
                         : DiscordBridge.Error != null ? "Не работает: " + DiscordBridge.Error + "."
                         : DiscordBridge.Clients > 0 ? "Подключено: сообщения и звонки Discord появляются на острове."
-                        : "Discord пока не подключился. В Vencord откройте Настройки → Плагины и включите XSOverlay.";
+                        : "Ждёт уведомлений: Discord подключается сам, когда приходит сообщение. Если карточек нет — в Vencord откройте Настройки → Плагины и включите XSOverlay.";
                     if (dText != null) dText.Text = "Kapsula только принимает уведомления; в Discord ничего не меняется. " + st;
                 };
                 dShow();
