@@ -4,6 +4,23 @@
 
 > **Ранняя альфа.** Всё может ломаться и меняться. Проверялось на одном компьютере с Windows 11.
 
+![Капсула в свёрнутом виде](docs/screenshots/pill.png)
+
+| Командная строка | Чат с Claude |
+|---|---|
+| ![Командная строка считает проценты](docs/screenshots/command.png) | ![Чат с Claude](docs/screenshots/chat.png) |
+
+| Заметки и таймер | Работа с текстом |
+|---|---|
+| ![Заметки, задачи и таймер](docs/screenshots/note.png) | ![Преобразования текста из буфера](docs/screenshots/text.png) |
+
+<details>
+<summary>Настройки</summary>
+
+![Окно настроек](docs/screenshots/settings.png)
+
+</details>
+
 ## Что умеет
 
 - **Музыка** — обложка, управление, перемотка, «жидкий» край под звук, тексты песен (lrclib.net).
