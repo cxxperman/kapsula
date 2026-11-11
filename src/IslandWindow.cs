@@ -466,7 +466,7 @@ namespace Kapsula
                 {
                     Dispatcher.BeginInvoke(new Action(delegate { Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
                     // Проверочный режим: просим Steam показать его собственные образцы уведомлений.
-                    if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestFriendInvite\",\"TestAchievement\",\"TestDownloadComplete\"]}");
+                    if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestAchievement:550\",\"TestDownloadComplete:570\",\"TestKapsulaInvite\"]}");
                 }
                 else if ((type as string) == "toast")
                 {
@@ -477,10 +477,17 @@ namespace Kapsula
                     byte[] icon = SteamBridge.FetchIcon(get("icon"));
                     string game = DiscordBridge.Clean(get("game"), 80);
                     if (body == "" && game != "" && get("kind").ToLowerInvariant().Contains("game")) body = "Играет в " + game;
+                    if (title == "" && game != "") title = game;   // «загрузка завершена», достижение без названия
                     if (title == "" && body == "") { title = "Steam"; body = kind; }
                     else if (title == "") title = kind;
-                    else if (body == "") body = kind;
-                    Dispatcher.BeginInvoke(new Action(delegate { SteamNotify(title, body, icon, url); }));
+                    else if (body == "") body = game != "" && game != title ? kind + " · " + game : kind;
+                    object inv; bool invite = d.TryGetValue("invite", out inv) && inv is bool && (bool)inv && SteamBridge.InviteUrlAllowed(url);
+                    string steamid = get("steamid");
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (invite) SteamInvite(title, body, icon, url, steamid);
+                        else SteamNotify(title, body, icon, url);
+                    }));
                 }
             };
             SteamBridge.Start();
@@ -651,6 +658,18 @@ namespace Kapsula
             var openBtn = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, Child = open, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
             Grid.SetColumn(openBtn, 3); g.Children.Add(openBtn);
             cardBtn = openBtn; cardBtnLabel = open;
+            // Вторая кнопка — «отклонить» (крестик): есть только у карточек с выбором, например у приглашения в игру.
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            cardNo = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
+                Child = new TextBlock { Text = "", FontFamily = Icons, FontSize = 13, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            Grid.SetColumn(cardNo, 4); g.Children.Add(cardNo);
+            cardNo.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+            {
+                e.Handled = true;
+                var a = cardNoAction;
+                SetState(0);
+                if (a != null) a();
+            };
             // У карточки может быть своя кнопка с подписью (например «+10 мин» у напоминания).
             openBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
@@ -665,8 +684,23 @@ namespace Kapsula
 
         void ShowCard(ImageSource img, string glyph, string title, string sub, Action act) { ShowCardEx(img, glyph, title, sub, act, null, null, false); }
 
+        Border cardNo;
+        Action cardNoAction;
+
+        // Карточка с выбором: кнопка с подписью и крестик. Висит дольше обычной.
+        void ShowCardChoice(ImageSource img, string glyph, string title, string sub, string yesText, Action yes, Action no)
+        {
+            ShowCardEx(img, glyph, title, sub, delegate { }, yesText, yes, false);
+            if (state != 3) return;   // панель открыта — показали короткую подсказку вместо карточки
+            cardNoAction = no;
+            cardNo.Visibility = Visibility.Visible;
+            cardUntil = Environment.TickCount + 15000;
+        }
+
         void ShowCardEx(ImageSource img, string glyph, string title, string sub, Action act, string btnText, Action btnAct, bool force)
         {
+            cardNoAction = null;
+            if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
             cardBtnAction = btnAct;
             cardBtnLabel.Text = btnText ?? "";
             cardBtnLabel.FontFamily = btnText != null ? FontFamily : Icons;
@@ -3031,10 +3065,22 @@ namespace Kapsula
         public void SteamNotify(string title, string text, byte[] icon, string url)
         {
             // По клику открываем то, что открыл бы сам Steam; посторонние адреса не запускаем.
-            string target = url != null && url.StartsWith("steam://", StringComparison.OrdinalIgnoreCase) ? url : "steam://open/friends";
+            string target = SteamBridge.SteamUrlAllowed(url) ? url : "steam://open/friends";
             Action open = delegate { try { System.Diagnostics.Process.Start(target); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             cardUntil = Environment.TickCount + 6000;
+        }
+
+        // Приглашение в игру: «Принять» открывает ссылку входа из самого приглашения, крестик отклоняет его в Steam.
+        public void SteamInvite(string title, string text, byte[] icon, string url, string steamid)
+        {
+            Action accept = delegate { try { System.Diagnostics.Process.Start(url); } catch { } };
+            Action decline = delegate
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(steamid ?? "", "^\\d{5,20}$"))
+                    SteamBridge.Send("{\"cmd\":\"dismissInvite\",\"steamid\":\"" + steamid + "\"}");
+            };
+            ShowCardChoice(ImageFrom(icon), "", title, text, "Принять", accept, decline);
         }
 
         string SteamName(int id)

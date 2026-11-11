@@ -327,6 +327,13 @@ namespace Kapsula
         // Кладёт плагин в папку Millennium. Включить его в самом Millennium человек должен сам.
         public static bool InstallPlugin()
         {
+            if (!WritePluginFiles()) return false;
+            Start();
+            return true;
+        }
+
+        static bool WritePluginFiles()
+        {
             try
             {
                 string d = PluginsDir(), json = Resource("Kapsula.millennium.plugin.json"), js = Resource("Kapsula.millennium.index.js");
@@ -335,7 +342,6 @@ namespace Kapsula
                 System.IO.Directory.CreateDirectory(dist);
                 System.IO.File.WriteAllText(System.IO.Path.Combine(dist, "index.js"), js, new UTF8Encoding(false));
                 System.IO.File.WriteAllText(System.IO.Path.Combine(root, "plugin.json"), json, new UTF8Encoding(false));
-                Start();
                 return true;
             }
             catch (Exception ex) { Store.LogError("установка плагина Steam", ex); return false; }
@@ -361,7 +367,7 @@ namespace Kapsula
             {
                 if (!PluginInstalled) return;
                 string have = InstalledVersion, want = BundledVersion;
-                if (want != "" && have != want) InstallPlugin();
+                if (want != "" && have != want) WritePluginFiles();   // только файлы: приёмник запускает тот, кто нас вызвал
             }
             catch { }
         }
@@ -386,6 +392,18 @@ namespace Kapsula
             if (!Uri.TryCreate(url ?? "", UriKind.Absolute, out u) || u.Scheme != "https") return false;
             string h = u.Host.ToLowerInvariant();
             return h.EndsWith(".steamstatic.com") || h.EndsWith(".steampowered.com");
+        }
+
+        // Адреса, которые Kapsula готова открыть по клику на карточке: только steam:// и без «опасных» символов.
+        public static bool SteamUrlAllowed(string url)
+        {
+            return url != null && url.Length < 600 && Regex.IsMatch(url, "^steam://[A-Za-z0-9/_%.:?&=+~@,-]+$", RegexOptions.IgnoreCase);
+        }
+
+        // Ссылка входа в игру друга: лобби, запуск с подключением или Remote Play
+        public static bool InviteUrlAllowed(string url)
+        {
+            return SteamUrlAllowed(url) && Regex.IsMatch(url, "^steam://(joinlobby|rungame|remoteplay/connect)/\\d", RegexOptions.IgnoreCase);
         }
 
         public static byte[] FetchIcon(string url)

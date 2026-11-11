@@ -9,7 +9,7 @@ const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071, VERSION = "0.4.1";
+    const PORT = 42071, VERSION = "0.5.0";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -38,15 +38,45 @@ let PluginEntryPointMain = function () {
       }
     }
 
-    // The only command Kapsula can give: show Steam's own built-in sample notifications (used to check the link).
+    // Kapsula can ask for two things only:
+    //  - "test": show Steam's own built-in sample notifications (used to check the link);
+    //  - "dismissInvite": mark a friend's game invite as dismissed, exactly as the Dismiss button in Steam chat does.
     function command(msg) {
-      if (!msg || msg.cmd !== "test" || !Array.isArray(msg.names)) return;
+      if (!msg) return;
+      if (msg.cmd === "dismissInvite") { dismissInvite(msg.steamid); return; }
+      if (msg.cmd !== "test" || !Array.isArray(msg.names)) return;
       debug = true;   // check mode: also report field names of what Steam passes, until the plugin is reloaded
       const store = window.NotificationStore;
-      msg.names.slice(0, 12).forEach(function (name, i) {
-        if (typeof name !== "string" || !/^Test[A-Za-z]{1,40}$/.test(name) || !store || typeof store[name] !== "function") return;
-        setTimeout(function () { try { store[name](); } catch (e) { send({ type: "error", name: name, message: String(e) }); } }, 400 + i * 2500);
+      msg.names.slice(0, 12).forEach(function (entry, i) {
+        if (typeof entry !== "string") return;
+        // "TestAchievement:550" — a sample that needs a game number
+        const m = /^(Test[A-Za-z]{1,40})(?::(\d{1,10}))?$/.exec(entry);
+        if (!m || !store || typeof store[m[1]] !== "function") return;
+        setTimeout(function () {
+          try { if (m[2]) store[m[1]](Number(m[2])); else store[m[1]](); }
+          catch (e) { send({ type: "error", name: m[1], message: String(e) }); }
+        }, 400 + i * 2500);
       });
+    }
+
+    function dismissInvite(steamid) {
+      try {
+        if (typeof steamid !== "string" || !/^\d{5,20}$/.test(steamid)) return;
+        const account = Number(BigInt(steamid) & 0xFFFFFFFFn);
+        const store = window.g_FriendsUIApp && window.g_FriendsUIApp.ChatStore && window.g_FriendsUIApp.ChatStore.GameInviteStore;
+        const invites = store && store.m_mapGameInvites && store.m_mapGameInvites.get(account);
+        if (!invites) return;
+        invites.forEach(function (inv) { try { if (!inv.bDismissed && !inv.bAccepted) inv.DismissInvite(); } catch (e) { } });
+      } catch (e) { }
+    }
+
+    // Name of a game by its number, from Steam's own library data.
+    function appName(appid) {
+      const id = Number(appid);
+      if (!id) return "";
+      try { const o = window.appStore && window.appStore.GetAppOverviewByAppID && window.appStore.GetAppOverviewByAppID(id); if (o && o.display_name) return String(o.display_name); } catch (e) { }
+      try { const a = window.g_FriendsUIApp.AppInfoStore.GetAppInfo(id); if (a && a.name) return String(a.name); } catch (e) { }
+      return "";
     }
 
     // Notification data comes either as plain fields or as getter functions, depending on its kind.
@@ -123,10 +153,16 @@ let PluginEntryPointMain = function () {
         type: "toast",
         kind: config && typeof config.strTest === "string" ? config.strTest : "",
         eType: n && typeof n.eType === "number" ? n.eType : -1,
-        title: field(d, "title"), body: field(d, "body"), icon: field(d, "icon"),
+        title: field(d, "title") || field(d, "name"),
+        body: field(d, "body") || field(d, "description"),
+        icon: field(d, "icon") || field(d, "image") || field(d, "image_url"),
         steamid: field(d, "steamid"), url: field(d, "response_steamurl"),
-        game: field(d, "game_name"), extra: ""
+        game: field(d, "game_name"), appid: field(d, "appid"), invite: false, extra: ""
       };
+      // Achievements and finished downloads carry a game number instead of a name.
+      if (!out.game && out.appid) out.game = appName(out.appid);
+      // A game invite arrives as a chat message whose "open" address joins the friend's game.
+      out.invite = /^steam:\/\/(joinlobby|rungame|remoteplay\/connect)\//i.test(out.url);
       try { if (d && d.item && typeof d.item.body_data === "string") out.extra = d.item.body_data.slice(0, 400); } catch (e) { }
       // "Friend online / in game" notifications carry only a SteamID — fill in the rest from the friends list.
       if (out.steamid && (!out.title || !out.icon)) {

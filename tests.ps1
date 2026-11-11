@@ -162,6 +162,11 @@ T 'Steam: подключение из клиента Steam разрешено' (
 T 'Steam: подключение с сайта запрещено' (Call 'SteamBridge' 'OriginAllowed' @('https://evil.example')).Result $false
 T 'Steam: вид уведомления по-русски' (Call 'SteamBridge' 'KindName' @('Friend Online')).Result 'Друг в сети'
 
+T 'Steam: ссылка входа в лобби разрешена' (Call 'SteamBridge' 'InviteUrlAllowed' @('steam://joinlobby/570/109775241000000000/76561197960265735')).Result $true
+T 'Steam: запуск с подключением разрешён' (Call 'SteamBridge' 'InviteUrlAllowed' @('steam://rungame/730/76561197960265735/+connect%201.2.3.4')).Result $true
+T 'Steam: обычная ссылка — не приглашение' (Call 'SteamBridge' 'InviteUrlAllowed' @('steam://open/friends')).Result $false
+T 'Steam: чужой адрес запрещён' (Call 'SteamBridge' 'SteamUrlAllowed' @('https://example.com/x')).Result $false
+T 'Steam: адрес с пробелами и кавычками запрещён' (Call 'SteamBridge' 'SteamUrlAllowed' @('steam://run/1" & calc.exe')).Result $false
 T 'Steam: плагин лежит внутри exe' ($asm.GetType('Kapsula.SteamBridge').GetProperty('BundledVersion').GetValue($null, $null) -match '^\d+\.\d+\.\d+$') $true
 T 'Steam: версия из plugin.json' (Call 'SteamBridge' 'VersionOf' @('{ "name": "kapsula", "version": "1.2.3" }')).Result '1.2.3'
 
