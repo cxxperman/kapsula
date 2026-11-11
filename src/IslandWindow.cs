@@ -230,6 +230,7 @@ namespace Kapsula
         static readonly FontFamily Symbols = new FontFamily("Segoe UI Symbol");
 
         public bool Capturable, TestLyrics, TestCard, TestNote, TestRec;
+        public bool Demo;   // ключ --demo: выдуманный трек и стандартные программы Windows вместо настоящих — для снимков в описание
         public string TestCmd;
         public int ForceOpen = -1; // проверочные режимы: 0..5 — вкладка, -2 — мини-плеер, -3 — капсула без реакции на курсор
 
@@ -451,7 +452,7 @@ namespace Kapsula
             slow.Tick += delegate { OnTick(); };
             slow.Start();
 
-            watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { media = m; RenderMedia(); })); };
+            watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; media = m; RenderMedia(); })); };
             watcher.Start();
 
             BuildTray();
@@ -676,6 +677,25 @@ namespace Kapsula
             t.Label.Text = "Ещё раз";
         }
 
+        // Обложка для демо-режима: рисуем сами, чтобы в снимках не было чужих картинок.
+        static byte[] DemoCover()
+        {
+            using (var bmp = new System.Drawing.Bitmap(300, 300))
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var r = new System.Drawing.Rectangle(0, 0, 300, 300);
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(r, System.Drawing.Color.FromArgb(28, 22, 70), System.Drawing.Color.FromArgb(240, 110, 70), 60f)) g.FillRectangle(br, r);
+                using (var sun = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 214, 140))) g.FillEllipse(sun, 150, 60, 110, 110);
+                using (var hill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(20, 16, 44)))
+                {
+                    g.FillEllipse(hill, -120, 190, 380, 240);
+                    g.FillEllipse(hill, 120, 215, 320, 200);
+                }
+                using (var ms = new System.IO.MemoryStream()) { bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png); return ms.ToArray(); }
+            }
+        }
+
         // ---------------------------------------------------- ряд программ
         void LoadLauncher()
         {
@@ -684,8 +704,17 @@ namespace Kapsula
             try
             {
                 string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar");
-                if (System.IO.Directory.Exists(dir))
-                    foreach (string lnk in System.IO.Directory.GetFiles(dir, "*.lnk"))
+                string[] items = new string[0];
+                if (Demo)
+                {
+                    string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                    var std = new List<string>();
+                    foreach (string f in new string[] { @"explorer.exe", @"System32\notepad.exe", @"System32\calc.exe", @"System32\mspaint.exe", @"System32\SnippingTool.exe", @"System32\cmd.exe" })
+                        if (System.IO.File.Exists(System.IO.Path.Combine(win, f))) std.Add(System.IO.Path.Combine(win, f));
+                    items = std.ToArray();
+                }
+                else if (System.IO.Directory.Exists(dir)) items = System.IO.Directory.GetFiles(dir, "*.lnk");
+                    foreach (string lnk in items)
                     {
                         if (n >= 13) break;
                         ImageSource icon = Shell.IconFor(lnk);
@@ -2996,7 +3025,24 @@ namespace Kapsula
             if (ForceOpen >= 0) { ShowPage(Math.Min(ForceOpen, pages.Length - 1)); SetExpanded(true); }
             else if (ForceOpen == -2) SetState(1);
             else if (ForceOpen == -3) SetTargets();
-            if (TestLyrics)
+            if (Demo)
+            {
+                media = new MediaInfo { Has = true, Playing = true, Title = "Ночной маршрут", Artist = "Kapsula Demo", Cover = DemoCover(), Pos = 47, Dur = 204, PosAt = DateTime.UtcNow };
+                RenderMedia();
+                LoadLauncher();
+                var once = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                once.Tick += delegate
+                {
+                    once.Stop();
+                    var l = new List<LyricLine>();
+                    double t0 = media.Now();
+                    string[] demo = { "Город гаснет за стеклом", "Фонари плывут, как по воде", "Мы поедем дальше — до рассвета", "Пусть дорога знает, где наш дом", "Тише, мотор, не буди огни", "Ночь длинна, а мы ещё в пути" };
+                    for (int i = 0; i < 60; i++) l.Add(new LyricLine { T = t0 - 3 + i * 2.6, Text = demo[i % demo.Length] });
+                    SetLyrics(l);
+                };
+                once.Start();
+            }
+            else if (TestLyrics)
             {
                 // Проверочный режим: подставные строки каждые 1,3 с от текущей позиции трека.
                 var once = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };

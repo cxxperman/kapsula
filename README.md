@@ -6,6 +6,8 @@
 
 ![Капсула в свёрнутом виде](docs/screenshots/pill.png)
 
+![Главная панель: музыка с текстом песни, снимки экрана, громкость и программы](docs/screenshots/home.png)
+
 | Командная строка | Чат с Claude |
 |---|---|
 | ![Командная строка считает проценты](docs/screenshots/command.png) | ![Чат с Claude](docs/screenshots/chat.png) |

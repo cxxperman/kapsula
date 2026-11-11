@@ -55,6 +55,7 @@ namespace Kapsula
                 if (args[i] != "--wait") plain = false;
                 if (args[i] == "--capturable") w.Capturable = true;
                 if (args[i] == "--mini") w.ForceOpen = -2;
+                if (args[i] == "--demo") w.Demo = true;
                 if (args[i] == "--lyrictest") w.TestLyrics = true;
                 if (args[i] == "--notetest") w.TestNote = true;
                 if (args[i] == "--settings") w.TestSettings = true;
