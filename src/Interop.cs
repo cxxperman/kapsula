@@ -249,11 +249,46 @@ namespace Kapsula
             return p == k || p.Contains(k) || k.Contains(p);
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct PROCESSENTRY32
+        {
+            public uint dwSize, cntUsage, th32ProcessID; public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID, cntThreads, th32ParentProcessID; public int pcPriClassBase; public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "Process32FirstW")] static extern bool Process32First(IntPtr snap, ref PROCESSENTRY32 e);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "Process32NextW")] static extern bool Process32Next(IntPtr snap, ref PROCESSENTRY32 e);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
+        // Все процессы: номер → (номер родителя, имя без «.exe»)
+        static Dictionary<uint, KeyValuePair<uint, string>> Snapshot()
+        {
+            var map = new Dictionary<uint, KeyValuePair<uint, string>>();
+            IntPtr snap = CreateToolhelp32Snapshot(2, 0);
+            if (snap == IntPtr.Zero || snap == new IntPtr(-1)) return map;
+            try
+            {
+                var e = new PROCESSENTRY32();
+                e.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32));
+                if (Process32First(snap, ref e))
+                    do
+                    {
+                        string n = e.szExeFile ?? "";
+                        if (n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) n = n.Substring(0, n.Length - 4);
+                        map[e.th32ProcessID] = new KeyValuePair<uint, string>(e.th32ParentProcessID, n);
+                    } while (Process32Next(snap, ref e));
+            }
+            finally { CloseHandle(snap); }
+            return map;
+        }
+
         static List<ISimpleAudioVolume> Find(string player)
         {
             int now = Environment.TickCount;
             if (cachedFor == player && unchecked(now - cachedAt) < 2500) return cached;
             var list = new List<ISimpleAudioVolume>();
+            Dictionary<uint, KeyValuePair<uint, string>> procs = null;
             try
             {
                 var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
@@ -274,10 +309,19 @@ namespace Kapsula
                                 uint pid;
                                 var c2 = s as IAudioSessionControl2;
                                 if (c2 == null || c2.GetProcessId(out pid) != 0 || pid == 0) continue;
-                                string name;
-                                try { name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { continue; }
                                 var vol = s as ISimpleAudioVolume;
-                                if (vol != null && Matches(name, player)) list.Add(vol);
+                                if (vol == null) continue;
+                                // Звук плеера часто играет не он сам, а его дочерний процесс (у Cider и других программ
+                                // на WebView2 это msedgewebview2), поэтому поднимаемся по цепочке родителей.
+                                if (procs == null) procs = Snapshot();
+                                uint cur = pid;
+                                for (int depth = 0; depth < 5 && cur != 0; depth++)
+                                {
+                                    KeyValuePair<uint, string> info;
+                                    if (!procs.TryGetValue(cur, out info)) break;
+                                    if (Matches(info.Value, player)) { list.Add(vol); break; }
+                                    cur = info.Key;
+                                }
                             }
                     }
                 }

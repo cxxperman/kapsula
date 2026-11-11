@@ -4656,6 +4656,10 @@ namespace Kapsula
                 }
                 else { nProgress.Set(0); nPos.Text = ""; nRem.Text = ""; }
             }
+            // Выбранный режим запоминается: «только плеер» включается сам, как только у плеера находится свой звук.
+            bool wantPlayer = Store.Get("volPlayer") == "1";
+            if (wantPlayer && !volPlayer && media.Has && AppVolume.Get(PlayerKey()) >= 0) SetVolMode(true);
+            else if (!wantPlayer && volPlayer) SetVolMode(false);
             double v = volPlayer ? AppVolume.Get(PlayerKey()) : Audio.GetVolume();
             if (volPlayer && v < 0) { SetVolMode(false); v = Audio.GetVolume(); }   // плеер закрылся — возвращаемся к общей громкости
             if (v >= 0) { volBar.Set(v); volText.Text = Math.Round(v * 100) + "%"; } else volText.Text = "—";
@@ -4679,8 +4683,9 @@ namespace Kapsula
 
         void ToggleVolMode()
         {
-            if (volPlayer) { SetVolMode(false); RenderHomeLive(); return; }
+            if (volPlayer) { Store.Set("volPlayer", "0"); SetVolMode(false); RenderHomeLive(); return; }
             if (!media.Has || AppVolume.Get(PlayerKey()) < 0) { Toast("", "Не нашёл звук плеера", null, -1, null); return; }
+            Store.Set("volPlayer", "1");
             SetVolMode(true);
             RenderHomeLive();
             Toast("", "Громкость: " + PlayerKey(), null, -1, accent);
