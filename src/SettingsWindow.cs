@@ -130,6 +130,40 @@ namespace Kapsula
             if (Steam.Found)
                 sp.Children.Add(Row("Steam", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
 
+            if (Steam.Found && !SteamBridge.MillenniumFound)
+                sp.Children.Add(Row("Уведомления Steam", "Сообщения друзей, «друг в игре» и другие уведомления Steam на острове. Нужен Millennium — неофициальная модификация клиента Steam; ставить её или нет, решаете вы.", LinkButton("Сайт Millennium", "https://steambrew.app/"), false));
+            else if (Steam.Found)
+            {
+                var sLabel = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
+                var sBtn = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = sLabel };
+                var sRow = Row("Уведомления Steam", "—", sBtn, false);
+                var sText = ((StackPanel)((Grid)((Border)sRow).Child).Children[0]).Children[1] as TextBlock;
+                string sNote = "";
+                Action sShow = delegate
+                {
+                    bool have = SteamBridge.PluginInstalled;
+                    sLabel.Text = have ? "Удалить" : "Подключить";
+                    string st = !have ? "Kapsula положит свой плагин в папку Millennium. В интернет ничего не уходит."
+                        : SteamBridge.Error != null ? "Не работает: " + SteamBridge.Error + "."
+                        : SteamBridge.Clients > 0 ? "Подключено (плагин " + SteamBridge.InstalledVersion + ")."
+                        : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите Kapsula и перезапустите Steam.";
+                    if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. " + st + sNote;
+                };
+                sBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    if (SteamBridge.PluginInstalled) sNote = SteamBridge.RemovePlugin() ? " Плагин удалён; он выгрузится при следующем запуске Steam." : " Не удалось удалить папку плагина.";
+                    else sNote = SteamBridge.InstallPlugin() ? "" : " Не удалось записать в папку Millennium.";
+                    sShow();
+                };
+                sShow();
+                var sTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                sTimer.Tick += delegate { sShow(); };
+                sTimer.Start();
+                Closed += delegate { sTimer.Stop(); };
+                sp.Children.Add(sRow);
+            }
+
             sp.Children.Add(Header("Прочее"));
             sp.Children.Add(Row("Секунды в часах", null, Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
             sp.Children.Add(Row("Запись экрана со звуком", "В запись попадает то, что играет на колонках или в наушниках. Микрофон не записывается.", Toggle(Store.Get("recAudio") != "0", delegate(bool v) { island.SetFlag("recAudio", v); }), false));

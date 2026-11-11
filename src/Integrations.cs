@@ -297,9 +297,79 @@ namespace Kapsula
             return Uri.TryCreate(origin, UriKind.Absolute, out u) && u.Host.ToLowerInvariant() == "steamloopback.host";
         }
 
+        // ---- установка плагина: его файлы лежат внутри Kapsula.exe
+        static string Resource(string name)
+        {
+            using (var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
+            {
+                if (s == null) return null;
+                using (var r = new System.IO.StreamReader(s, Encoding.UTF8)) return r.ReadToEnd();
+            }
+        }
+
+        public static string VersionOf(string pluginJson)
+        {
+            var m = Regex.Match(pluginJson ?? "", "\"version\"\\s*:\\s*\"([^\"]+)\"");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+
+        public static string BundledVersion { get { return VersionOf(Resource("Kapsula.millennium.plugin.json")); } }
+
+        public static string InstalledVersion
+        {
+            get
+            {
+                try { string d = PluginsDir(); return d == null ? "" : VersionOf(System.IO.File.ReadAllText(System.IO.Path.Combine(d, @"kapsula\plugin.json"))); }
+                catch { return ""; }
+            }
+        }
+
+        // Кладёт плагин в папку Millennium. Включить его в самом Millennium человек должен сам.
+        public static bool InstallPlugin()
+        {
+            try
+            {
+                string d = PluginsDir(), json = Resource("Kapsula.millennium.plugin.json"), js = Resource("Kapsula.millennium.index.js");
+                if (d == null || json == null || js == null) return false;
+                string root = System.IO.Path.Combine(d, "kapsula"), dist = System.IO.Path.Combine(root, @".millennium\Dist");
+                System.IO.Directory.CreateDirectory(dist);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(dist, "index.js"), js, new UTF8Encoding(false));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(root, "plugin.json"), json, new UTF8Encoding(false));
+                Start();
+                return true;
+            }
+            catch (Exception ex) { Store.LogError("установка плагина Steam", ex); return false; }
+        }
+
+        public static bool RemovePlugin()
+        {
+            try
+            {
+                string d = PluginsDir();
+                if (d == null) return false;
+                string root = System.IO.Path.Combine(d, "kapsula");
+                if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true);
+                return true;
+            }
+            catch (Exception ex) { Store.LogError("удаление плагина Steam", ex); return false; }
+        }
+
+        // Плагин уже стоит, а в новой Kapsula он новее — обновляем файлы. Новая версия загрузится при следующем запуске Steam.
+        public static void UpdatePluginIfOlder()
+        {
+            try
+            {
+                if (!PluginInstalled) return;
+                string have = InstalledVersion, want = BundledVersion;
+                if (want != "" && have != want) InstallPlugin();
+            }
+            catch { }
+        }
+
         public static void Start()
         {
-            if (server != null || !Steam.Enabled || !MillenniumFound) return;
+            if (server != null || !Steam.Enabled || !PluginInstalled) return;   // без плагина порт не открываем
+            UpdatePluginIfOlder();
             server = new LocalWsServer(Port, OriginAllowed, OnMessage);
             server.Start();
         }

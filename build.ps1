@@ -49,6 +49,9 @@ $args2 += $refs | ForEach-Object { "/r:$_" }
 $args2 += (Get-ChildItem "$here\src\*.cs" | ForEach-Object { $_.FullName })
 
 $args2 += $verFile
+# Плагин для Millennium лежит внутри exe: Kapsula сама кладёт его в папку Steam по кнопке «Подключить»
+$args2 += "/resource:$here\integrations\millennium\kapsula\plugin.json,Kapsula.millennium.plugin.json"
+$args2 += "/resource:$here\integrations\millennium\kapsula\.millennium\Dist\index.js,Kapsula.millennium.index.js"
 
 & $csc $args2
 $code = $LASTEXITCODE

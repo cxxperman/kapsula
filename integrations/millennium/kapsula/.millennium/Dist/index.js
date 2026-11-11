@@ -9,7 +9,7 @@ const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071, VERSION = "0.4.0";
+    const PORT = 42071, VERSION = "0.4.1";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -125,7 +125,7 @@ let PluginEntryPointMain = function () {
         eType: n && typeof n.eType === "number" ? n.eType : -1,
         title: field(d, "title"), body: field(d, "body"), icon: field(d, "icon"),
         steamid: field(d, "steamid"), url: field(d, "response_steamurl"),
-        game: "", extra: ""
+        game: field(d, "game_name"), extra: ""
       };
       try { if (d && d.item && typeof d.item.body_data === "string") out.extra = d.item.body_data.slice(0, 400); } catch (e) { }
       // "Friend online / in game" notifications carry only a SteamID — fill in the rest from the friends list.
@@ -133,7 +133,7 @@ let PluginEntryPointMain = function () {
         const f = friend(out.steamid);
         if (!out.title) out.title = f.name;
         if (!out.icon) out.icon = f.avatar;
-        out.game = f.game;
+        if (!out.game) out.game = f.game;
         if (debug) out.friend = f;
       }
       if (debug) { out.fields = simpleFields(d); out.dataShape = shape(d); }
