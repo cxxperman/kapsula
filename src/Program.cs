@@ -48,10 +48,12 @@ namespace Kapsula
             };
             var w = new IslandWindow();
             bool plain = true;   // обычный запуск, без проверочных ключей — только тогда ищем обновления
+            bool updated = false; // нас только что перезапустило автообновление
             for (int i = 0; i < args.Length; i++)
             {
                 double y; int n;
                 if (args[i] == "--updatefeed" && i + 1 < args.Length) { Updater.FeedOverride = args[i + 1]; i++; continue; }
+                if (args[i] == "--updated") { updated = true; continue; }
                 if (args[i] != "--wait") plain = false;
                 if (args[i] == "--capturable") w.Capturable = true;
                 if (args[i] == "--mini") w.ForceOpen = -2;
@@ -74,6 +76,12 @@ namespace Kapsula
             }
             w.Show();
             if (plain) Updater.Start(w);
+            if (updated)
+            {
+                var hello = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1800) };
+                hello.Tick += delegate { hello.Stop(); w.NotifyUpdated(); };
+                hello.Start();
+            }
             app.Run();
             GC.KeepAlive(mutex);
         }

@@ -655,12 +655,30 @@ namespace Kapsula
             if (state == 3) SetTargets(); else SetState(3);
         }
 
-        // Новая версия уже лежит на месте старой; включится после перезапуска (или при следующем запуске Windows).
+        // Новая версия уже лежит на месте старой. Kapsula перезапустится сама, когда это не помешает; кнопка — для нетерпеливых.
         public void UpdateInstalled(string version)
         {
-            Action restart = delegate { if (tray != null) tray.Visible = false; Updater.Restart(); };
-            ShowCardEx(null, "", "Kapsula обновлена до " + version, "Новая версия включится после перезапуска", restart, "Перезапустить", restart, false);
+            ShowCardEx(null, "", "Kapsula обновлена до " + version, "Перезапустится сама, когда вы отойдёте", RestartForUpdate, "Перезапустить", RestartForUpdate, false);
             cardUntil = Environment.TickCount + 12000;
+        }
+
+        public void RestartForUpdate()
+        {
+            if (tray != null) tray.Visible = false;
+            Updater.Restart();
+        }
+
+        // Перезапуск занимает секунду, но не должен обрывать запись экрана, таймер или открытую панель.
+        public bool CanRestartNow(int idleMs)
+        {
+            if (state == 2 || state == 4) return false;
+            if (Recorder.Active || timerRinging || timerEnd > DateTime.Now) return false;
+            return Native.IdleMs() >= idleMs;
+        }
+
+        public void NotifyUpdated()
+        {
+            Toast("", "Kapsula обновлена до " + Updater.CurrentText, null, -1, null);
         }
 
         static void RevealFile(string path)

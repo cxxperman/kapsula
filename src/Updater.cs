@@ -36,14 +36,35 @@ namespace Kapsula
             var t = new Thread(delegate()
             {
                 Thread.Sleep(FeedOverride != null ? 2000 : 20000);
+                int fails = 0;
                 while (true)
                 {
+                    int wait = 60 * 60 * 1000;   // проверяем раз в час
                     if (Enabled)
                     {
-                        try { if (Check()) return; }
-                        catch (Exception ex) { Store.LogError("обновление", ex); }
+                        try { if (Check()) break; fails = 0; }
+                        catch (Exception ex)
+                        {
+                            // Сразу после включения компьютера сети часто ещё нет — первые попытки повторяем через пару минут.
+                            if (fails == 0) Store.LogError("обновление", ex);
+                            fails++;
+                            if (fails <= 5) wait = 2 * 60 * 1000;
+                        }
                     }
-                    Thread.Sleep(6 * 60 * 60 * 1000);
+                    Thread.Sleep(wait);
+                }
+                // Новая версия уже на диске. Перезапускаемся сами, как только это никому не помешает.
+                int idleNeeded = FeedOverride != null ? 0 : 120000;
+                while (true)
+                {
+                    Thread.Sleep(FeedOverride != null ? 3000 : 15000);
+                    if (!Enabled) continue;
+                    try
+                    {
+                        bool ok = (bool)island.Dispatcher.Invoke(new Func<bool>(delegate { return island.CanRestartNow(idleNeeded); }));
+                        if (ok) { island.Dispatcher.Invoke(new Action(delegate { island.RestartForUpdate(); })); return; }
+                    }
+                    catch (Exception ex) { Store.LogError("перезапуск после обновления", ex); return; }
                 }
             });
             t.IsBackground = true;
@@ -177,7 +198,7 @@ namespace Kapsula
 
         public static void Restart()
         {
-            try { System.Diagnostics.Process.Start(ExePath, "--wait"); } catch (Exception ex) { Store.LogError("перезапуск", ex); return; }
+            try { System.Diagnostics.Process.Start(ExePath, "--wait --updated"); } catch (Exception ex) { Store.LogError("перезапуск", ex); return; }
             System.Windows.Application.Current.Shutdown();
         }
     }
