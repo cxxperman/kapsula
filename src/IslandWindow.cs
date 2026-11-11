@@ -3248,7 +3248,7 @@ namespace Kapsula
         volatile string steamDlApp;
         string steamDlName = "";
         double steamDlPct, steamDlRate;
-        bool steamDlPaused;
+        bool steamDlPaused, steamDlDone;
         int steamDlAt;
         Border cDlIcon;
 
@@ -3256,9 +3256,26 @@ namespace Kapsula
         {
             if (appid == "" || appid == "0")
             {
-                if (steamDlApp != null) { steamDlApp = null; RenderCompact(); SetTargets(); }
+                // Загрузка кончилась: полоса доезжает до конца, секунду-полторы висит «готово», и только потом капсула возвращается к часам.
+                if (steamDlApp != null && !steamDlDone)
+                {
+                    steamDlDone = true;
+                    steamDlAt = Environment.TickCount;
+                    if (!toastOn) RenderCompact();
+                    var done = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1900) };
+                    done.Tick += delegate
+                    {
+                        done.Stop();
+                        if (!steamDlDone) return;   // за это время началась следующая загрузка
+                        steamDlDone = false; steamDlApp = null;
+                        cBar.SetColor(Fg);
+                        RenderCompact(); SetTargets();
+                    };
+                    done.Start();
+                }
                 return;
             }
+            if (steamDlDone) { steamDlDone = false; cBar.SetColor(Fg); }
             bool started = steamDlApp != appid;
             steamDlApp = appid; steamDlName = name; steamDlPct = percent; steamDlRate = rate; steamDlPaused = paused;
             steamDlAt = Environment.TickCount;
@@ -3880,9 +3897,19 @@ namespace Kapsula
                 cGlyph.Visibility = Visibility.Collapsed;
                 cDlIcon.Visibility = Visibility.Visible;
                 cText.Visibility = Visibility.Collapsed;
-                cBar.Root.Visibility = Visibility.Visible; cBar.Set(steamDlPct / 100.0);
-                cRight.Visibility = Visibility.Visible; cRight.Foreground = Dim;
-                cRight.Text = steamDlPaused ? "пауза" : Math.Round(steamDlPct) + "%" + (steamDlRate > 1024 ? " · " + SizeText(steamDlRate) + "/с" : "");
+                cBar.Root.Visibility = Visibility.Visible;
+                cRight.Visibility = Visibility.Visible;
+                if (steamDlDone)
+                {
+                    cBar.SetColor(accent); cBar.Glide(1, 420);
+                    cRight.Foreground = accent; cRight.Text = "✓ готово";
+                }
+                else
+                {
+                    cBar.Glide(steamDlPct / 100.0, 900);   // плавно между сообщениями Steam, а не рывками
+                    cRight.Foreground = Dim;
+                    cRight.Text = steamDlPaused ? "пауза" : Math.Round(steamDlPct) + "%" + (steamDlRate > 1024 ? " · " + SizeText(steamDlRate) + "/с" : "");
+                }
                 return;
             }
 

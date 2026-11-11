@@ -60,7 +60,15 @@ namespace Kapsula
 
         public static readonly SolidColorBrush TrackBrush = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x30));
 
-        public void Set(double v) { if (double.IsNaN(v) || v < 0) v = 0; if (v > 1) v = 1; fill.Width = w * v; }
+        public void Set(double v) { if (double.IsNaN(v) || v < 0) v = 0; if (v > 1) v = 1; fill.BeginAnimation(FrameworkElement.WidthProperty, null); fill.Width = w * v; }
+
+        // То же, но плавно: полоса доезжает до нового значения за заданное время.
+        public void Glide(double v, int ms)
+        {
+            if (double.IsNaN(v) || v < 0) v = 0; if (v > 1) v = 1;
+            var a = new System.Windows.Media.Animation.DoubleAnimation(w * v, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
+            fill.BeginAnimation(FrameworkElement.WidthProperty, a);
+        }
         public void SetColor(Brush b) { fill.Background = b; }
         public double ValueAt(Point p) { return Math.Max(0, Math.Min(1, p.X / w)); }
     }
