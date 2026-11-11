@@ -88,6 +88,21 @@ namespace Kapsula
                 sp.Children.Add(Row("Монитор", "На каком экране живёт остров.", Chips(names, Math.Max(0, Math.Min(names.Length - 1, island.MonitorIndex)), delegate(int i) { island.SetMonitor(i); }), true));
             }
 
+            sp.Children.Add(Header("Главная"));
+            sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Уберите то, чем не пользуетесь, — остров перестроится и станет меньше." });
+            sp.Children.Add(Row("Плеер", null, Toggle(Store.Get("homePlayer") != "0", delegate(bool v) { island.SetFlag("homePlayer", v); island.ApplyHomeLayout(); }), false));
+            var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            var tilesOn = new bool[IslandWindow.HomeTileIds.Length];
+            for (int i = 0; i < tilesOn.Length; i++) tilesOn[i] = !tilesOff.Contains(IslandWindow.HomeTileIds[i]);
+            sp.Children.Add(Row("Быстрые действия", "Какие плитки показывать.", MultiChips(IslandWindow.HomeTileNames, tilesOn, delegate(int i, bool v)
+            {
+                if (v) tilesOff.Remove(IslandWindow.HomeTileIds[i]); else tilesOff.Add(IslandWindow.HomeTileIds[i]);
+                Store.Set("homeTilesOff", string.Join(",", new List<string>(tilesOff).ToArray()));
+                island.ApplyHomeLayout();
+            }), true));
+            sp.Children.Add(Row("Громкость", null, Toggle(Store.Get("homeVolume") != "0", delegate(bool v) { island.SetFlag("homeVolume", v); island.ApplyHomeLayout(); }), false));
+            sp.Children.Add(Row("Ряд программ", "Программы, закреплённые на панели задач.", Toggle(Store.Get("homeLauncher") != "0", delegate(bool v) { island.SetFlag("homeLauncher", v); island.ApplyHomeLayout(); }), false));
+
             sp.Children.Add(Header("Музыка"));
             sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде.", Chips(new string[] { "Время и погода", "Название трека" }, island.PillTitle ? 1 : 0, delegate(int i) { island.SetFlag("pillTitle", i == 1); }), true));
             sp.Children.Add(Row("Мини-плеер при наведении", "Во время музыки сначала открывается мини-плеер, клик по нему — вся панель.", Toggle(island.HoverMini, delegate(bool v) { island.SetFlag("hoverMini", v); }), false));
@@ -264,6 +279,24 @@ namespace Kapsula
             }
             paint(selected);
             return row;
+        }
+
+        // Несколько переключателей в ряд(ы): каждый включается и выключается отдельно
+        FrameworkElement MultiChips(string[] labels, bool[] on, Action<int, bool> changed)
+        {
+            var wrap = new WrapPanel { MaxWidth = 470 };
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int idx = i;
+                bool state = on[i];
+                var tb = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Child = tb };
+                Action paint = delegate { c.Background = state ? OnBg : ChipBg; tb.Foreground = state ? OnTxt : Txt; };
+                c.MouseLeftButtonDown += delegate { state = !state; paint(); changed(idx, state); };
+                paint();
+                wrap.Children.Add(c);
+            }
+            return wrap;
         }
 
         ScrollViewer scroller;

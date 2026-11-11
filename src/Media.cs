@@ -24,6 +24,8 @@ namespace Kapsula
     {
         public bool Has, Playing;
         public string Title = "", Artist = "";
+        public string Source = "";          // программа-плеер, от которой взяты данные
+        public string[] Sources = new string[0];   // все программы, которые сейчас что-то играют или держат на паузе
         public byte[] Cover;
         public double Pos, Dur;
         public DateTime PosAt = DateTime.UtcNow;
@@ -41,6 +43,39 @@ namespace Kapsula
     {
         public event Action<MediaInfo> Updated;
         volatile bool stop;
+        public volatile string Preferred = "";     // выбранный плеер; пусто — тот, что Windows считает текущим
+        volatile GlobalSystemMediaTransportControlsSession chosen;
+
+        // Понятное название плеера из его системного имени: «Spotify.exe» → «Spotify», «…!App» → часть до «!»
+        public static string PrettyName(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "Плеер";
+            string s = id;
+            int bang = s.IndexOf('!'); if (bang > 0) s = s.Substring(0, bang);
+            int slash = s.LastIndexOf('\\'); if (slash >= 0) s = s.Substring(slash + 1);
+            if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 4);
+            int us = s.IndexOf('_'); if (us > 0) s = s.Substring(0, us);                     // «Имя_издатель» у программ из магазина
+            int dot = s.LastIndexOf('.'); if (dot >= 0 && dot < s.Length - 1) s = s.Substring(dot + 1);   // «Компания.Программа»
+            if (s.Length > 0) s = char.ToUpper(s[0]) + s.Substring(1);
+            return s.Length > 22 ? s.Substring(0, 22) : (s.Length > 0 ? s : "Плеер");
+        }
+
+        // Кнопки плеера: команда уходит выбранному плееру. Если плеер не выбран — обычная мультимедийная клавиша.
+        public void Command(int key)
+        {
+            var s = chosen;
+            if (s == null || Preferred == "") { Native.MediaKey((byte)key); return; }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    if (key == 0xB3) Wait(s.TryTogglePlayPauseAsync());
+                    else if (key == 0xB0) Wait(s.TrySkipNextAsync());
+                    else if (key == 0xB1) Wait(s.TrySkipPreviousAsync());
+                }
+                catch { Native.MediaKey((byte)key); }
+            });
+        }
 
         public void Start() { var t = new Thread(Loop); t.IsBackground = true; t.Start(); }
         public void Stop() { stop = true; }
@@ -65,8 +100,20 @@ namespace Kapsula
                 {
                     if (mgr == null) mgr = Wait(GlobalSystemMediaTransportControlsSessionManager.RequestAsync());
                     var s = mgr == null ? null : mgr.GetCurrentSession();
+                    // Все плееры, которые видит Windows. Если выбран конкретный и он ещё жив — берём его, а не «текущий».
+                    var ids = new List<string>();
+                    if (mgr != null)
+                        foreach (var x in mgr.GetSessions())
+                        {
+                            string id = x.SourceAppUserModelId ?? "";
+                            if (id != "" && !ids.Contains(id)) ids.Add(id);
+                            if (Preferred != "" && id == Preferred) s = x;
+                        }
+                    info.Sources = ids.ToArray();
+                    chosen = s;
                     if (s != null)
                     {
+                        info.Source = s.SourceAppUserModelId ?? "";
                         var p = Wait(s.TryGetMediaPropertiesAsync());
                         if (p != null && !string.IsNullOrEmpty(p.Title))
                         {
@@ -96,7 +143,7 @@ namespace Kapsula
                 }
                 catch { mgr = null; }
 
-                string sig = info.Has + "|" + info.Playing + "|" + info.Title + "|" + info.Artist + "|" + (info.Cover == null ? 0 : info.Cover.Length) + "|" + (long)info.Pos + "|" + (long)info.Dur;
+                string sig = info.Source + "|" + info.Sources.Length + "|" + info.Has + "|" + info.Playing + "|" + info.Title + "|" + info.Artist + "|" + (info.Cover == null ? 0 : info.Cover.Length) + "|" + (long)info.Pos + "|" + (long)info.Dur;
                 if (sig != sentSig)
                 {
                     sentSig = sig;

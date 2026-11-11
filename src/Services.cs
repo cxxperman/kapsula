@@ -561,6 +561,49 @@ namespace Kapsula
 
     class Reminder { public DateTime At; public string Text; public bool Daily; }
 
+    // Поиск файлов по имени через индекс Windows (тот же, которым пользуется поиск в «Пуске» и Проводнике).
+    // Ничего не обходит сам и в сеть не ходит; если служба поиска выключена — просто ничего не находит.
+    static class FileSearch
+    {
+        // Убираем из запроса всё, что имеет особый смысл в условии поиска
+        public static string Sanitize(string q)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in q ?? "")
+                if (c != '\'' && c != '%' && c != '_' && c != '[' && c != ']' && c != '"' && c != ';' && c >= ' ') sb.Append(c);
+            return sb.ToString().Trim();
+        }
+
+        public static List<string> Find(string query, int max)
+        {
+            var res = new List<string>();
+            string q = Sanitize(query);
+            if (q.Length < 3) return res;
+            try
+            {
+                using (var con = new System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';"))
+                {
+                    con.Open();
+                    string sql = "SELECT TOP " + Math.Max(1, Math.Min(20, max)) + " System.ItemPathDisplay FROM SYSTEMINDEX " +
+                                 "WHERE System.FileName LIKE '%" + q + "%' AND System.ItemType <> 'Directory' AND System.FileAttributes <> 2 " +
+                                 "ORDER BY System.DateModified DESC";
+                    using (var cmd = new System.Data.OleDb.OleDbCommand(sql, con))
+                    {
+                        cmd.CommandTimeout = 3;
+                        using (var r = cmd.ExecuteReader())
+                            while (r.Read())
+                            {
+                                string p = r[0] as string;
+                                if (!string.IsNullOrEmpty(p) && p.Length > 3 && p[1] == ':' && !p.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)) res.Add(p);
+                            }
+                    }
+                }
+            }
+            catch { }
+            return res;
+        }
+    }
+
     // Значки программ и ярлыков
     static class Shell
     {

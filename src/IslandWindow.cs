@@ -455,6 +455,7 @@ namespace Kapsula
             slow.Start();
 
             watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; media = m; RenderMedia(); })); };
+            watcher.Preferred = Store.Get("player");
             watcher.Start();
             DiscordBridge.Notified += delegate(string t, string x, byte[] i) { Dispatcher.BeginInvoke(new Action(delegate { DiscordNotify(t, x, i); })); };
             DiscordBridge.Start();
@@ -583,7 +584,7 @@ namespace Kapsula
             var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Fg, Child = tb, Cursor = Cursors.Hand, Margin = new Thickness(14, 0, 14, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
             b.MouseEnter += delegate { Pulse(b, 1.08); };
             b.MouseLeave += delegate { Pulse(b, 1); };
-            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; Pulse(b, 0.9); Native.MediaKey(0xB3); };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; Pulse(b, 0.9); watcher.Command(0xB3); };
             b.MouseLeftButtonUp += delegate { Pulse(b, 1.08); };
             glyph = tb;
             return b;
@@ -650,9 +651,9 @@ namespace Kapsula
             g.Children.Add(pr);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            ctl.Children.Add(IconBtn("", 36, delegate { Native.MediaKey(0xB1); }));
+            ctl.Children.Add(IconBtn("", 36, delegate { watcher.Command(0xB1); }));
             ctl.Children.Add(RoundPlay(34, out nPlayGlyph));
-            ctl.Children.Add(IconBtn("", 36, delegate { Native.MediaKey(0xB0); }));
+            ctl.Children.Add(IconBtn("", 36, delegate { watcher.Command(0xB0); }));
             Grid.SetRow(ctl, 4);
             g.Children.Add(ctl);
             miniHost.Children.Add(g);
@@ -1132,6 +1133,23 @@ namespace Kapsula
             Keyboard.Focus(cmdBox);
         }
 
+        List<string> fileHits = new List<string>();
+        string fileHitsFor;
+        int fileReq;
+
+        // «C:\Users\имя\Documents\Отчёты\file.docx» → «Documents\Отчёты»: только две последние папки
+        static string ShortFolder(string path)
+        {
+            try
+            {
+                string dir = System.IO.Path.GetDirectoryName(path) ?? "";
+                string[] parts = dir.Split(new char[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length <= 2) return dir;
+                return parts[parts.Length - 2] + "\\" + parts[parts.Length - 1];
+            }
+            catch { return "Файл"; }
+        }
+
         void AddCmd(string title, string sub, string glyph, string iconPath, Action run)
         {
             if (cmdItems.Count >= 6) return;
@@ -1219,6 +1237,37 @@ namespace Kapsula
                         AddCmd(a.Key, "Программа", null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
                         found++;
                     }
+
+                // Файлы по имени: ищем в фоне через индекс Windows, а когда ответ пришёл — перерисовываем список.
+                if (ql.Length >= 3 && !dictating)
+                {
+                    if (fileHitsFor == q)
+                    {
+                        int files = 0;
+                        foreach (string f in fileHits)
+                        {
+                            if (files >= 3 || cmdItems.Count >= 5) break;
+                            string path = f;
+                            AddCmd(System.IO.Path.GetFileName(path), ShortFolder(path), null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
+                            files++;
+                        }
+                    }
+                    else
+                    {
+                        int req = ++fileReq;
+                        string asked = q;
+                        ThreadPool.QueueUserWorkItem(delegate
+                        {
+                            List<string> hits = FileSearch.Find(asked, 6);
+                            Dispatcher.BeginInvoke(new Action(delegate
+                            {
+                                if (req != fileReq || state != 4 || cmdBox.Text.Trim() != asked) return;
+                                fileHitsFor = asked; fileHits = hits;
+                                if (hits.Count > 0) { int keep = cmdSel; UpdateCmd(); cmdSel = Math.Min(keep, Math.Max(0, cmdItems.Count - 1)); RenderCmd(); }
+                            }));
+                        });
+                    }
+                }
 
                 string query = q;
                 AddCmd("Искать в интернете: " + q, "Браузер", "", null, delegate { try { System.Diagnostics.Process.Start("https://www.google.com/search?q=" + Uri.EscapeDataString(query)); } catch { } });
@@ -1415,6 +1464,7 @@ namespace Kapsula
         void ShowPage(int idx)
         {
             page = idx;
+            if (state == 2) SetTargets();   // у «Главной» своя высота
             for (int i = 0; i < pages.Length; i++)
             {
                 bool on = i == idx;
@@ -1447,10 +1497,90 @@ namespace Kapsula
             return b;
         }
 
+        Border srcBtn;
+        TextBlock srcLabel;
+
+        void NextPlayer()
+        {
+            string[] ids = media.Sources;
+            if (ids == null || ids.Length < 2) return;
+            int i = Array.IndexOf(ids, media.Source);
+            string next = ids[(i + 1 + ids.Length) % ids.Length];
+            watcher.Preferred = next;
+            Store.Set("player", next);
+            srcLabel.Text = MediaWatcher.PrettyName(next);
+            Toast("", "Плеер: " + MediaWatcher.PrettyName(next), null, -1, accent);
+        }
+
         // ------------------------------------------------------ Главная
+        // ---- «Главная» под себя: какие части показывать. Остров перестраивается и уменьшается под то, что осталось.
+        Grid homeGrid;
+        Border homePlayerCard, homeVolCard, homeLaunchCard;
+        UniformGrid homeTilesGrid;
+        Tile[] homeTileList;
+        TextBlock homeEmpty;
+        double homeCut;   // на сколько «Главная» ниже полной высоты
+        public static readonly string[] HomeTileIds = { "area", "full", "qr", "pipette", "rec", "dictate", "ocr", "plain" };
+        public static readonly string[] HomeTileNames = { "Область", "Весь экран", "QR-код", "Пипетка", "Запись", "Диктовка", "Текст", "Без стиля" };
+
+        public void ApplyHomeLayout()
+        {
+            if (homeGrid == null) return;
+            bool player = Store.Get("homePlayer") != "0", vol = Store.Get("homeVolume") != "0", launch = Store.Get("homeLauncher") != "0";
+            var off = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            homeTilesGrid.Children.Clear();
+            int n = 0;
+            for (int i = 0; i < homeTileList.Length; i++)
+                if (!off.Contains(HomeTileIds[i])) { homeTilesGrid.Children.Add(homeTileList[i].Root); n++; }
+            bool tiles = n > 0;
+            homePlayerCard.Visibility = player ? Visibility.Visible : Visibility.Collapsed;
+            homeTilesGrid.Visibility = tiles ? Visibility.Visible : Visibility.Collapsed;
+            homeVolCard.Visibility = vol ? Visibility.Visible : Visibility.Collapsed;
+            homeLaunchCard.Visibility = launch ? Visibility.Visible : Visibility.Collapsed;
+
+            double top;
+            if (player && tiles)
+            {
+                // плеер слева, плитки столбиком справа
+                Grid.SetColumnSpan(homePlayerCard, 1);
+                Grid.SetColumn(homeTilesGrid, 2); Grid.SetColumnSpan(homeTilesGrid, 1);
+                homeTilesGrid.Columns = 2; homeTilesGrid.Rows = Math.Max(1, (n + 1) / 2);
+                top = 200;
+            }
+            else if (tiles)
+            {
+                // плеера нет — плитки во всю ширину, по четыре в ряд
+                Grid.SetColumn(homeTilesGrid, 0); Grid.SetColumnSpan(homeTilesGrid, 3);
+                homeTilesGrid.Columns = Math.Min(4, n); homeTilesGrid.Rows = (n + 3) / 4;
+                top = homeTilesGrid.Rows * 52;
+            }
+            else if (player) { Grid.SetColumnSpan(homePlayerCard, 3); top = 200; }
+            else top = 0;
+
+            bool nothing = top == 0 && !vol && !launch;
+            homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
+            if (nothing) top = 46;
+            homeGrid.RowDefinitions[0].Height = new GridLength(top);
+            homeGrid.RowDefinitions[1].Height = new GridLength(top > 0 && (vol || launch) ? 10 : 0);
+            homeGrid.RowDefinitions[2].Height = new GridLength(vol ? 34 : 0);
+            homeGrid.RowDefinitions[3].Height = new GridLength(vol && launch ? 10 : 0);
+            homeGrid.RowDefinitions[4].Height = new GridLength(launch ? 46 : 0);
+            double total = 0;
+            foreach (RowDefinition r in homeGrid.RowDefinitions) total += r.Height.Value;
+            homeGrid.Height = total;
+            homeCut = Math.Max(0, PageH - total);
+            if (state == 2) SetTargets();
+        }
+
+        // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
+        double ExpandedH() { return EH - (page == 0 ? homeCut : 0); }
+
         FrameworkElement BuildHome()
         {
-            var g = new Grid();
+            var g = homeGrid = new Grid { VerticalAlignment = VerticalAlignment.Top };
+            homeEmpty = new TextBlock { Text = "«Главная» пуста — включите что-нибудь в настройках", Foreground = Dim, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            Grid.SetColumnSpan(homeEmpty, 3);
+            g.Children.Add(homeEmpty);
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(188) });
@@ -1462,13 +1592,13 @@ namespace Kapsula
 
             // Ряд программ, закреплённых на панели задач
             launcherRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
-            var launchCard = new Border { Background = Card, CornerRadius = new CornerRadius(17), Child = launcherRow };
+            var launchCard = homeLaunchCard = new Border { Background = Card, CornerRadius = new CornerRadius(17), Child = launcherRow };
             Grid.SetRow(launchCard, 4); Grid.SetColumnSpan(launchCard, 3);
             g.Children.Add(launchCard);
             LoadLauncher();
 
             // Плеер
-            var card = new Border { Background = Card, CornerRadius = new CornerRadius(22), Padding = new Thickness(16) };
+            var card = homePlayerCard = new Border { Background = Card, CornerRadius = new CornerRadius(22), Padding = new Thickness(16) };
             var cardGrid = new Grid();
             // Мягкое свечение в цвет обложки
             coverGlowA = new GradientStop(Color.FromArgb(0x70, DefaultAccent.R, DefaultAccent.G, DefaultAccent.B), 0);
@@ -1520,20 +1650,28 @@ namespace Kapsula
             playerBody.Children.Add(progressRow);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            var prev = IconBtn("", 38, delegate { Native.MediaKey(0xB1); });
+            var prev = IconBtn("", 38, delegate { watcher.Command(0xB1); });
             var play = RoundPlay(42, out mPlayGlyph);
-            var next = IconBtn("", 38, delegate { Native.MediaKey(0xB0); });
+            var next = IconBtn("", 38, delegate { watcher.Command(0xB0); });
             prev.VerticalAlignment = VerticalAlignment.Center; next.VerticalAlignment = VerticalAlignment.Center;
             ctl.Children.Add(prev); ctl.Children.Add(play); ctl.Children.Add(next);
             Grid.SetRow(ctl, 2);
             playerBody.Children.Add(ctl);
             cardGrid.Children.Add(playerBody);
+            // Если играют сразу несколько программ — кнопка с названием плеера: клик переключает на следующий.
+            srcBtn = Btn("", false, 0, 22, delegate { NextPlayer(); });
+            srcBtn.HorizontalAlignment = HorizontalAlignment.Right; srcBtn.VerticalAlignment = VerticalAlignment.Top;
+            srcBtn.Margin = new Thickness(0, -6, -6, 0); srcBtn.Padding = new Thickness(9, 0, 9, 1);
+            srcBtn.Visibility = Visibility.Collapsed;
+            srcBtn.ToolTip = "Какой плеер показывать. Клик — следующий";
+            srcLabel = (TextBlock)srcBtn.Child; srcLabel.FontSize = 10.5;
+            cardGrid.Children.Add(srcBtn);
             card.Child = cardGrid;
             card.SizeChanged += delegate { card.Clip = new RectangleGeometry(new Rect(0, 0, card.ActualWidth, card.ActualHeight), 22, 22); };
             g.Children.Add(card);
 
             // Быстрые действия
-            var tiles = new UniformGrid { Rows = 4, Columns = 2, Margin = new Thickness(-3) };
+            var tiles = homeTilesGrid = new UniformGrid { Rows = 4, Columns = 2, Margin = new Thickness(-3) };
             recTile = new Tile("", "Запись", delegate { ToggleRecord(false); }).Compact();
             recTile.Root.ToolTip = "Клик — весь экран, правый клик — выбрать область";
             recTile.Root.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Recorder.Active) ToggleRecord(true); };
@@ -1557,6 +1695,7 @@ namespace Kapsula
                     catch { }
                 }).Compact()
             };
+            homeTileList = ts;
             for (int i = 0; i < ts.Length; i++)
             {
                 ts[i].Root.Margin = new Thickness(3);
@@ -1566,7 +1705,7 @@ namespace Kapsula
             g.Children.Add(tiles);
 
             // Громкость
-            var volCard = new Border { Background = Card, CornerRadius = new CornerRadius(17) };
+            var volCard = homeVolCard = new Border { Background = Card, CornerRadius = new CornerRadius(17) };
             var vol = new Grid { Margin = new Thickness(16, 0, 16, 0) };
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1584,6 +1723,7 @@ namespace Kapsula
             volCard.Child = vol;
             Grid.SetRow(volCard, 2); Grid.SetColumnSpan(volCard, 3);
             g.Children.Add(volCard);
+            ApplyHomeLayout();
             return g;
         }
 
@@ -3619,7 +3759,7 @@ namespace Kapsula
 
         double StateH()
         {
-            switch (state) { case 1: return MH; case 2: return EH; case 3: return CardH; case 4: return CmdH(); default: return CH; }
+            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return CardH; case 4: return CmdH(); default: return CH; }
         }
 
         double CmdH() { return 60 + (cmdItems.Count > 0 ? cmdItems.Count * 42 + 10 : 0); }
@@ -3842,7 +3982,7 @@ namespace Kapsula
             }
             else
             {
-                double tw = state == 2 ? EW : MiniW(), th = state == 2 ? EH : MH;
+                double tw = state == 2 ? EW : MiniW(), th = state == 2 ? ExpandedH() : MH;
                 bool inside = Math.Abs(x - cx) <= tw / 2 + 14 && y <= th + 20;
                 if (inside || Typing() || volBar.Root.IsMouseCaptured) { leaveAt = 0; return; }
                 if (leaveAt == 0) leaveAt = now;
@@ -3995,6 +4135,12 @@ namespace Kapsula
         {
             playerBody.Visibility = media.Has ? Visibility.Visible : Visibility.Collapsed;
             playerEmpty.Visibility = media.Has ? Visibility.Collapsed : Visibility.Visible;
+            if (srcBtn != null)
+            {
+                bool several = media.Sources != null && media.Sources.Length > 1;
+                srcBtn.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
+                if (several) srcLabel.Text = MediaWatcher.PrettyName(media.Source);
+            }
             if (media.Has)
             {
                 mTitle.Text = media.Title;

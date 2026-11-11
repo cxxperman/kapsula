@@ -154,6 +154,14 @@ T 'Discord: источник canary разрешён' (Call 'DiscordBridge' 'Ori
 T 'Discord: посторонний сайт запрещён' (Call 'DiscordBridge' 'OriginAllowed' @('https://evil.example')).Result $false
 T 'Discord: подделка под discord.com запрещена' (Call 'DiscordBridge' 'OriginAllowed' @('https://discord.com.evil.example')).Result $false
 
+# --- поиск файлов и названия плееров
+T 'Поиск файлов: опасные символы убраны' (Call 'FileSearch' 'Sanitize' @("a' OR 1=1 --")).Result 'a OR 1=1 --'
+T 'Поиск файлов: шаблоны убраны' (Call 'FileSearch' 'Sanitize' @('100%_[x]')).Result '100x'
+T 'Поиск файлов: слишком короткий запрос не ищется' (Call 'FileSearch' 'Find' @('ab', 6)).Result.Count 0
+T 'Плеер: имя из exe' (Call 'MediaWatcher' 'PrettyName' @('Spotify.exe')).Result 'Spotify'
+T 'Плеер: имя из пути' (Call 'MediaWatcher' 'PrettyName' @('C:\Program Files\AIMP\AIMP.exe')).Result 'AIMP'
+T 'Плеер: имя программы из магазина' (Call 'MediaWatcher' 'PrettyName' @('SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify')).Result 'SpotifyMusic'
+
 # --- Steam через Millennium: откуда разрешено качать значок и кто может подключаться
 T 'Steam: значок с сервера Steam разрешён' (Call 'SteamBridge' 'IconAllowed' @('https://avatars.steamstatic.com/abc_medium.jpg')).Result $true
 T 'Steam: значок с чужого сайта запрещён' (Call 'SteamBridge' 'IconAllowed' @('https://example.com/a.jpg')).Result $false
