@@ -673,7 +673,8 @@ namespace Kapsula
             cardThumb = new Border { CornerRadius = new CornerRadius(10), Background = Chip };
             cardGlyph = new TextBlock { FontFamily = Icons, FontSize = 20, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             thumb.Children.Add(cardThumb); thumb.Children.Add(cardGlyph);
-            cardBadge = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(7), BorderBrush = Ink, BorderThickness = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
+            // Без рамки: у круглых значков (Steam) она выглядела как лишнее кольцо.
+            cardBadge = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
             thumb.Children.Add(cardBadge);
             g.Children.Add(thumb);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -1339,6 +1340,8 @@ namespace Kapsula
             left.Children.Add(micDot);
             cDlIcon = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(5), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlIcon);
+            cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 104, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
+            left.Children.Add(cDlName);
             // «Глаза»: следят за курсором, моргают и закрываются, когда вы отошли от компьютера.
             eyes = new Canvas { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 6, 0) };
             pupils = new Ellipse[2];
@@ -3251,6 +3254,8 @@ namespace Kapsula
         bool steamDlPaused, steamDlDone;
         int steamDlAt;
         Border cDlIcon;
+        TextBlock cDlName;
+        double steamDlNameW;
 
         public void SteamDownload(string appid, string name, double percent, double rate, bool paused, byte[] icon)
         {
@@ -3286,7 +3291,7 @@ namespace Kapsula
                 if (state == 0 && !hiddenFs) Toast("", name != "" ? "Скачивается: " + name : "Steam скачивает игру", null, -1, accent);
             }
             if (!toastOn) RenderCompact();
-            if (started) SetTargets();
+            if (started) SetTargets();   // после RenderCompact: там измеряется ширина названия
         }
 
         // Приглашение в игру: «Принять» открывает ссылку входа из самого приглашения, крестик отклоняет его в Steam.
@@ -3586,7 +3591,7 @@ namespace Kapsula
             if (toastOn) return 300;
             if (timerRinging) return 230;
             if (Recorder.Active) return 240;
-            if (steamDlApp != null) return 360;
+            if (steamDlApp != null) return 360 + steamDlNameW;
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
             double sec = ShowSeconds ? 24 : 0;
@@ -3863,6 +3868,7 @@ namespace Kapsula
             cText.Visibility = Visibility.Visible;
             cText.MaxWidth = 1000;
             cDlIcon.Visibility = Visibility.Collapsed;
+            cDlName.Visibility = Visibility.Collapsed;
             // Steam перестал сообщать о загрузке (закрыт или плагин выгружен) — убираем полосу
             if (steamDlApp != null && unchecked(Environment.TickCount - steamDlAt) > 20000) steamDlApp = null;
 
@@ -3896,6 +3902,8 @@ namespace Kapsula
                 micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = Visibility.Collapsed;
                 cDlIcon.Visibility = Visibility.Visible;
+                cDlName.Text = steamDlName; cDlName.Visibility = steamDlName != "" ? Visibility.Visible : Visibility.Collapsed;
+                steamDlNameW = Math.Min(112, NaturalWidth(cDlName));   // ширина капсулы зависит от длины названия
                 cText.Visibility = Visibility.Collapsed;
                 cBar.Root.Visibility = Visibility.Visible;
                 cRight.Visibility = Visibility.Visible;
