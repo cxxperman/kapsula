@@ -1853,11 +1853,11 @@ namespace Kapsula
             // Громкость
             var volCard = homeVolCard = new Border { Background = Card, CornerRadius = new CornerRadius(17) };
             var vol = new Grid { Margin = new Thickness(16, 0, 16, 0) };
-            vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+            vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(VolChipW) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
             vol.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center });
-            volBar = new Bar(PageW - 32 - 30 - 44, 5, Fg, 22);
+            volBar = new Bar(PageW - 32 - VolChipW - 44, 5, Fg, 22);
             volBar.Root.Cursor = Cursors.Hand;
             volBar.Root.HorizontalAlignment = HorizontalAlignment.Left;
             volBar.Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { volBar.Root.CaptureMouse(); SetVolumeFrom(e.GetPosition(volBar.Root)); };
@@ -1868,10 +1868,17 @@ namespace Kapsula
             Grid.SetColumn(volText, 2); vol.Children.Add(volText);
             volCard.Child = vol;
             // Значок слева от ползунка переключает, чем он управляет: всей системой или только плеером
+            // Это заметная кнопка с подписью: «Весь звук» или название плеера.
             volIcon = vol.Children[0] as TextBlock;
             volIconDefault = volIcon.Text;
-            volIcon.Background = Brushes.Transparent; volIcon.Cursor = Cursors.Hand;
-            volIcon.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ToggleVolMode(); };
+            vol.Children.RemoveAt(0);
+            volIcon.FontSize = 13; volIcon.Margin = new Thickness(0, 0, 6, 0);
+            volLabel = new TextBlock { Foreground = Fg, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = VolChipW - 50, TextTrimming = TextTrimming.CharacterEllipsis };
+            var chipRow = new StackPanel { Orientation = Orientation.Horizontal };
+            chipRow.Children.Add(volIcon); chipRow.Children.Add(volLabel);
+            volChip = new Border { Background = Chip, CornerRadius = new CornerRadius(13), Height = 26, Padding = new Thickness(9, 0, 10, 1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, Child = chipRow };
+            volChip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ToggleVolMode(); };
+            vol.Children.Add(volChip);
             SetVolMode(false);
             Grid.SetRow(volCard, 2); Grid.SetColumnSpan(volCard, 3);
             g.Children.Add(volCard);
@@ -4667,7 +4674,9 @@ namespace Kapsula
 
         // ---- ползунок громкости на «Главной»: вся система или только плеер
         bool volPlayer;
-        TextBlock volIcon;
+        TextBlock volIcon, volLabel;
+        Border volChip;
+        const double VolChipW = 118;
         string volIconDefault;
 
         string PlayerKey() { return MediaWatcher.PrettyName(media.Source); }
@@ -4678,6 +4687,7 @@ namespace Kapsula
             if (volIcon == null) return;
             volIcon.Text = player ? "" : volIconDefault;
             volIcon.Foreground = player ? (Brush)accent : Fg;
+            if (volLabel != null) volLabel.Text = player ? PlayerKey() : "Весь звук";
             volIcon.ToolTip = player ? "Громкость только плеера. Клик — громкость всей системы" : "Громкость всей системы. Клик — только плеер";
         }
 
