@@ -9,7 +9,7 @@ const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071, VERSION = "0.5.0";
+    const PORT = 42071, VERSION = "0.6.0";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -41,9 +41,15 @@ let PluginEntryPointMain = function () {
     // Kapsula can ask for two things only:
     //  - "test": show Steam's own built-in sample notifications (used to check the link);
     //  - "dismissInvite": mark a friend's game invite as dismissed, exactly as the Dismiss button in Steam chat does.
+    //  - "openChat": open the chat window with a friend;
+    //  - "reply": send the text the user typed on the island to that friend, through Steam's own chat;
+    //  - "config": whether Steam's own pop-up should be hidden when the island shows the notification.
     function command(msg) {
       if (!msg) return;
       if (msg.cmd === "dismissInvite") { dismissInvite(msg.steamid); return; }
+      if (msg.cmd === "openChat") { openChat(msg.steamid); return; }
+      if (msg.cmd === "reply") { reply(msg.steamid, msg.text); return; }
+      if (msg.cmd === "config") { hideToasts = msg.hideToasts === true; return; }
       if (msg.cmd !== "test" || !Array.isArray(msg.names)) return;
       debug = true;   // check mode: also report field names of what Steam passes, until the plugin is reloaded
       const store = window.NotificationStore;
@@ -57,6 +63,27 @@ let PluginEntryPointMain = function () {
           catch (e) { send({ type: "error", name: m[1], message: String(e) }); }
         }, 400 + i * 2500);
       });
+    }
+
+    let hideToasts = false;
+
+    function validId(steamid) { return typeof steamid === "string" && /^\d{5,20}$/.test(steamid); }
+
+    function openChat(steamid) {
+      try { if (validId(steamid)) window.SteamClient.WebChat.ShowFriendChatDialog(steamid); } catch (e) { send({ type: "error", name: "openChat", message: String(e) }); }
+    }
+
+    function reply(steamid, text) {
+      let ok = false, message = "";
+      try {
+        if (!validId(steamid) || typeof text !== "string" || !text.trim() || text.length > 2000) throw new Error("bad request");
+        const account = Number(BigInt(steamid) & 0xFFFFFFFFn);
+        const chat = window.g_FriendsUIApp.ChatStore.GetFriendChat(account, true);
+        if (!chat || typeof chat.SendChatMessage !== "function") throw new Error("chat not available");
+        chat.SendChatMessage(text);
+        ok = true;
+      } catch (e) { message = String(e); }
+      send({ type: "replied", ok: ok, message: message });
     }
 
     function dismissInvite(steamid) {
@@ -185,7 +212,12 @@ let PluginEntryPointMain = function () {
         const show = orig.apply(this, arguments);
         // Forward only what Steam itself is about to show, so the island follows the user's Steam settings.
         try {
-          if (show) send(describeToast(config, notification));
+          if (show) {
+            send(describeToast(config, notification));
+            // The island has shown it — skip Steam's own pop-up so it isn't shown twice. Only while Kapsula is
+            // connected, and never in a game: there the island may be hidden and Steam's overlay is the only way to see it.
+            if (hideToasts && ws && ws.readyState === 1 && !(typeof this.BIsUserInGame === "function" && this.BIsUserInGame())) return false;
+          }
           else if (debug) { const t = describeToast(config, notification); t.type = "suppressed"; send(t); }
         } catch (e) { }
         return show;

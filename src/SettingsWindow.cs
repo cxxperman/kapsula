@@ -162,6 +162,7 @@ namespace Kapsula
                 sTimer.Start();
                 Closed += delegate { sTimer.Stop(); };
                 sp.Children.Add(sRow);
+                sp.Children.Add(Row("Не дублировать уведомления Steam", "Когда уведомление показал остров, окошко Steam справа снизу не появляется (звук остаётся). В игре Steam показывает уведомления как обычно.", Toggle(Store.Get("steamHideToasts") != "0", delegate(bool v) { island.SetFlag("steamHideToasts", v); SteamBridge.SendConfig(); }), false));
             }
 
             sp.Children.Add(Header("Прочее"));

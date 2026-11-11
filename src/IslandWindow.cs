@@ -465,6 +465,7 @@ namespace Kapsula
                 if ((type as string) == "hello")
                 {
                     Dispatcher.BeginInvoke(new Action(delegate { Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
+                    SteamBridge.SendConfig();
                     // Проверочный режим: просим Steam показать его собственные образцы уведомлений.
                     if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestAchievement:550\",\"TestDownloadComplete:570\",\"TestKapsulaInvite\"]}");
                 }
@@ -482,12 +483,24 @@ namespace Kapsula
                     else if (title == "") title = kind;
                     else if (body == "") body = game != "" && game != title ? kind + " · " + game : kind;
                     object inv; bool invite = d.TryGetValue("invite", out inv) && inv is bool && (bool)inv && SteamBridge.InviteUrlAllowed(url);
-                    string steamid = get("steamid");
+                    string steamid = get("steamid"), appid = get("appid");
+                    bool hasFriend = System.Text.RegularExpressions.Regex.IsMatch(steamid, "^\\d{5,20}$");
+                    bool message = hasFriend && !invite && get("kind").ToLowerInvariant() == "friend message";
+                    // Куда ведёт клик: чат с этим другом, страница игры в библиотеке, иначе — то, что предложил сам Steam.
+                    Action open;
+                    if (hasFriend) open = delegate { SteamBridge.Send("{\"cmd\":\"openChat\",\"steamid\":\"" + steamid + "\"}"); };
+                    else if (System.Text.RegularExpressions.Regex.IsMatch(appid, "^\\d{1,10}$")) open = delegate { try { System.Diagnostics.Process.Start("steam://nav/games/details/" + appid); } catch { } };
+                    else { string target = SteamBridge.SteamUrlAllowed(url) ? url : "steam://open/main"; open = delegate { try { System.Diagnostics.Process.Start(target); } catch { } }; }
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
                         if (invite) SteamInvite(title, body, icon, url, steamid);
-                        else SteamNotify(title, body, icon, url);
+                        else SteamNotify(title, body, icon, open, message ? steamid : null);
                     }));
+                }
+                else if ((type as string) == "replied")
+                {
+                    object ok; bool sent = d.TryGetValue("ok", out ok) && ok is bool && (bool)ok;
+                    Dispatcher.BeginInvoke(new Action(delegate { Toast("", sent ? "Отправлено" : "Не удалось отправить", null, -1, sent ? (Brush)accent : Dim); }));
                 }
             };
             SteamBridge.Start();
@@ -638,7 +651,7 @@ namespace Kapsula
         {
             cardHost.Background = Brushes.Transparent;
             cardHost.Cursor = Cursors.Hand;
-            cardHost.MouseLeftButtonDown += delegate { var a = cardAction; SetState(0); if (a != null) a(); };
+            cardHost.MouseLeftButtonDown += delegate { var a = cardAction; hoverBlock = true; SetState(0); if (a != null) a(); };
             var g = new Grid { Margin = new Thickness(18, 12, 18, 16) };
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
@@ -667,6 +680,7 @@ namespace Kapsula
             {
                 e.Handled = true;
                 var a = cardNoAction;
+                hoverBlock = true;
                 SetState(0);
                 if (a != null) a();
             };
@@ -676,6 +690,7 @@ namespace Kapsula
                 if (cardBtnAction == null) return;
                 e.Handled = true;
                 var a = cardBtnAction;
+                hoverBlock = true;
                 SetState(0);
                 a();
             };
@@ -932,7 +947,7 @@ namespace Kapsula
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             top.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center });
-            var hint = new TextBlock { Text = "Программа, 2400 * 15%, 5 миль в км, таймер 10 мин…", Foreground = Faint, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
+            var hint = cmdHint = new TextBlock { Text = CmdHintDefault, Foreground = Faint, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
             Grid.SetColumn(hint, 1); top.Children.Add(hint);
             cmdBox = MakeTextBox(false);
             cmdBox.FontSize = 15;
@@ -987,6 +1002,26 @@ namespace Kapsula
             }
         }
 
+        const string CmdHintDefault = "Программа, 2400 * 15%, 5 миль в км, таймер 10 мин…";
+        TextBlock cmdHint;
+        string replySteamId, replyName;   // строка ввода работает как поле ответа другу в Steam
+        bool hoverBlock;                  // после клика по карточке остров не раскрывается, пока курсор с него не уйдёт
+
+        // Ответ на сообщение Steam прямо на острове: та же строка ввода, Enter отправляет.
+        void StartReply(string steamid, string name)
+        {
+            if (state == 4) SetState(0);
+            replySteamId = steamid; replyName = name;
+            cmdHint.Text = "Ответ для " + name + " — Enter отправит";
+            ToggleCommand();
+        }
+
+        void SendSteamReply(string steamid, string text)
+        {
+            string json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(text);
+            SteamBridge.Send("{\"cmd\":\"reply\",\"steamid\":\"" + steamid + "\",\"text\":" + json + "}");
+        }
+
         void ToggleCommand()
         {
             if (state == 4) { SetState(0); return; }
@@ -1020,6 +1055,18 @@ namespace Kapsula
             string q = cmdBox.Text.Trim();
             cmdItems.Clear();
             cmdSel = 0;
+            if (replySteamId != null)
+            {
+                // Режим ответа: единственный пункт — отправить набранное
+                if (q.Length > 0)
+                {
+                    string id = replySteamId, text = q;
+                    AddCmd("Отправить: " + (q.Length > 60 ? q.Substring(0, 60) + "…" : q), replyName, "", null, delegate { SendSteamReply(id, text); });
+                }
+                RenderCmd();
+                if (state == 4) SetTargets();
+                return;
+            }
             if (q.Length > 0)
             {
                 string r; TimeSpan ts;
@@ -3062,14 +3109,22 @@ namespace Kapsula
         public bool TestSteam;   // ключ --steamtest
 
         // Всплывающее уведомление Steam (приходит от плагина Kapsula для Millennium)
-        public void SteamNotify(string title, string text, byte[] icon, string url)
+        public void SteamNotify(string title, string text, byte[] icon, Action open, string replyTo)
         {
-            // По клику открываем то, что открыл бы сам Steam; посторонние адреса не запускаем.
-            string target = SteamBridge.SteamUrlAllowed(url) ? url : "steam://open/friends";
-            Action open = delegate { try { System.Diagnostics.Process.Start(target); } catch { } };
-            ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
-            cardUntil = Environment.TickCount + 6000;
+            // У сообщения друга есть кнопка «Ответить»: ответ набирается прямо на острове.
+            if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
+            else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
+            cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
+            if (TestSteam && replyTo != null && !replyShown)
+            {
+                // Проверочный режим: один раз показываем поле ответа с набранным текстом. Ничего не отправляется.
+                replyShown = true;
+                var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                t.Tick += delegate { t.Stop(); StartReply(replyTo, title); cmdBox.Text = "привет, сейчас зайду"; };
+                t.Start();
+            }
         }
+        bool replyShown;
 
         // Приглашение в игру: «Принять» открывает ссылку входа из самого приглашения, крестик отклоняет его в Steam.
         public void SteamInvite(string title, string text, byte[] icon, string url, string steamid)
@@ -3554,6 +3609,7 @@ namespace Kapsula
             if (wasCmd && s != 4)
             {
                 dictating = false;
+                if (replySteamId != null) { replySteamId = null; cmdHint.Text = CmdHintDefault; }
                 if (prevFg != IntPtr.Zero) { Native.SetForegroundWindow(prevFg); prevFg = IntPtr.Zero; }
             }
             for (int i = 1; i < layers.Length; i++) layers[i].IsHitTestVisible = s == i;
@@ -3594,6 +3650,8 @@ namespace Kapsula
             if (state == 0)
             {
                 bool inside = !hiddenFs && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 2 && y >= -1 && y <= sh.X + 1;
+                // Только что нажали кнопку на карточке — курсор ещё над островом, но раскрывать панель не нужно.
+                if (hoverBlock) { if (!inside && Math.Abs(x - cx) > CardW / 2 + 12 || y > CardH + 16) hoverBlock = false; enterAt = 0; return; }
                 if (!inside) { enterAt = 0; return; }
                 if (enterAt == 0) enterAt = now;
                 else if (unchecked(now - enterAt) >= 60) { enterAt = 0; SetState(media.Has && media.Playing && HoverMini ? 1 : 2); }

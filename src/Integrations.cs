@@ -385,6 +385,12 @@ namespace Kapsula
 
         public static void Send(string json) { if (server != null) server.Broadcast(json); }
 
+        // Сообщаем плагину настройку: прятать ли всплывающее окно самого Steam, раз уведомление показал остров.
+        public static void SendConfig()
+        {
+            Send("{\"cmd\":\"config\",\"hideToasts\":" + (Store.Get("steamHideToasts") != "0" ? "true" : "false") + "}");
+        }
+
         // Значок уведомления качаем только с серверов Steam
         public static bool IconAllowed(string url)
         {
