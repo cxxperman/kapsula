@@ -165,6 +165,165 @@ namespace Kapsula
         }
     }
 
+    // ============================================== Локальный канал для плагинов
+    // Небольшой WebSocket-сервер только для этого компьютера (127.0.0.1). К нему подключается плагин Kapsula,
+    // работающий внутри другой программы, и передаёт события; обратно можно отправлять команды.
+    class LocalWsServer
+    {
+        readonly int port;
+        readonly Func<string, bool> originOk;
+        readonly Action<string> onMessage;
+        System.Net.HttpListener listener;
+        readonly List<System.Net.WebSockets.WebSocket> sockets = new List<System.Net.WebSockets.WebSocket>();
+        public string Error;
+        public int Clients { get { lock (sockets) return sockets.Count; } }
+
+        public LocalWsServer(int port, Func<string, bool> originOk, Action<string> onMessage)
+        {
+            this.port = port; this.originOk = originOk; this.onMessage = onMessage;
+        }
+
+        public bool Start()
+        {
+            if (listener != null) return true;
+            try
+            {
+                var l = new System.Net.HttpListener();
+                l.Prefixes.Add("http://127.0.0.1:" + port + "/");
+                l.Start();
+                listener = l;
+                Error = null;
+            }
+            catch (Exception) { Error = "порт " + port + " занят другой программой"; return false; }
+            var t = new Thread(Loop);
+            t.IsBackground = true;
+            t.Start(listener);
+            return true;
+        }
+
+        public void Stop()
+        {
+            var l = listener; listener = null;
+            try { if (l != null) l.Close(); } catch { }
+        }
+
+        void Loop(object o)
+        {
+            var l = (System.Net.HttpListener)o;
+            while (true)
+            {
+                System.Net.HttpListenerContext ctx;
+                try { ctx = l.GetContext(); } catch { return; }
+                if (!ctx.Request.IsWebSocketRequest || !originOk(ctx.Request.Headers["Origin"]))
+                {
+                    try { ctx.Response.StatusCode = 403; ctx.Response.Close(); } catch { }
+                    continue;
+                }
+                var c = ctx;
+                var t = new Thread(delegate() { Serve(c); });
+                t.IsBackground = true;
+                t.Start();
+            }
+        }
+
+        void Serve(System.Net.HttpListenerContext ctx)
+        {
+            System.Net.WebSockets.WebSocket ws = null;
+            try
+            {
+                ws = ctx.AcceptWebSocketAsync(null).Result.WebSocket;
+                lock (sockets) sockets.Add(ws);
+                var buf = new byte[16384];
+                var ms = new System.IO.MemoryStream();
+                while (ws.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    var r = ws.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None).Result;
+                    if (r.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                    ms.Write(buf, 0, r.Count);
+                    if (ms.Length > 4 * 1024 * 1024) break;
+                    if (!r.EndOfMessage) continue;
+                    string text = Encoding.UTF8.GetString(ms.ToArray());
+                    ms.SetLength(0);
+                    try { onMessage(text); } catch (Exception ex) { Store.LogError("канал плагина", ex); }
+                }
+            }
+            catch { }
+            finally
+            {
+                if (ws != null) { lock (sockets) sockets.Remove(ws); try { ws.Dispose(); } catch { } }
+            }
+        }
+
+        // Команда всем подключённым плагинам (на будущее: кнопки на карточках)
+        public void Broadcast(string text)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(text);
+            System.Net.WebSockets.WebSocket[] all;
+            lock (sockets) all = sockets.ToArray();
+            foreach (var ws in all)
+            {
+                try { lock (ws) ws.SendAsync(new ArraySegment<byte>(data), System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None).Wait(2000); } catch { }
+            }
+        }
+    }
+
+    // ===================================================== Steam через Millennium
+    // Плагин Kapsula для Millennium работает внутри клиента Steam и присылает сюда его события.
+    // Пока это пробная версия: события только записываются в файл, чтобы по ним сделать карточки.
+    static class SteamBridge
+    {
+        public const int Port = 42071;
+        static LocalWsServer server;
+        public static event Action<Dictionary<string, object>> Received;
+
+        public static string PluginsDir()
+        {
+            string s = Steam.Dir();
+            if (s == null) return null;
+            string m = System.IO.Path.Combine(s, "millennium");
+            return System.IO.Directory.Exists(m) ? System.IO.Path.Combine(m, "plugins") : null;
+        }
+
+        public static bool MillenniumFound { get { return PluginsDir() != null; } }
+        public static bool PluginInstalled { get { string d = PluginsDir(); return d != null && System.IO.File.Exists(System.IO.Path.Combine(d, @"kapsula\plugin.json")); } }
+        public static int Clients { get { return server == null ? 0 : server.Clients; } }
+        public static string Error { get { return server == null ? null : server.Error; } }
+        public static string LogPath { get { return System.IO.Path.Combine(Store.Dir, "steam-plugin.log"); } }
+
+        public static bool OriginAllowed(string origin)
+        {
+            if (string.IsNullOrEmpty(origin)) return true;
+            Uri u;
+            return Uri.TryCreate(origin, UriKind.Absolute, out u) && u.Host.ToLowerInvariant() == "steamloopback.host";
+        }
+
+        public static void Start()
+        {
+            if (server != null || !Steam.Enabled || !MillenniumFound) return;
+            server = new LocalWsServer(Port, OriginAllowed, OnMessage);
+            server.Start();
+        }
+
+        static readonly object logGate = new object();
+
+        static void OnMessage(string json)
+        {
+            lock (logGate)
+            {
+                try
+                {
+                    var fi = new System.IO.FileInfo(LogPath);
+                    if (fi.Exists && fi.Length > 512 * 1024) fi.Delete();
+                    System.IO.File.AppendAllText(LogPath, DateTime.Now.ToString("HH:mm:ss") + " " + json + "\r\n", Encoding.UTF8);
+                }
+                catch { }
+            }
+            var d = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 }.DeserializeObject(json) as Dictionary<string, object>;
+            var h = Received;
+            if (d != null && h != null) h(d);
+        }
+    }
+
     // ================================================================== Steam
     class SteamGame
     {

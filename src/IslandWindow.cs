@@ -458,6 +458,13 @@ namespace Kapsula
             watcher.Start();
             DiscordBridge.Notified += delegate(string t, string x, byte[] i) { Dispatcher.BeginInvoke(new Action(delegate { DiscordNotify(t, x, i); })); };
             DiscordBridge.Start();
+            SteamBridge.Received += delegate(Dictionary<string, object> d)
+            {
+                object type;
+                if (d.TryGetValue("type", out type) && (type as string) == "hello")
+                    Dispatcher.BeginInvoke(new Action(delegate { Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
+            };
+            SteamBridge.Start();
 
             BuildTray();
             RenderMedia();
