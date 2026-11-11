@@ -657,7 +657,7 @@ namespace Kapsula
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var thumb = new Grid { Width = 84, Height = 52 };
+            var thumb = cardThumbBox = new Grid { Width = 84, Height = 52 };
             cardThumb = new Border { CornerRadius = new CornerRadius(10), Background = Chip };
             cardGlyph = new TextBlock { FontFamily = Icons, FontSize = 20, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             thumb.Children.Add(cardThumb); thumb.Children.Add(cardGlyph);
@@ -701,6 +701,7 @@ namespace Kapsula
 
         Border cardNo;
         Action cardNoAction;
+        Grid cardThumbBox;
 
         // Карточка с выбором: кнопка с подписью и крестик. Висит дольше обычной.
         void ShowCardChoice(ImageSource img, string glyph, string title, string sub, string yesText, Action yes, Action no)
@@ -725,6 +726,11 @@ namespace Kapsula
             cardBtn.Padding = btnText != null ? new Thickness(12, 0, 12, 1) : new Thickness(0);
             if (force && (state == 2 || state == 4)) SetState(0);
             if (state == 2 || state == 4) { Toast(glyph ?? "", title, null, -1, accent); return; }
+            // Аватар и значок достижения — квадратные, как в Steam: так тексту остаётся больше места. Снимки экрана — широкие.
+            bool square = false;
+            var bs = img as BitmapSource;
+            if (bs != null && bs.PixelHeight > 0) { double ratio = (double)bs.PixelWidth / bs.PixelHeight; square = ratio > 0.8 && ratio < 1.25; }
+            cardThumbBox.Width = square ? 52 : 84;
             cardThumb.Background = img != null ? (Brush)new ImageBrush(img) { Stretch = Stretch.UniformToFill } : Chip;
             cardGlyph.Text = img != null ? "" : (glyph ?? "");
             cardTitle.Text = title;
@@ -949,6 +955,8 @@ namespace Kapsula
             top.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center });
             var hint = cmdHint = new TextBlock { Text = CmdHintDefault, Foreground = Faint, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
             Grid.SetColumn(hint, 1); top.Children.Add(hint);
+            cmdGlyph = top.Children[0] as TextBlock;   // лупа; в режиме ответа другу заменяется значком сообщения
+            cmdGlyphDefault = cmdGlyph.Text;
             cmdBox = MakeTextBox(false);
             cmdBox.FontSize = 15;
             cmdBox.TextChanged += delegate { hint.Visibility = cmdBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; UpdateCmd(); };
@@ -1003,7 +1011,8 @@ namespace Kapsula
         }
 
         const string CmdHintDefault = "Программа, 2400 * 15%, 5 миль в км, таймер 10 мин…";
-        TextBlock cmdHint;
+        TextBlock cmdHint, cmdGlyph;
+        string cmdGlyphDefault;
         string replySteamId, replyName;   // строка ввода работает как поле ответа другу в Steam
         bool hoverBlock;                  // после клика по карточке остров не раскрывается, пока курсор с него не уйдёт
 
@@ -1013,6 +1022,7 @@ namespace Kapsula
             if (state == 4) SetState(0);
             replySteamId = steamid; replyName = name;
             cmdHint.Text = "Ответ для " + name + " — Enter отправит";
+            cmdGlyph.Text = ""; cmdGlyph.Foreground = accent;
             ToggleCommand();
         }
 
@@ -3609,7 +3619,7 @@ namespace Kapsula
             if (wasCmd && s != 4)
             {
                 dictating = false;
-                if (replySteamId != null) { replySteamId = null; cmdHint.Text = CmdHintDefault; }
+                if (replySteamId != null) { replySteamId = null; cmdHint.Text = CmdHintDefault; cmdGlyph.Text = cmdGlyphDefault; cmdGlyph.Foreground = Dim; }
                 if (prevFg != IntPtr.Zero) { Native.SetForegroundWindow(prevFg); prevFg = IntPtr.Zero; }
             }
             for (int i = 1; i < layers.Length; i++) layers[i].IsHitTestVisible = s == i;
