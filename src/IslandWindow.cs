@@ -673,6 +673,8 @@ namespace Kapsula
             cardThumb = new Border { CornerRadius = new CornerRadius(10), Background = Chip };
             cardGlyph = new TextBlock { FontFamily = Icons, FontSize = 20, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             thumb.Children.Add(cardThumb); thumb.Children.Add(cardGlyph);
+            cardBadge = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(7), BorderBrush = Ink, BorderThickness = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
+            thumb.Children.Add(cardBadge);
             g.Children.Add(thumb);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             cardTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -714,6 +716,45 @@ namespace Kapsula
         Border cardNo;
         Action cardNoAction;
         Grid cardThumbBox;
+        Border cardBadge;        // значок программы, от которой пришло уведомление (Discord, Steam…), в углу картинки
+        double cardExtra;        // карточки с кнопками шире обычных, чтобы текст не обрезался
+
+        static readonly Dictionary<string, ImageSource> sourceIcons = new Dictionary<string, ImageSource>();
+
+        // Значок программы-источника: берём у её собственного exe-файла на этом компьютере.
+        static ImageSource SourceIcon(string source)
+        {
+            ImageSource hit;
+            if (sourceIcons.TryGetValue(source, out hit)) return hit;
+            ImageSource res = null;
+            try
+            {
+                string exe = null;
+                if (source == "steam") { string d = Steam.Dir(); if (d != null) exe = System.IO.Path.Combine(d, "steam.exe"); }
+                else if (source == "discord")
+                {
+                    string root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Discord");
+                    if (System.IO.Directory.Exists(root))
+                    {
+                        string[] apps = System.IO.Directory.GetDirectories(root, "app-*");
+                        Array.Sort(apps, StringComparer.OrdinalIgnoreCase);
+                        for (int i = apps.Length - 1; i >= 0 && exe == null; i--) { string f = System.IO.Path.Combine(apps[i], "Discord.exe"); if (System.IO.File.Exists(f)) exe = f; }
+                    }
+                }
+                if (exe != null && System.IO.File.Exists(exe)) res = Shell.IconFor(exe);
+            }
+            catch { }
+            sourceIcons[source] = res;
+            return res;
+        }
+
+        // Вызывается сразу после показа карточки: ставит в угол картинки значок источника.
+        void SetCardBadge(ImageSource icon)
+        {
+            if (cardBadge == null || state != 3 || icon == null) return;
+            cardBadge.Background = new ImageBrush(icon) { Stretch = Stretch.UniformToFill };
+            cardBadge.Visibility = Visibility.Visible;
+        }
 
         // Карточка с выбором: кнопка с подписью и крестик. Висит дольше обычной.
         void ShowCardChoice(ImageSource img, string glyph, string title, string sub, string yesText, Action yes, Action no)
@@ -722,6 +763,9 @@ namespace Kapsula
             if (state != 3) return;   // панель открыта — показали короткую подсказку вместо карточки
             cardNoAction = no;
             cardNo.Visibility = Visibility.Visible;
+            cardExtra = 120;
+            cardHost.Width = CardW + cardExtra;
+            SetTargets();
             cardUntil = Environment.TickCount + 15000;
         }
 
@@ -729,6 +773,9 @@ namespace Kapsula
         {
             cardNoAction = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
+            if (cardBadge != null) cardBadge.Visibility = Visibility.Collapsed;
+            cardExtra = btnText != null ? 70 : 0;
+            cardHost.Width = CardW + cardExtra;
             cardBtnAction = btnAct;
             cardBtnLabel.Text = btnText ?? "";
             cardBtnLabel.FontFamily = btnText != null ? FontFamily : Icons;
@@ -3082,9 +3129,26 @@ namespace Kapsula
                                 catch { }
                                 string a = app, text = (title + (body.Length > 0 ? " — " + body : "")).Trim();
                                 if (text.Length == 0) continue;
+                                // Discord уже присылает свои сообщения напрямую (с аватаром) — второй раз то же самое не показываем.
+                                if (DiscordBridge.Clients > 0 && a.IndexOf("discord", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                                // Значок программы, приславшей уведомление, — в угол карточки
+                                byte[] logo = null;
+                                try
+                                {
+                                    var stream = WaitOp(n.AppInfo.DisplayInfo.GetLogo(new Windows.Foundation.Size(48, 48)).OpenReadAsync());
+                                    if (stream != null && stream.Size > 0 && stream.Size < 1024 * 1024)
+                                    {
+                                        var reader = new Windows.Storage.Streams.DataReader(stream);
+                                        WaitOp(reader.LoadAsync((uint)stream.Size));
+                                        logo = new byte[stream.Size];
+                                        reader.ReadBytes(logo);
+                                    }
+                                }
+                                catch { logo = null; }
                                 Dispatcher.BeginInvoke(new Action(delegate
                                 {
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", text, delegate { }, null, null, false);
+                                    SetCardBadge(ImageFrom(logo));
                                     cardUntil = Environment.TickCount + 5500;
                                 }));
                             }
@@ -3127,6 +3191,7 @@ namespace Kapsula
         {
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
+            SetCardBadge(SourceIcon("discord"));
             cardUntil = Environment.TickCount + 6000;
         }
 
@@ -3138,6 +3203,8 @@ namespace Kapsula
             // У сообщения друга есть кнопка «Ответить»: ответ набирается прямо на острове.
             if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
+            // Значок Steam — только на сообщениях: там важно, откуда пишут. У достижений и «друг в игре» источник и так понятен.
+            if (replyTo != null) SetCardBadge(SourceIcon("steam"));
             cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
             if (TestReply && replyTo != null && !replyShown)
             {
@@ -3188,6 +3255,13 @@ namespace Kapsula
                 if (System.Text.RegularExpressions.Regex.IsMatch(steamid ?? "", "^\\d{5,20}$"))
                     SteamBridge.Send("{\"cmd\":\"dismissInvite\",\"steamid\":\"" + steamid + "\"}");
             };
+            // Вместо длинного «такой-то приглашает вас в игру такую-то» — коротко: имя в заголовке, игра в подписи.
+            var m = System.Text.RegularExpressions.Regex.Match(url ?? "", "^steam://(?:joinlobby|rungame)/(\\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                SteamGame g = steamGames.Find(delegate(SteamGame x) { return x.Id == m.Groups[1].Value; });
+                text = g != null ? "Зовёт в " + g.Name : "Зовёт в игру";
+            }
             ShowCardChoice(ImageFrom(icon), "", title, text, "Принять", accept, decline);
         }
 
@@ -3492,7 +3566,7 @@ namespace Kapsula
 
         double StateW()
         {
-            switch (state) { case 1: return MiniW(); case 2: return EW; case 3: return CardW; case 4: return CmdW; default: return CompactWidth(); }
+            switch (state) { case 1: return MiniW(); case 2: return EW; case 3: return CardW + cardExtra; case 4: return CmdW; default: return CompactWidth(); }
         }
 
         double StateH()
@@ -3705,7 +3779,7 @@ namespace Kapsula
             {
                 bool inside = !hiddenFs && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 2 && y >= -1 && y <= sh.X + 1;
                 // Только что нажали кнопку на карточке — курсор ещё над островом, но раскрывать панель не нужно.
-                if (hoverBlock) { if (!inside && Math.Abs(x - cx) > CardW / 2 + 12 || y > CardH + 16) hoverBlock = false; enterAt = 0; return; }
+                if (hoverBlock) { if (!inside && Math.Abs(x - cx) > (CardW + cardExtra) / 2 + 12 || y > CardH + 16) hoverBlock = false; enterAt = 0; return; }
                 if (!inside) { enterAt = 0; return; }
                 if (enterAt == 0) enterAt = now;
                 else if (unchecked(now - enterAt) >= 60) { enterAt = 0; SetState(media.Has && media.Playing && HoverMini ? 1 : 2); }
@@ -3714,7 +3788,7 @@ namespace Kapsula
             else if (state == 3)
             {
                 // Карточка события держится, пока на ней курсор, и уходит сама по истечении времени.
-                bool inside = Math.Abs(x - cx) <= CardW / 2 + 12 && y <= CardH + 16;
+                bool inside = Math.Abs(x - cx) <= (CardW + cardExtra) / 2 + 12 && y <= CardH + 16;
                 if (inside) { if (unchecked(cardUntil - now) < 1200) cardUntil = now + 1200; }
                 else if (unchecked(now - cardUntil) >= 0) SetState(0);
             }
