@@ -748,6 +748,9 @@ namespace Kapsula
             return res;
         }
 
+        // Круглая кнопка со значком папки нужна карточкам про файлы (снимок, запись, загрузка). У уведомлений её убираем.
+        void HideCardButton() { if (state == 3) cardBtn.Visibility = Visibility.Collapsed; }
+
         // Вызывается сразу после показа карточки: ставит в угол картинки значок источника.
         void SetCardBadge(ImageSource icon)
         {
@@ -776,6 +779,7 @@ namespace Kapsula
             if (cardBadge != null) cardBadge.Visibility = Visibility.Collapsed;
             cardExtra = btnText != null ? 70 : 0;
             cardHost.Width = CardW + cardExtra;
+            cardBtn.Visibility = Visibility.Visible;
             cardBtnAction = btnAct;
             cardBtnLabel.Text = btnText ?? "";
             cardBtnLabel.FontFamily = btnText != null ? FontFamily : Icons;
@@ -3149,6 +3153,7 @@ namespace Kapsula
                                 {
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", text, delegate { }, null, null, false);
                                     SetCardBadge(ImageFrom(logo));
+                                    HideCardButton();
                                     cardUntil = Environment.TickCount + 5500;
                                 }));
                             }
@@ -3192,6 +3197,7 @@ namespace Kapsula
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             SetCardBadge(SourceIcon("discord"));
+            HideCardButton();
             cardUntil = Environment.TickCount + 6000;
         }
 
@@ -3204,7 +3210,7 @@ namespace Kapsula
             if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             // Значок Steam — только на сообщениях: там важно, откуда пишут. У достижений и «друг в игре» источник и так понятен.
-            if (replyTo != null) SetCardBadge(SourceIcon("steam"));
+            if (replyTo != null) SetCardBadge(SourceIcon("steam")); else HideCardButton();
             cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
             if (TestReply && replyTo != null && !replyShown)
             {
