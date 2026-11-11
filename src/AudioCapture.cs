@@ -31,6 +31,163 @@ namespace Kapsula
         [PreserveSig] int GetNextPacketSize(out uint frames);
     }
 
+    // Спектр того, что сейчас играет: нужен только жидкому краю острова, чтобы он плясал как эквалайзер
+    // (слева низкие частоты, справа высокие). Звук разбирается в памяти и никуда не сохраняется и не передаётся.
+    static class Spectrum
+    {
+        const int N = 1024;
+        static readonly float[] ring = new float[N];
+        static int ringPos, rate = 48000, lastPacketAt, lastUseAt, retryAt;
+        static readonly object gate = new object();
+        static Thread thread;
+        static volatile bool running;
+        static double gain = 0.02;
+        static readonly double[] re = new double[N], im = new double[N], window = new double[N];
+
+        static Spectrum() { for (int i = 0; i < N; i++) window[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1)); }
+
+        // Заполняет bands значениями 0…1 (от низких частот к высоким). false — звук снять не удалось или тишина.
+        public static bool Read(double[] bands)
+        {
+            lastUseAt = Environment.TickCount;
+            // Не вышло снять звук (нет устройства вывода) — пробуем снова не чаще раза в две секунды.
+            if (!running) { if (unchecked(Environment.TickCount - retryAt) >= 0) Start(); return false; }
+            if (unchecked(Environment.TickCount - lastPacketAt) > 250) return false;   // давно ничего не играло
+            lock (gate) { for (int i = 0; i < N; i++) { re[i] = ring[(ringPos + i) % N] * window[i]; im[i] = 0; } }
+            Fft(re, im);
+            double top = 0;
+            int n = bands.Length;
+            for (int b = 0; b < n; b++)
+            {
+                // границы полосы: от 60 Гц до 9 кГц, равные шаги по логарифму — как слышит ухо
+                double f0 = 60 * Math.Pow(150, (double)b / n), f1 = 60 * Math.Pow(150, (double)(b + 1) / n);
+                int k0 = Math.Max(1, (int)(f0 * N / rate)), k1 = Math.Max(k0 + 1, (int)(f1 * N / rate));
+                double m = 0;
+                for (int k = k0; k < k1 && k < N / 2; k++) { double v = Math.Sqrt(re[k] * re[k] + im[k] * im[k]); if (v > m) m = v; }
+                m *= 1 + 2.2 * b / n;   // высокие частоты тише низких — приподнимаем, чтобы правая часть не лежала
+                bands[b] = m;
+                if (m > top) top = m;
+            }
+            gain = Math.Max(top, gain * 0.99);
+            if (gain < 0.02) gain = 0.02;
+            for (int b = 0; b < n; b++) bands[b] = Math.Min(1, Math.Pow(bands[b] / gain, 0.7));
+            return true;
+        }
+
+        public static void Fft(double[] xr, double[] xi)
+        {
+            int n = xr.Length;
+            for (int i = 1, j = 0; i < n; i++)
+            {
+                int bit = n >> 1;
+                for (; (j & bit) != 0; bit >>= 1) j ^= bit;
+                j ^= bit;
+                if (i < j) { double t = xr[i]; xr[i] = xr[j]; xr[j] = t; t = xi[i]; xi[i] = xi[j]; xi[j] = t; }
+            }
+            for (int len = 2; len <= n; len <<= 1)
+            {
+                double ang = -2 * Math.PI / len, wr = Math.Cos(ang), wi = Math.Sin(ang);
+                for (int i = 0; i < n; i += len)
+                {
+                    double cr = 1, ci = 0;
+                    for (int k = 0; k < len / 2; k++)
+                    {
+                        int a = i + k, b = i + k + len / 2;
+                        double tr = xr[b] * cr - xi[b] * ci, ti = xr[b] * ci + xi[b] * cr;
+                        xr[b] = xr[a] - tr; xi[b] = xi[a] - ti;
+                        xr[a] += tr; xi[a] += ti;
+                        double nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+                    }
+                }
+            }
+        }
+
+        static void Start()
+        {
+            if (running) return;
+            running = true;
+            thread = new Thread(Run);
+            thread.IsBackground = true;
+            thread.Start();
+        }
+
+        [DllImport("ole32.dll")] static extern void CoTaskMemFree(IntPtr p);
+
+        [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions]
+        static void Run()
+        {
+            IAudioClient client = null;
+            IntPtr fmt = IntPtr.Zero;
+            try
+            {
+                var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
+                IMMDevice dev;
+                if (en.GetDefaultAudioEndpoint(0, 1, out dev) != 0 || dev == null) return;
+                Guid iid = typeof(IAudioClient).GUID;
+                object o;
+                if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0 || o == null) return;
+                client = (IAudioClient)o;
+                if (client.GetMixFormat(out fmt) != 0 || fmt == IntPtr.Zero) return;
+                int tag = (ushort)Marshal.ReadInt16(fmt, 0), channels = Marshal.ReadInt16(fmt, 2), align = Marshal.ReadInt16(fmt, 12), bits = Marshal.ReadInt16(fmt, 14);
+                rate = Marshal.ReadInt32(fmt, 4);
+                if (tag == 0xFFFE) tag = Marshal.ReadInt32(fmt, 24) & 0xFFFF;
+                bool isFloat = tag == 3 && bits == 32, isShort = tag == 1 && bits == 16;
+                if ((!isFloat && !isShort) || channels < 1 || channels > 8) return;
+                if (client.Initialize(0, 0x00020000u, 2000000, 0, fmt, IntPtr.Zero) != 0) return;
+                Guid capIid = typeof(IAudioCaptureClient).GUID;
+                object co;
+                if (client.GetService(ref capIid, out co) != 0 || co == null) return;
+                var capture = (IAudioCaptureClient)co;
+                if (client.Start() != 0) return;
+                var buf = new byte[align * 4096];
+                // Работаем, пока спектр кому-то нужен; через три секунды без запросов останавливаемся.
+                while (unchecked(Environment.TickCount - lastUseAt) < 3000)
+                {
+                    uint n;
+                    if (capture.GetNextPacketSize(out n) != 0) break;
+                    while (n > 0)
+                    {
+                        IntPtr data; uint frames, flags; ulong p1, p2;
+                        if (capture.GetBuffer(out data, out frames, out flags, out p1, out p2) != 0) { n = 0; break; }
+                        int bytes = (int)frames * align;
+                        bool silent = (flags & 2) != 0 || data == IntPtr.Zero;
+                        if (!silent && bytes <= buf.Length) Marshal.Copy(data, buf, 0, bytes);
+                        capture.ReleaseBuffer(frames);
+                        if (bytes <= buf.Length)
+                        {
+                            lock (gate)
+                            {
+                                for (int f = 0; f < (int)frames; f++)
+                                {
+                                    float s = 0;
+                                    if (!silent)
+                                    {
+                                        int at = f * align;
+                                        if (isFloat) { s = BitConverter.ToSingle(buf, at); if (channels > 1) s = (s + BitConverter.ToSingle(buf, at + 4)) * 0.5f; }
+                                        else { s = BitConverter.ToInt16(buf, at) / 32768f; if (channels > 1) s = (s + BitConverter.ToInt16(buf, at + 2) / 32768f) * 0.5f; }
+                                    }
+                                    ring[ringPos] = s;
+                                    ringPos = (ringPos + 1) % N;
+                                }
+                            }
+                            if (!silent) lastPacketAt = Environment.TickCount;
+                        }
+                        if (capture.GetNextPacketSize(out n) != 0) n = 0;
+                    }
+                    Thread.Sleep(8);
+                }
+            }
+            catch (Exception ex) { Store.LogError("спектр звука", ex); }
+            finally
+            {
+                try { if (client != null) client.Stop(); } catch { }
+                if (fmt != IntPtr.Zero) CoTaskMemFree(fmt);
+                retryAt = Environment.TickCount + 2000;
+                running = false;
+            }
+        }
+    }
+
     // Снимает то, что играет на устройстве вывода по умолчанию («петля» WASAPI), и отдаёт сырой звук в именованный канал.
     // ffmpeg читает этот канал как второй вход, поэтому звук и видео сводятся в один файл прямо во время записи.
     // Звук никуда, кроме этого канала, не уходит и отдельно не сохраняется.

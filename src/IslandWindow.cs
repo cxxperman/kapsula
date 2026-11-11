@@ -633,6 +633,10 @@ namespace Kapsula
             BuildExpanded();
             BuildCard();
             BuildCmd();
+            // Содержимое панели и мини-плеера лежит во вложенной сетке: её рисует у себя превью в настройках
+            // (сам слой для этого не годится — у свёрнутого острова он прозрачный).
+            previewHome = Nest(expandedHost);
+            previewMini = Nest(miniHost);
             clipHost.Children.Add(expandedHost);
             clipHost.Children.Add(miniHost);
             clipHost.Children.Add(cardHost);
@@ -1694,6 +1698,28 @@ namespace Kapsula
 
         // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
         double ExpandedH() { return EH - (page == 0 ? homeCut : 0); }
+
+        // Для окна настроек: оно рисует у себя живую копию острова, главной панели и мини-плеера.
+        public Visual PreviewRoot { get { return root; } }
+        Grid previewHome, previewMini;
+        static Grid Nest(Grid host)
+        {
+            var inner = new Grid();
+            var kids = new List<UIElement>();
+            foreach (UIElement k in host.Children) kids.Add(k);
+            host.Children.Clear();
+            foreach (UIElement k in kids) inner.Children.Add(k);
+            host.Children.Add(inner);
+            return inner;
+        }
+        public Visual PreviewHome { get { return previewHome; } }
+        public Visual PreviewMini { get { return previewMini; } }
+        public static readonly double PreviewEH = EH;
+        public Brush PreviewInk { get { return Ink; } }
+        public double PreviewHomeH { get { return EH - homeCut; } }
+        public bool PreviewHasMedia { get { return media.Has; } }
+        public static readonly double PreviewBaseW = BaseW, PreviewEW = EW, PreviewER = ER, PreviewMW = MW, PreviewMH = MH, PreviewMR = MR;
+        public void PreviewRefresh() { if (state == 0) { if (page != 0) ShowPage(0); RenderHomeLive(); } }
 
         FrameworkElement BuildHome()
         {
@@ -3634,6 +3660,24 @@ namespace Kapsula
         }
 
         public bool TestSteam;   // ключ --steamtest
+        public string TestDemoCard;   // ключ --democard message|invite|discord: карточка с выдуманными данными для снимков
+
+        // Выдуманная аватарка для демо-карточек: цветной квадрат с буквой.
+        static byte[] DemoAvatar(string letter, Color a, Color b)
+        {
+            var dv = new DrawingVisual();
+            using (DrawingContext dc = dv.RenderOpen())
+            {
+                dc.DrawRectangle(new LinearGradientBrush(a, b, 45), null, new Rect(0, 0, 96, 96));
+                var ft = new FormattedText(letter, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 50, Brushes.White);
+                dc.DrawText(ft, new Point((96 - ft.Width) / 2, (96 - ft.Height) / 2));
+            }
+            var rt = new RenderTargetBitmap(96, 96, 96, 96, PixelFormats.Pbgra32);
+            rt.Render(dv);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(rt));
+            using (var ms = new System.IO.MemoryStream()) { enc.Save(ms); return ms.ToArray(); }
+        }
 
         // ---- подсказки про интеграции: один раз предлагаем то, что можно подключить на этом компьютере
         public bool Plain;        // обычный запуск без проверочных ключей
@@ -3915,7 +3959,10 @@ namespace Kapsula
                 t.Tick += delegate
                 {
                     t.Stop();
-                    if (TestCard) ShowCard(null, "", "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null);
+                    if (TestDemoCard == "message") SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0");
+                    else if (TestDemoCard == "invite") SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", "");
+                    else if (TestDemoCard == "discord") DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8)));
+                    else if (TestCard) ShowCard(null,"", "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null);
                     else { ToggleCommand(); cmdBox.Text = TestCmd; }
                 };
                 t.Start();
@@ -4086,12 +4133,31 @@ namespace Kapsula
 
         double CmdH() { return 60 + (cmdItems.Count > 0 ? cmdItems.Count * 42 + 10 : 0); }
 
+        double[] specBands;
+        bool spikes;   // край рисуется иглами, а не каплями
+        int visMin = 30, visMax = 50;   // какие капли сейчас видны (остров бывает узким и широким)
+
+        // Полосы спектра растягиваются на видимую часть края: самая левая капля — бас, самая правая — верха.
+        double BandAt(int k)
+        {
+            double p = Clamp01((double)(k - visMin) / Math.Max(1, visMax - visMin)) * (specBands.Length - 1);
+            int i = (int)p;
+            if (i >= specBands.Length - 1) return specBands[specBands.Length - 1];
+            return specBands[i] + (specBands[i + 1] - specBands[i]) * (p - i);
+        }
+
         // Жидкий край: каждая «капля» тянется вниз в такт реальной громкости звука.
         bool StepLiquid(double dt)
         {
             bool playingNow = media.Has && media.Playing && !hiddenFs;
-            bool on = playingNow && LiquidOn;
-            double peak = on ? Audio.Peak() : 0;
+            // Звенит таймер — остров «ощетинивается»: край встаёт дыбом и дрожит, пока таймер не остановят.
+            bool alarm = (timerRinging || TestMood == "alarm") && !hiddenFs;
+            bool on = playingNow && LiquidOn || alarm;
+            if (alarm) spikes = true; else if (level < 0.05) spikes = false;
+            // Край как эквалайзер: слева низкие частоты, справа высокие. Не вышло снять звук — пляшет от общей громкости.
+            if (specBands == null) specBands = new double[24];
+            bool spec = on && !alarm && Store.Get("liquidSpectrum") != "0" && Spectrum.Read(specBands);
+            double peak = alarm ? 1 : (on ? Audio.Peak() : 0);
             gainMax = Math.Max(peak, gainMax - dt * 0.04);
             if (gainMax < 0.02) gainMax = 0.02;
             double lv = on ? Math.Min(1, peak / gainMax) : 0;
@@ -4104,20 +4170,30 @@ namespace Kapsula
             bool any = glowAmt > 0.004 || edgeAmt > 0.004;
             for (int k = 0; k < amp.Length; k++)
             {
-                if (liquidClock >= nextRoll[k]) { noise[k] = rnd.NextDouble(); nextRoll[k] = liquidClock + 0.07 + rnd.NextDouble() * 0.13; }
-                double tgt = level * (0.15 + 0.85 * noise[k]);
-                amp[k] += (tgt - amp[k]) * (1 - Math.Exp(-dt * (tgt > amp[k] ? 38 : 11)));
+                if (liquidClock >= nextRoll[k]) { noise[k] = rnd.NextDouble(); nextRoll[k] = liquidClock + (alarm ? 0.03 + rnd.NextDouble() * 0.05 : 0.07 + rnd.NextDouble() * 0.13); }
+                double tgt = alarm ? (k % 2 == 0 ? 0.4 + 0.6 * noise[k] : 0.25 + 0.45 * noise[k])
+                           : spec ? Math.Max(0.06 * level, BandAt(k))
+                           : level * (0.15 + 0.85 * noise[k]);
+                amp[k] += (tgt - amp[k]) * (1 - Math.Exp(-dt * (alarm ? 60 : spec ? (tgt > amp[k] ? 50 : 14) : (tgt > amp[k] ? 38 : 11))));
                 if (amp[k] > 0.004) any = true;
             }
             return on || any;
         }
 
-        static void Wave(StreamGeometryContext c, List<Point> tips, double bl, double br, double h)
+        static void Wave(StreamGeometryContext c, List<Point> tips, double bl, double br, double h, bool sharp)
         {
             Point prev = new Point(bl, h);
             for (int i = 0; i <= tips.Count; i++)
             {
                 Point t = i < tips.Count ? tips[i] : new Point(br, h);
+                if (sharp)
+                {
+                    // «Щетина»: прямые иглы с острыми кончиками вместо округлых капель.
+                    if (i > 0 && i < tips.Count) c.LineTo(new Point((prev.X + t.X) / 2, h), true, true);
+                    c.LineTo(t, true, true);
+                    prev = t;
+                    continue;
+                }
                 // Контрольная точка подобрана так, что дуга между каплями касается ровного края.
                 c.QuadraticBezierTo(new Point((prev.X + t.X) / 2, h - ((prev.Y - h) + (t.Y - h)) / 2), t, true, false);
                 prev = t;
@@ -4173,6 +4249,7 @@ namespace Kapsula
             double bl = x0 + r, br = x1 - r, A = state == 0 ? 13 : 16;
             var tips = new List<Point>();
             int kmin = (int)Math.Ceiling((bl + 8 - cx) / Pitch), kmax = (int)Math.Floor((br - 8 - cx) / Pitch);
+            if (kmax > kmin) { visMin = Math.Max(0, kmin + 40); visMax = Math.Min(80, kmax + 40); }
             for (int k = kmin; k <= kmax; k++)
             {
                 int idx = k + 40;
@@ -4189,7 +4266,7 @@ namespace Kapsula
                 c.ArcTo(new Point(x0, e), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
                 c.LineTo(new Point(x0, h - r), true, false);
                 c.ArcTo(new Point(bl, h), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                Wave(c, tips, bl, br, h);
+                Wave(c, tips, bl, br, h, spikes);
                 c.ArcTo(new Point(x1, h - r), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
                 c.LineTo(new Point(x1, e), true, false);
                 c.ArcTo(new Point(x1 + e, 0), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
@@ -4206,7 +4283,7 @@ namespace Kapsula
                 {
                     c.BeginFigure(new Point(x0 + r * 0.3, h - r * 0.3), false, false);
                     c.ArcTo(new Point(bl, h), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                    Wave(c, tips, bl, br, h);
+                    Wave(c, tips, bl, br, h, spikes);
                     c.ArcTo(new Point(x1 - r * 0.3, h - r * 0.3), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
                 }
                 eg.Freeze();

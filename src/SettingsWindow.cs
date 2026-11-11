@@ -111,6 +111,7 @@ namespace Kapsula
             sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
             sp.Children.Add(Row("Мини-плеер при наведении", "Во время музыки сначала открывается мини-плеер, клик по нему — вся панель.", Toggle(island.HoverMini, delegate(bool v) { island.SetFlag("hoverMini", v); }), false));
             sp.Children.Add(Row("Жидкий край", "Нижний край пляшет под звук.", Toggle(island.LiquidOn, delegate(bool v) { island.SetFlag("liquid", v); }), false));
+            sp.Children.Add(Row("Край как эквалайзер", "Слева бас, справа высокие частоты. Выключено — край пляшет от общей громкости.", Toggle(Store.Get("liquidSpectrum") != "0", delegate(bool v) { Store.Set("liquidSpectrum", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Тексты песен", "Загружаются с lrclib.net для играющего трека.", Toggle(island.LyricsEnabled, delegate(bool v) { island.SetFlag("lyrics", v); }), false));
 
             double[] offs = { -1, -0.5, 0, 0.5, 1 };
@@ -265,7 +266,10 @@ namespace Kapsula
             head.Children.Add(paneTitle); head.Children.Add(paneHint);
             DockPanel.SetDock(head, Dock.Top);
             pane.Children.Add(head);
-            scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 16, 16) };
+            FrameworkElement pv = BuildPreview();
+            DockPanel.SetDock(pv, Dock.Top);
+            pane.Children.Add(pv);
+            scroller =new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 16, 16) };
             pane.Children.Add(scroller);
             Grid.SetColumn(pane, 1);
             root.Children.Add(pane);
@@ -275,10 +279,61 @@ namespace Kapsula
             ShowSection(sections.ContainsKey(last) && sections[last].Children.Count > 0 ? last : "Общее");
         }
 
+        // Превью: живая копия острова прямо в окне настроек. В разделе «Главная» показывает главную панель,
+        // в «Музыке» — мини-плеер, в остальных — сам остров как он сейчас выглядит на экране.
+        const double PvH = 150, PvHomeH = 210;
+        FrameworkElement pvIsland, pvHome, pvMini;
+        Border pvHomeBox, pvBox;
+        TextBlock pvCaption;
+        DispatcherTimer pvTimer;
+
+        FrameworkElement BuildPreview()
+        {
+            var bg = new LinearGradientBrush(Color.FromRgb(0x3A, 0x45, 0x63), Color.FromRgb(0x27, 0x2C, 0x40), 90);
+            var grid = new Grid { ClipToBounds = true };
+
+            var mirror = new VisualBrush(island.PreviewRoot) { Stretch = Stretch.None, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(IslandWindow.PreviewBaseW / 2 - 260, 0, 520, PvH) };
+            pvIsland = new Rectangle { Fill = mirror, Width = 520, Height = PvH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
+            grid.Children.Add(pvIsland);
+
+            pvHomeBox = new Border { Width = IslandWindow.PreviewEW, Height = island.PreviewHomeH, Background = island.PreviewInk, CornerRadius = new CornerRadius(IslandWindow.PreviewER), ClipToBounds = true,
+                Child = new Rectangle { Width = IslandWindow.PreviewEW, Height = IslandWindow.PreviewEH, VerticalAlignment = VerticalAlignment.Top, Fill = new VisualBrush(island.PreviewHome) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, IslandWindow.PreviewEW, IslandWindow.PreviewEH) } } };
+            pvHome = new Viewbox { Height = PvHomeH - 16, Child = pvHomeBox, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            grid.Children.Add(pvHome);
+
+            var miniBox = new Border { Width = IslandWindow.PreviewMW, Height = IslandWindow.PreviewMH, Background = island.PreviewInk, CornerRadius = new CornerRadius(IslandWindow.PreviewMR), ClipToBounds = true,
+                Child = new Rectangle { Fill = new VisualBrush(island.PreviewMini) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, IslandWindow.PreviewMW, IslandWindow.PreviewMH) } } };
+            pvMini = new Viewbox { Height = PvH - 40, Child = miniBox, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            grid.Children.Add(pvMini);
+
+            pvCaption = new TextBlock { Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), FontSize = 11, Margin = new Thickness(12, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
+            grid.Children.Add(pvCaption);
+
+            pvTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            pvTimer.Tick += delegate { UpdatePreview(); };
+            pvTimer.Start();
+            Closed += delegate { pvTimer.Stop(); };
+            pvBox = new Border { Height = PvH, CornerRadius = new CornerRadius(14), Background = bg, Margin = new Thickness(0, 0, 16, 12), Child = grid, ClipToBounds = true };
+            return pvBox;
+        }
+
+        void UpdatePreview()
+        {
+            if (pvIsland == null) return;
+            int kind = currentSection == "Главная" ? 1 : (currentSection == "Музыка" && island.PreviewHasMedia ? 2 : 0);
+            pvIsland.Visibility = kind == 0 ? Visibility.Visible : Visibility.Collapsed;
+            pvHome.Visibility = kind == 1 ? Visibility.Visible : Visibility.Collapsed;
+            pvMini.Visibility = kind == 2 ? Visibility.Visible : Visibility.Collapsed;
+            if (kind == 1) { island.PreviewRefresh(); pvHomeBox.Height = island.PreviewHomeH; }
+            pvBox.Height = kind == 1 ? PvHomeH : PvH;
+            pvCaption.Text = kind == 1 ? "Главная" : kind == 2 ? "Мини-плеер" : "Остров сейчас";
+        }
+
         public void ShowSection(string name)
         {
             if (!sections.ContainsKey(name)) return;
             currentSection = name;
+            UpdatePreview();
             int idx = Array.IndexOf(SectionOrder, name);
             paneTitle.Text = name;
             paneHint.Text = idx >= 0 ? SectionHints[idx] : "";

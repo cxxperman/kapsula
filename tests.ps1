@@ -204,5 +204,16 @@ T 'Steam: игра в загрузке не готова' $g2.Ready $false
 $svc = (Call 'Steam' 'ParseManifest' @($acf.Replace('Hades', 'Steamworks Common Redistributables'))).Result
 T 'Steam: служебный пакет пропущен' ($svc -eq $null) $true
 
+# --- спектр звука: чистый тон должен дать пик ровно в своей частотной ячейке
+$fre = New-Object double[] 1024; $fim = New-Object double[] 1024
+for ($i = 0; $i -lt 1024; $i++) { $fre[$i] = [Math]::Sin(2 * [Math]::PI * 37 * $i / 1024) }
+$fft = $asm.GetType('Kapsula.Spectrum').GetMethod('Fft')
+$fa = New-Object object[] 2; $fa[0] = [double[]]$fre; $fa[1] = [double[]]$fim
+[void]$fft.Invoke($null, $fa)
+$best = 0; $bestV = 0
+for ($i = 1; $i -lt 512; $i++) { $v = [Math]::Sqrt($fre[$i] * $fre[$i] + $fim[$i] * $fim[$i]); if ($v -gt $bestV) { $bestV = $v; $best = $i } }
+T 'спектр: пик тона' $best 37
+T 'спектр: высота пика' ([Math]::Round($bestV)) 512
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }
