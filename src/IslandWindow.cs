@@ -135,6 +135,7 @@ namespace Kapsula
         public double Scale = 1;
         public string TestColor;
         public bool TestSettings, TestSettingsTop;
+        public string TestSettingsTab;   // ключ --settingstab «Раздел»
         ScaleTransform scaleT = new ScaleTransform(1, 1);
         SettingsWindow settingsWin;
         bool lastWinDark;
@@ -277,7 +278,7 @@ namespace Kapsula
             if (settingsWin != null) { settingsWin.Activate(); return; }
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
-            if (TestSettings) { if (!TestSettingsTop) settingsWin.ScrollToBottom(); settingsWin.Topmost = true; settingsWin.Height = 1280; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 560) / 2; }
+            if (TestSettings) { settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 780) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); }
             settingsWin.Show();
             settingsWin.Activate();
         }

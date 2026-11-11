@@ -69,6 +69,7 @@ namespace Kapsula
                 if (args[i] == "--notetest") w.TestNote = true;
                 if (args[i] == "--settings") w.TestSettings = true;
                 if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
+                if (args[i] == "--settingstab" && i + 1 < args.Length) { w.TestSettings = true; w.TestSettingsTab = args[i + 1]; }
                 if (args[i] == "--bt") w.TestBt = true;
                 if (args[i] == "--chattest") w.TestChat = true;
                 if (args[i] == "--notif") w.ShowNotifications = true;   // только на этот запуск
