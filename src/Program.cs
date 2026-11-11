@@ -78,6 +78,7 @@ namespace Kapsula
                 if (args[i] == "--color" && i + 1 < args.Length) w.PreviewOnly(args[i + 1]);
                 if (args[i] == "--scale" && i + 1 < args.Length) w.PreviewScale(args[i + 1]);
                 if (args[i] == "--card") { w.TestCard = true; w.ForceOpen = -3; }
+                if (args[i] == "--hideapps" && i + 1 < args.Length) w.TestHideApps = args[i + 1];
                 if (args[i] == "--democard" && i + 1 < args.Length) { w.TestCard = true; w.TestDemoCard = args[i + 1]; w.ForceOpen = -3; }
                 if (args[i] == "--cmd" && i + 1 < args.Length) { w.TestCmd = args[i + 1]; w.ForceOpen = -3; }
                 if (args[i] == "--pill") w.ForceOpen = -3;

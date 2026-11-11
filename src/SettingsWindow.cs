@@ -80,6 +80,7 @@ namespace Kapsula
             sp.Children.Add(Row("Размер", "Для больших мониторов.", Chips(new string[] { "80%", "100%", "125%", "150%", "175%", "200%" }, si, delegate(int i) { island.ApplyScale(scales[i]); }), true));
 
             sp.Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
+            sp.Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так.", HideAppsEditor(), true));
             int ci = Math.Max(0, Array.IndexOf(IslandWindow.CharacterIds, island.Character));
             sp.Children.Add(Row("Персонаж", "Кто живёт в капсуле. Он следит за курсором, задумывается, пока отвечает нейросеть, пугается таймера и радуется, когда что-то получилось.", Chips(IslandWindow.CharacterNames, ci, delegate(int i) { Store.Set("character", IslandWindow.CharacterIds[i]); island.BuildCharacter(); }), true));
             sp.Children.Add(Row("Показывать персонажа", "Если выключить, в капсуле останутся только часы и погода.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
@@ -441,6 +442,58 @@ namespace Kapsula
                 paint();
                 wrap.Children.Add(c);
             }
+            return wrap;
+        }
+
+        // Список программ, в которых остров прячется: выбранные — плашками (клик убирает), «Добавить» — из открытых сейчас.
+        FrameworkElement HideAppsEditor()
+        {
+            var wrap = new WrapPanel { MaxWidth = 470 };
+            Action fill = null;
+            fill = delegate
+            {
+                wrap.Children.Clear();
+                List<string> apps = IslandWindow.HideApps();
+                foreach (string a in apps)
+                {
+                    string name = a;
+                    var tb = new TextBlock { Text = name + "  ✕", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = OnTxt, VerticalAlignment = VerticalAlignment.Center };
+                    var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 12, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = OnBg, Child = tb, ToolTip = "Убрать из списка" };
+                    c.MouseLeftButtonDown += delegate { List<string> cur = IslandWindow.HideApps(); cur.RemoveAll(delegate(string x) { return string.Equals(x, name, StringComparison.OrdinalIgnoreCase); }); IslandWindow.SetHideApps(cur); fill(); };
+                    wrap.Children.Add(c);
+                }
+                var addText = new TextBlock { Text = "+ Добавить программу", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Txt, VerticalAlignment = VerticalAlignment.Center };
+                var add = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = ChipBg, Child = addText };
+                add.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    // Программы, у которых сейчас открыто окно. Названия окон никуда не сохраняются — только имя программы.
+                    var menu = new ContextMenu();
+                    var seen = new List<string>(IslandWindow.HideApps());
+                    seen.Add("Kapsula");
+                    try
+                    {
+                        foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcesses())
+                        {
+                            string pn, title;
+                            try { if (p.MainWindowHandle == IntPtr.Zero) continue; pn = p.ProcessName; title = p.MainWindowTitle ?? ""; } catch { continue; }
+                            if (title.Length == 0 || seen.Exists(delegate(string x) { return string.Equals(x, pn, StringComparison.OrdinalIgnoreCase); })) continue;
+                            seen.Add(pn);
+                            string shown = title.Length > 46 ? title.Substring(0, 45) + "…" : title;
+                            var mi = new MenuItem { Header = pn + "  —  " + shown };
+                            mi.Click += delegate { List<string> cur = IslandWindow.HideApps(); cur.Add(pn); IslandWindow.SetHideApps(cur); fill(); };
+                            menu.Items.Add(mi);
+                        }
+                    }
+                    catch { }
+                    if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { Header = "Нет открытых программ", IsEnabled = false });
+                    menu.PlacementTarget = add;
+                    menu.Placement = PlacementMode.Bottom;
+                    menu.IsOpen = true;
+                };
+                wrap.Children.Add(add);
+            };
+            fill();
             return wrap;
         }
 

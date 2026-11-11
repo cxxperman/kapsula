@@ -4359,9 +4359,9 @@ namespace Kapsula
             if (!Native.GetCursorPos(out pt)) return;
             double x = (pt.X / dpi - Left) / Scale, y = (pt.Y / dpi - Top) / Scale, cx = BaseW / 2;
             int now = Environment.TickCount;
-            if (AutoHide)
+            if (AutoHide || appHide)
             {
-                // Автоскрытие: остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать.
+                // Автоскрытие (всегда или только в выбранных программах): остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать.
                 bool nearTop = y <= 3 && Math.Abs(x - cx) <= 320;
                 bool overPill = !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 8 && y <= sh.X + 8;
                 if (nearTop || overPill || state != 0 || toastOn || timerRinging || Recorder.Active || dlActive != null) revealUntil = now + 1800;
@@ -5037,6 +5037,40 @@ namespace Kapsula
             return r.L <= mi.rcMonitor.L && r.T <= mi.rcMonitor.T && r.R >= mi.rcMonitor.R && r.B >= mi.rcMonitor.B;
         }
 
+        // ---- программы, в которых остров прячется (выбирает пользователь в настройках)
+        bool appHide;
+        public string TestHideApps;   // ключ --hideapps: список на один запуск, настройки не трогает
+        uint appHidePid; string appHideName = "";
+
+        public static List<string> HideApps()
+        {
+            var list = new List<string>();
+            foreach (string s in Store.Get("hideApps").Split('|')) if (s.Trim().Length > 0) list.Add(s.Trim());
+            return list;
+        }
+
+        public static void SetHideApps(List<string> apps) { Store.Set("hideApps", string.Join("|", apps.ToArray())); }
+
+        // Активное окно принадлежит программе из списка?
+        bool HideAppInFront()
+        {
+            string raw = TestHideApps ?? Store.Get("hideApps");
+            if (raw.Length == 0) return false;
+            IntPtr fg = Native.GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == hwnd) return appHide && fg == hwnd;   // клик по самому острову ничего не меняет
+            uint pid;
+            Native.GetWindowThreadProcessId(fg, out pid);
+            if (pid == 0) return false;
+            if (pid != appHidePid)
+            {
+                appHidePid = pid;
+                try { appHideName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { appHideName = ""; }
+            }
+            if (appHideName.Length == 0) return false;
+            foreach (string s in raw.Split('|')) if (string.Equals(s.Trim(), appHideName, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         void OnPoll()
         {
             pollN++;
@@ -5092,6 +5126,8 @@ namespace Kapsula
             tick++;
             bool fs = FullscreenAppInFront();
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
+            bool ah = HideAppInFront();
+            if (ah != appHide) { appHide = ah; if (!ah) revealUntil = Environment.TickCount + 600; }
             if (!fs && tick % 6 == 0 && hwnd != IntPtr.Zero && !snipActive)
                 Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
 
