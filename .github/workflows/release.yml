@@ -1,0 +1,34 @@
+name: Release
+
+# Тег вида v0.1.1 → сборка Kapsula.exe и релиз, который подхватит автообновление.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches version.txt
+        shell: powershell
+        run: |
+          $v = (Get-Content version.txt -Raw).Trim()
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match version.txt ($v)" }
+
+      - name: Build
+        shell: powershell
+        run: .\build.ps1
+
+      - name: Create release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = (Get-FileHash Kapsula.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content Kapsula.exe.sha256 $hash -Encoding ascii -NoNewline
+          gh release create "${{ github.ref_name }}" Kapsula.exe Kapsula.exe.sha256 --title "Kapsula ${{ github.ref_name }}" --generate-notes --prerelease
