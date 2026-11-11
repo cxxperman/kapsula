@@ -749,7 +749,28 @@ namespace Kapsula
         }
 
         // Круглая кнопка со значком папки нужна карточкам про файлы (снимок, запись, загрузка). У уведомлений её убираем.
-        void HideCardButton() { if (state == 3) cardBtn.Visibility = Visibility.Collapsed; }
+        void HideCardButton() { if (state == 3) { cardBtn.Visibility = Visibility.Collapsed; FitCard(); } }
+
+        static double NaturalWidth(FrameworkElement e)
+        {
+            if (e == null || e.Visibility != Visibility.Visible) return 0;
+            e.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return e.DesiredSize.Width;
+        }
+
+        // Ширина карточки — по содержимому: короткое уведомление не оставляет пустого места, длинное получает больше.
+        void FitCard()
+        {
+            if (cardHost == null || state != 3) return;
+            double text = Math.Max(NaturalWidth(cardTitle), NaturalWidth(cardSub));
+            text = Math.Max(70, Math.Min(330, Math.Ceiling(text) + 2));
+            double buttons = NaturalWidth(cardBtn) + NaturalWidth(cardNo);   // вместе со своими отступами
+            double total = 18 + cardThumbBox.Width + 14 + text + buttons + 22;
+            total = Math.Max(220, Math.Min(620, total));
+            cardExtra = total - CardW;
+            cardHost.Width = total;
+            SetTargets();
+        }
 
         // Вызывается сразу после показа карточки: ставит в угол картинки значок источника.
         void SetCardBadge(ImageSource icon)
@@ -766,9 +787,7 @@ namespace Kapsula
             if (state != 3) return;   // панель открыта — показали короткую подсказку вместо карточки
             cardNoAction = no;
             cardNo.Visibility = Visibility.Visible;
-            cardExtra = 120;
-            cardHost.Width = CardW + cardExtra;
-            SetTargets();
+            FitCard();
             cardUntil = Environment.TickCount + 15000;
         }
 
@@ -801,6 +820,7 @@ namespace Kapsula
             cardAction = act;
             cardUntil = Environment.TickCount + 4200;
             if (state == 3) SetTargets(); else SetState(3);
+            FitCard();
         }
 
         // Новая версия уже лежит на месте старой. Kapsula перезапустится сама, когда это не помешает; кнопка — для нетерпеливых.
