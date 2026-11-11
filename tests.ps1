@@ -149,6 +149,8 @@ $r = Call 'DiscordBridge' 'Parse' @('{"command":"Other","jsonData":"{}"}', $null
 T 'Discord: чужая команда отклонена' $r.Result $false
 $r = Call 'DiscordBridge' 'Parse' @('не json', $null, $null, $null)
 T 'Discord: мусор отклонён' $r.Result $false
+T 'Discord: плагин XSOverlay включён' (Call 'DiscordBridge' 'XsOverlayOn' @('{"plugins":{"Other":{"enabled":false},"XSOverlay":{"enabled":true,"webSocketPort":42070}}}')).Result $true
+T 'Discord: плагин XSOverlay выключен' (Call 'DiscordBridge' 'XsOverlayOn' @('{"plugins":{"XSOverlay":{"enabled":false},"Other":{"enabled":true}}}')).Result $false
 T 'Discord: источник discord.com разрешён' (Call 'DiscordBridge' 'OriginAllowed' @('https://discord.com')).Result $true
 T 'Discord: источник canary разрешён' (Call 'DiscordBridge' 'OriginAllowed' @('https://canary.discord.com')).Result $true
 T 'Discord: посторонний сайт запрещён' (Call 'DiscordBridge' 'OriginAllowed' @('https://evil.example')).Result $false

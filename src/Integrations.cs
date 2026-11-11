@@ -31,6 +31,25 @@ namespace Kapsula
 
         public static bool Enabled { get { return VencordFound && Store.Get("discordVencord") != "0"; } }
 
+        // Включён ли в Vencord плагин XSOverlay. Читаем файл настроек Vencord, ничего в нём не меняя.
+        public static bool XsOverlayEnabled
+        {
+            get
+            {
+                try
+                {
+                    string f = System.IO.Path.Combine(Roaming("Vencord"), @"settings\settings.json");
+                    return System.IO.File.Exists(f) && XsOverlayOn(System.IO.File.ReadAllText(f));
+                }
+                catch { return false; }
+            }
+        }
+
+        public static bool XsOverlayOn(string settingsJson)
+        {
+            return Regex.IsMatch(settingsJson ?? "", "\"XSOverlay\"\\s*:\\s*\\{[^{}]*\"enabled\"\\s*:\\s*true");
+        }
+
         public static void Start()
         {
             lock (gate)

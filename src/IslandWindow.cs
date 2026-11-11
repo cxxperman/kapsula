@@ -3560,6 +3560,58 @@ namespace Kapsula
 
         public bool TestSteam;   // ключ --steamtest
 
+        // ---- подсказки про интеграции: один раз предлагаем то, что можно подключить на этом компьютере
+        public bool Plain;        // обычный запуск без проверочных ключей
+        public string TestHint;   // ключ --hinttest steam|discord|steamdone
+
+        void StartIntegrationHints()
+        {
+            if (!Plain && TestHint == null) return;
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(TestHint != null ? 2.5 : 12) };
+            int tries = 0;
+            t.Tick += delegate
+            {
+                // Ждём спокойного момента: не поверх игры, открытой панели или другой карточки
+                if (TestHint == null && (state != 0 || hiddenFs || toastOn) && ++tries < 40) return;
+                t.Stop();
+                ShowIntegrationHint();
+            };
+            t.Start();
+        }
+
+        void ShowIntegrationHint()
+        {
+            string which = TestHint;
+            if (which == null)
+            {
+                if (Steam.Found && SteamBridge.MillenniumFound && !SteamBridge.PluginInstalled && Store.Get("hintSteam") != "1") which = "steam";
+                else if (DiscordBridge.VencordFound && !DiscordBridge.XsOverlayEnabled && DiscordBridge.Clients == 0 && Store.Get("hintDiscord") != "1") which = "discord";
+            }
+            if (which == "steam")
+            {
+                if (TestHint == null) Store.Set("hintSteam", "1");
+                ShowCardChoice(SourceIcon("steam"), "", "Уведомления Steam на острове", "Сообщения, приглашения, загрузки игр", "Подключить", delegate
+                {
+                    if (SteamBridge.InstallPlugin()) SteamPluginInstalledHint();
+                    else Toast("", "Не удалось записать в папку Millennium", null, -1, null);
+                }, delegate { });
+            }
+            else if (which == "steamdone") SteamPluginInstalledHint();
+            else if (which == "discord")
+            {
+                if (TestHint == null) Store.Set("hintDiscord", "1");
+                ShowCardEx(SourceIcon("discord"), "", "Сообщения Discord на острове", "В Vencord включите плагин XSOverlay", delegate { OpenSettings(); }, "Подробнее", delegate { OpenSettings(); }, false);
+                cardUntil = Environment.TickCount + 15000;
+            }
+        }
+
+        // Плагин положен в папку, но включить его в Millennium может только сам человек — говорим, где.
+        void SteamPluginInstalledHint()
+        {
+            ShowCardEx(SourceIcon("steam"), "", "Остался один шаг", "В Steam: Millennium → Плагины → включите Kapsula", delegate { }, "Понятно", delegate { }, false);
+            cardUntil = Environment.TickCount + 20000;
+        }
+
         // Всплывающее уведомление Steam (приходит от плагина Kapsula для Millennium)
         public void SteamNotify(string title, string text, byte[] icon, Action open, string replyTo)
         {
@@ -3796,6 +3848,7 @@ namespace Kapsula
             if (ForceOpen >= 0) { ShowPage(Math.Min(ForceOpen, pages.Length - 1)); SetExpanded(true); }
             else if (ForceOpen == -2) SetState(1);
             else if (ForceOpen == -3) SetTargets();
+            StartIntegrationHints();
             if (Demo)
             {
                 TestLyrics = true;   // не искать текст выдуманной песни в сети

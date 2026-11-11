@@ -61,6 +61,7 @@ namespace Kapsula
                 if (args[i] == "--demo") w.Demo = true;
                 if (args[i] == "--steamtest") { w.TestSteam = true; SteamBridge.Logging = true; }
                 if (args[i] == "--replytest") w.TestReply = true;
+                if (args[i] == "--hinttest" && i + 1 < args.Length) w.TestHint = args[i + 1];
                 if (args[i] == "--character" && i + 1 < args.Length) w.TestCharacter = args[i + 1];
                 if (args[i] == "--mood" && i + 1 < args.Length) w.TestMood = args[i + 1];
                 if (args[i] == "--fstest") { w.Demo = true; w.TestFs = true; }
@@ -81,6 +82,7 @@ namespace Kapsula
                 if (args[i] == "--y" && i + 1 < args.Length && double.TryParse(args[i + 1], out y)) w.Top = y;
                 if (args[i] == "--open" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) w.ForceOpen = n;
             }
+            w.Plain = plain;
             w.Show();
             if (plain) Updater.Start(w);
             if (updated)
