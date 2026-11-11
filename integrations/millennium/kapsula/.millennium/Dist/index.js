@@ -9,7 +9,7 @@ const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071, VERSION = "0.3.0";
+    const PORT = 42071, VERSION = "0.4.0";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -41,6 +41,7 @@ let PluginEntryPointMain = function () {
     // The only command Kapsula can give: show Steam's own built-in sample notifications (used to check the link).
     function command(msg) {
       if (!msg || msg.cmd !== "test" || !Array.isArray(msg.names)) return;
+      debug = true;   // check mode: also report field names of what Steam passes, until the plugin is reloaded
       const store = window.NotificationStore;
       msg.names.slice(0, 12).forEach(function (name, i) {
         if (typeof name !== "string" || !/^Test[A-Za-z]{1,40}$/.test(name) || !store || typeof store[name] !== "function") return;
@@ -60,6 +61,62 @@ let PluginEntryPointMain = function () {
       return "";
     }
 
+    // Names of an object's fields and methods (no values) — sent only in check mode, to learn Steam's data shapes.
+    function shape(o) {
+      if (!o) return null;
+      const own = [], methods = [];
+      try { for (const k of Object.getOwnPropertyNames(o)) if (own.length < 60) own.push(k + ":" + (o[k] === null ? "null" : typeof o[k])); } catch (e) { }
+      try {
+        let p = Object.getPrototypeOf(o), level = 0;
+        while (p && p !== Object.prototype && level++ < 3)
+          for (const k of Object.getOwnPropertyNames(p)) if (k !== "constructor" && methods.length < 120 && methods.indexOf(k) < 0) methods.push(k);
+      } catch (e) { }
+      return { own: own, methods: methods };
+    }
+
+    // Simple values of a notification: results of its argument-less getters (title, steamid, appid…).
+    function simpleFields(d) {
+      const out = {};
+      let n = 0;
+      try {
+        for (const k in d) {
+          if (n >= 25) break;
+          let v = d[k];
+          if (typeof v === "function") {
+            if (v.length !== 0 || /^(set_|clone|to[A-Z]|get[A-Z]|sync|serialize|tag$)/.test(k)) continue;
+            try { v = v.call(d); } catch (e) { continue; }
+          }
+          if (typeof v === "string") { out[k] = v.slice(0, 200); n++; }
+          else if (typeof v === "number" || typeof v === "boolean") { out[k] = v; n++; }
+        }
+      } catch (e) { }
+      return out;
+    }
+
+    // Looks a friend up in Steam's own friends list by SteamID: name, avatar and the game they are in.
+    function friend(steamid) {
+      const out = { name: "", game: "", avatar: "" };
+      try {
+        if (!steamid) return out;
+        const account = Number(BigInt(steamid) & 0xFFFFFFFFn);
+        const store = window.g_FriendsUIApp && window.g_FriendsUIApp.FriendStore;
+        const p = store && typeof store.GetPlayer === "function" ? store.GetPlayer(account) : null;
+        if (!p) { if (debug) out.storeShape = shape(store); return out; }
+        const per = p.persona;
+        out.name = String(p.display_name || (per && per.m_strPlayerName) || "");
+        if (per) {
+          let game = "";
+          try { if (typeof per.GetCurrentGameName === "function") game = per.GetCurrentGameName() || ""; } catch (e) { }
+          out.game = String(game || per.m_strGameExtraInfo || "");
+          out.avatar = String(per.avatar_url_medium || "");
+        }
+        if (debug) { out.playerShape = shape(p); out.personaShape = shape(per); }
+      } catch (e) { out.error = String(e); }
+      return out;
+    }
+
+    let debug = false;
+
     function describeToast(config, n) {
       const d = n && n.data;
       const out = {
@@ -68,9 +125,18 @@ let PluginEntryPointMain = function () {
         eType: n && typeof n.eType === "number" ? n.eType : -1,
         title: field(d, "title"), body: field(d, "body"), icon: field(d, "icon"),
         steamid: field(d, "steamid"), url: field(d, "response_steamurl"),
-        extra: ""
+        game: "", extra: ""
       };
       try { if (d && d.item && typeof d.item.body_data === "string") out.extra = d.item.body_data.slice(0, 400); } catch (e) { }
+      // "Friend online / in game" notifications carry only a SteamID — fill in the rest from the friends list.
+      if (out.steamid && (!out.title || !out.icon)) {
+        const f = friend(out.steamid);
+        if (!out.title) out.title = f.name;
+        if (!out.icon) out.icon = f.avatar;
+        out.game = f.game;
+        if (debug) out.friend = f;
+      }
+      if (debug) { out.fields = simpleFields(d); out.dataShape = shape(d); }
       return out;
     }
 
@@ -82,7 +148,10 @@ let PluginEntryPointMain = function () {
       const wrapped = function (config, notification) {
         const show = orig.apply(this, arguments);
         // Forward only what Steam itself is about to show, so the island follows the user's Steam settings.
-        try { if (show) send(describeToast(config, notification)); } catch (e) { }
+        try {
+          if (show) send(describeToast(config, notification));
+          else if (debug) { const t = describeToast(config, notification); t.type = "suppressed"; send(t); }
+        } catch (e) { }
         return show;
       };
       store.BShowToast = wrapped;

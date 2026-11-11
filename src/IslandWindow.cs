@@ -475,6 +475,8 @@ namespace Kapsula
                     string url = get("url");
                     // Уведомление приходит уже в фоновом потоке — значок можно скачать прямо здесь.
                     byte[] icon = SteamBridge.FetchIcon(get("icon"));
+                    string game = DiscordBridge.Clean(get("game"), 80);
+                    if (body == "" && game != "" && get("kind").ToLowerInvariant().Contains("game")) body = "Играет в " + game;
                     if (title == "" && body == "") { title = "Steam"; body = kind; }
                     else if (title == "") title = kind;
                     else if (body == "") body = kind;
