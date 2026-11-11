@@ -191,6 +191,127 @@ namespace Kapsula
         [PreserveSig] int GetPeakValue(out float peak);
     }
 
+    // ---- громкость отдельной программы (то же, что ползунки в «Микшере громкости» Windows)
+    [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionManager2
+    {
+        [PreserveSig] int GetAudioSessionControl(IntPtr sessionGuid, int flags, out IntPtr control);
+        [PreserveSig] int GetSimpleAudioVolume(IntPtr sessionGuid, int flags, out IntPtr volume);
+        [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessions);
+    }
+
+    [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionEnumerator
+    {
+        [PreserveSig] int GetCount(out int count);
+        [PreserveSig] int GetSession(int index, [MarshalAs(UnmanagedType.IUnknown)] out object session);
+    }
+
+    [Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionControl2
+    {
+        // IAudioSessionControl
+        [PreserveSig] int GetState(out int state);
+        [PreserveSig] int GetDisplayName(out IntPtr name);
+        [PreserveSig] int SetDisplayName(IntPtr name, IntPtr context);
+        [PreserveSig] int GetIconPath(out IntPtr path);
+        [PreserveSig] int SetIconPath(IntPtr path, IntPtr context);
+        [PreserveSig] int GetGroupingParam(out Guid group);
+        [PreserveSig] int SetGroupingParam(IntPtr group, IntPtr context);
+        [PreserveSig] int RegisterAudioSessionNotification(IntPtr client);
+        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr client);
+        // IAudioSessionControl2
+        [PreserveSig] int GetSessionIdentifier(out IntPtr id);
+        [PreserveSig] int GetSessionInstanceIdentifier(out IntPtr id);
+        [PreserveSig] int GetProcessId(out uint pid);
+    }
+
+    [Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ISimpleAudioVolume
+    {
+        [PreserveSig] int SetMasterVolume(float level, ref Guid context);
+        [PreserveSig] int GetMasterVolume(out float level);
+        [PreserveSig] int SetMute(bool mute, ref Guid context);
+        [PreserveSig] int GetMute(out bool mute);
+    }
+
+    static class AppVolume
+    {
+        static List<ISimpleAudioVolume> cached = new List<ISimpleAudioVolume>();
+        static string cachedFor;
+        static int cachedAt;
+
+        // Подходит ли процесс к названию плеера: «spotify» ↔ «SpotifyMusic», «chrome» ↔ «Chrome»
+        public static bool Matches(string process, string player)
+        {
+            string p = (process ?? "").ToLowerInvariant(), k = (player ?? "").ToLowerInvariant();
+            if (p.Length < 3 || k.Length < 3) return false;
+            return p == k || p.Contains(k) || k.Contains(p);
+        }
+
+        static List<ISimpleAudioVolume> Find(string player)
+        {
+            int now = Environment.TickCount;
+            if (cachedFor == player && unchecked(now - cachedAt) < 2500) return cached;
+            var list = new List<ISimpleAudioVolume>();
+            try
+            {
+                var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
+                IMMDevice dev;
+                if (en.GetDefaultAudioEndpoint(0, 1, out dev) == 0 && dev != null)
+                {
+                    Guid iid = typeof(IAudioSessionManager2).GUID;
+                    object o;
+                    if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) == 0 && o != null)
+                    {
+                        IAudioSessionEnumerator sessions;
+                        int n;
+                        if (((IAudioSessionManager2)o).GetSessionEnumerator(out sessions) == 0 && sessions != null && sessions.GetCount(out n) == 0)
+                            for (int i = 0; i < n; i++)
+                            {
+                                object s;
+                                if (sessions.GetSession(i, out s) != 0 || s == null) continue;
+                                uint pid;
+                                var c2 = s as IAudioSessionControl2;
+                                if (c2 == null || c2.GetProcessId(out pid) != 0 || pid == 0) continue;
+                                string name;
+                                try { name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { continue; }
+                                var vol = s as ISimpleAudioVolume;
+                                if (vol != null && Matches(name, player)) list.Add(vol);
+                            }
+                    }
+                }
+            }
+            catch { }
+            cached = list; cachedFor = player; cachedAt = now;
+            return list;
+        }
+
+        // Громкость плеера от 0 до 1; -1 — у этого плеера нет своего звука в микшере
+        public static double Get(string player)
+        {
+            try
+            {
+                double max = -1;
+                foreach (var v in Find(player)) { float f; if (v.GetMasterVolume(out f) == 0 && f > max) max = f; }
+                return max;
+            }
+            catch { cachedFor = null; return -1; }
+        }
+
+        public static bool Set(string player, double level)
+        {
+            try
+            {
+                bool any = false;
+                Guid g = Guid.Empty;
+                foreach (var v in Find(player)) { if (v.SetMasterVolume((float)Math.Max(0, Math.Min(1, level)), ref g) == 0) any = true; }
+                return any;
+            }
+            catch { cachedFor = null; return false; }
+        }
+    }
+
     static class Audio
     {
         static IAudioEndpointVolume[] cache = new IAudioEndpointVolume[2];

@@ -342,24 +342,39 @@ namespace Kapsula
             return found;
         }
 
-        static LoopbackCapture audio;
-        public static bool HasAudio;
+        static LoopbackCapture audio, mic;
+        public static bool HasAudio, HasMic;
 
         public static bool Start(string ffmpeg, string path, int x, int y, int w, int h, string codec, bool withAudio)
+        {
+            return Start(ffmpeg, path, x, y, w, h, codec, withAudio, false);
+        }
+
+        public static bool Start(string ffmpeg, string path, int x, int y, int w, int h, string codec, bool withAudio, bool withMic)
         {
             DropAudio();
             try
             {
                 string audioIn = "", audioOut = "";
+                HasMic = false;
                 if (withAudio)
                 {
                     audio = LoopbackCapture.TryCreate();
                     if (audio == null) return false;
+                    // Микрофон — необязательная добавка: если его нет или он занят, пишем только звук компьютера.
+                    if (withMic) mic = LoopbackCapture.TryCreate(true);
+                    HasMic = mic != null;
                     // Второй вход ffmpeg — сырой звук из канала. Время звука отсчитывается по числу отсчётов с нуля:
                     // захват начинается в момент, когда ffmpeg открыл канал, то есть вместе с первым кадром видео.
                     audioIn = " -f " + audio.FfmpegFormat + " -ar " + audio.Rate + " -ac " + audio.Channels +
                               " -thread_queue_size 4096 -i \\\\.\\pipe\\" + audio.PipeName;
                     audioOut = " -c:a aac -b:a 192k";
+                    if (mic != null)
+                    {
+                        // Третий вход — микрофон; обе дорожки сводятся в одну. Входы: 0 — звук компьютера, 1 — микрофон, 2 — экран.
+                        audioIn += " -f " + mic.FfmpegFormat + " -ar " + mic.Rate + " -ac " + mic.Channels + " -thread_queue_size 4096 -i \\\\.\\pipe\\" + mic.PipeName;
+                        audioOut = " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]\" -map 2:v -map \"[a]\" -c:a aac -b:a 192k";
+                    }
                 }
                 // Звук идёт первым входом: ffmpeg открывает входы по очереди, и захват экрана стартует сразу следом,
                 // так что дорожки начинаются почти одновременно. В обратном порядке звук отставал от начала видео на секунду.
@@ -378,9 +393,10 @@ namespace Kapsula
 
         public static void DropAudio()
         {
-            var a = audio;
-            audio = null;
+            var a = audio; var m = mic;
+            audio = null; mic = null;
             if (a != null) a.Dispose();
+            if (m != null) m.Dispose();
         }
 
         public static void Stop()

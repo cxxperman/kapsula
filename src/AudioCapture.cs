@@ -52,7 +52,11 @@ namespace Kapsula
 
         // Возвращает null, если звук захватить нельзя (нет устройства вывода, неожиданный формат) — тогда запись пойдёт без звука.
         [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions]
-        public static LoopbackCapture TryCreate()
+        public static LoopbackCapture TryCreate() { return TryCreate(false); }
+
+        // microphone = true — снимаем не то, что играет, а микрофон по умолчанию.
+        [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions]
+        public static LoopbackCapture TryCreate(bool microphone)
         {
             var c = new LoopbackCapture();
             IntPtr fmt = IntPtr.Zero;
@@ -60,7 +64,7 @@ namespace Kapsula
             {
                 var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
                 IMMDevice dev;
-                if (en.GetDefaultAudioEndpoint(0, 1, out dev) != 0 || dev == null) return null;
+                if (en.GetDefaultAudioEndpoint(microphone ? 1 : 0, 1, out dev) != 0 || dev == null) return null;
                 Guid iid = typeof(IAudioClient).GUID;
                 object o;
                 if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0 || o == null) return null;
@@ -79,13 +83,13 @@ namespace Kapsula
                 if (c.Channels < 1 || c.Channels > 8 || c.Rate < 8000) return null;
 
                 // 0x00020000 — режим «петли»: читаем то, что устройство воспроизводит
-                if (c.client.Initialize(0, 0x00020000, 10000000, 0, fmt, IntPtr.Zero) != 0) return null;
+                if (c.client.Initialize(0, microphone ? 0u : 0x00020000u, 10000000, 0, fmt, IntPtr.Zero) != 0) return null;
                 Guid capIid = typeof(IAudioCaptureClient).GUID;
                 object co;
                 if (c.client.GetService(ref capIid, out co) != 0 || co == null) return null;
                 c.capture = (IAudioCaptureClient)co;
 
-                c.PipeName = "kapsula_audio_" + System.Diagnostics.Process.GetCurrentProcess().Id + "_" + Environment.TickCount;
+                c.PipeName = "kapsula_" + (microphone ? "mic_" : "audio_") + System.Diagnostics.Process.GetCurrentProcess().Id + "_" + Environment.TickCount;
                 c.pipe = new System.IO.Pipes.NamedPipeServerStream(c.PipeName, System.IO.Pipes.PipeDirection.Out, 1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.None, 0, 1 << 20);
                 c.thread = new Thread(c.Run);
                 c.thread.IsBackground = true;

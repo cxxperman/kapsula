@@ -70,6 +70,15 @@ namespace Kapsula
             fill.BeginAnimation(FrameworkElement.WidthProperty, a);
         }
         public void SetColor(Brush b) { fill.Background = b; }
+
+        // Меняет длину полосы, сохраняя заполненную долю
+        public void Resize(double width)
+        {
+            if (Math.Abs(width - w) < 0.5) return;
+            double v = w > 0 ? fill.Width / w : 0;
+            w = width; Root.Width = width;
+            Set(v);
+        }
         public double ValueAt(Point p) { return Math.Max(0, Math.Min(1, p.X / w)); }
     }
 

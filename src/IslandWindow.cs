@@ -94,8 +94,8 @@ namespace Kapsula
             {
                 // антенна с огоньком
                 eyes.Children.Add(new Line { X1 = 12.5, Y1 = -1, X2 = 12.5, Y2 = -5, Stroke = Fg, StrokeThickness = 1.5 });
-                var lamp = new Ellipse { Width = 4, Height = 4, Fill = accent };
-                Canvas.SetLeft(lamp, 10.5); Canvas.SetTop(lamp, -8.5);
+                var lamp = new Ellipse { Width = 5.5, Height = 5.5, Fill = Amber };
+                Canvas.SetLeft(lamp, 9.75); Canvas.SetTop(lamp, -10);
                 eyes.Children.Add(lamp);
             }
         }
@@ -1602,6 +1602,7 @@ namespace Kapsula
             else if (player) { Grid.SetColumnSpan(homePlayerCard, 3); top = 200; }
             else top = 0;
 
+            if (mProgress != null) mProgress.Resize(player && !tiles ? 444 : 244);   // плеер во всю ширину — и полоса перемотки длиннее
             bool nothing = top == 0 && !vol && !launch;
             homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
             if (nothing) top = 46;
@@ -1766,6 +1767,12 @@ namespace Kapsula
             volText = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(volText, 2); vol.Children.Add(volText);
             volCard.Child = vol;
+            // Значок слева от ползунка переключает, чем он управляет: всей системой или только плеером
+            volIcon = vol.Children[0] as TextBlock;
+            volIconDefault = volIcon.Text;
+            volIcon.Background = Brushes.Transparent; volIcon.Cursor = Cursors.Hand;
+            volIcon.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ToggleVolMode(); };
+            SetVolMode(false);
             Grid.SetRow(volCard, 2); Grid.SetColumnSpan(volCard, 3);
             g.Children.Add(volCard);
             ApplyHomeLayout();
@@ -4431,15 +4438,41 @@ namespace Kapsula
                 }
                 else { nProgress.Set(0); nPos.Text = ""; nRem.Text = ""; }
             }
-            double v = Audio.GetVolume();
+            double v = volPlayer ? AppVolume.Get(PlayerKey()) : Audio.GetVolume();
+            if (volPlayer && v < 0) { SetVolMode(false); v = Audio.GetVolume(); }   // плеер закрылся — возвращаемся к общей громкости
             if (v >= 0) { volBar.Set(v); volText.Text = Math.Round(v * 100) + "%"; } else volText.Text = "—";
+        }
+
+        // ---- ползунок громкости на «Главной»: вся система или только плеер
+        bool volPlayer;
+        TextBlock volIcon;
+        string volIconDefault;
+
+        string PlayerKey() { return MediaWatcher.PrettyName(media.Source); }
+
+        void SetVolMode(bool player)
+        {
+            volPlayer = player;
+            if (volIcon == null) return;
+            volIcon.Text = player ? "" : volIconDefault;
+            volIcon.Foreground = player ? (Brush)accent : Fg;
+            volIcon.ToolTip = player ? "Громкость только плеера. Клик — громкость всей системы" : "Громкость всей системы. Клик — только плеер";
+        }
+
+        void ToggleVolMode()
+        {
+            if (volPlayer) { SetVolMode(false); RenderHomeLive(); return; }
+            if (!media.Has || AppVolume.Get(PlayerKey()) < 0) { Toast("", "Не нашёл звук плеера", null, -1, null); return; }
+            SetVolMode(true);
+            RenderHomeLive();
+            Toast("", "Громкость: " + PlayerKey(), null, -1, accent);
         }
 
         void SetVolumeFrom(Point p)
         {
             double v = volBar.ValueAt(p);
-            Audio.SetVolume(v);
-            lastVol = v;
+            if (volPlayer) AppVolume.Set(PlayerKey(), v);
+            else { Audio.SetVolume(v); lastVol = v; }
             volBar.Set(v);
             volText.Text = Math.Round(v * 100) + "%";
         }
@@ -4637,7 +4670,7 @@ namespace Kapsula
                     {
                         recBusy = false;
                         RenderRec();
-                        if (len > 0) ShowCardEx(null, "", "Запись готова", SizeText(len) + (Recorder.HasAudio ? " · со звуком · " : " · без звука · ") + System.IO.Path.GetFileName(file), delegate { RevealFile(file); }, null, null, true);
+                        if (len > 0) ShowCardEx(null, "", "Запись готова", SizeText(len) + (Recorder.HasAudio ? (Recorder.HasMic ? " · звук и микрофон · " : " · со звуком · ") : " · без звука · ") + System.IO.Path.GetFileName(file), delegate { RevealFile(file); }, null, null, true);
                         else Toast("", "Запись не сохранилась", null, -1, null);
                     }));
                 });
@@ -4672,7 +4705,7 @@ namespace Kapsula
                     {
                         foreach (string codec in new string[] { "-c:v libx264 -preset veryfast -tune zerolatency -crf 23","-c:v h264_mf -b:v 8M", "-c:v mpeg4 -q:v 5" })
                         {
-                            if (!Recorder.Start(ff, path, b.X, b.Y, b.Width, b.Height, codec, withAudio)) { if (withAudio) break; continue; }
+                            if (!Recorder.Start(ff, path, b.X, b.Y, b.Width, b.Height, codec, withAudio, withAudio && Store.Get("recAudio") == "2")) { if (withAudio) break; continue; }
                             Thread.Sleep(withAudio ? 2200 : 1500);
                             if (Recorder.Active) { ok = true; break; }
                             Recorder.DropAudio();
