@@ -107,7 +107,8 @@ namespace Kapsula
 
             sp = Sec("Музыка");
             sp.Children.Add(Row("Смена трека поверх игр и видео", "В полноэкранной программе остров спрятан. С этой настройкой он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
-            sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде.", Chips(new string[] { "Время и погода", "Название трека" }, island.PillTitle ? 1 : 0, delegate(int i) { island.SetFlag("pillTitle", i == 1); }), true));
+            sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде. «Строка песни» работает, когда для трека нашёлся текст; иначе показывается название.", Chips(new string[] { "Часы и погода", "Название", "Строка песни", "Полоса трека" }, island.PillMode, delegate(int i) { island.SetPillMode(i); }), true));
+            sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
             sp.Children.Add(Row("Мини-плеер при наведении", "Во время музыки сначала открывается мини-плеер, клик по нему — вся панель.", Toggle(island.HoverMini, delegate(bool v) { island.SetFlag("hoverMini", v); }), false));
             sp.Children.Add(Row("Жидкий край", "Нижний край пляшет под звук.", Toggle(island.LiquidOn, delegate(bool v) { island.SetFlag("liquid", v); }), false));
             sp.Children.Add(Row("Тексты песен", "Загружаются с lrclib.net для играющего трека.", Toggle(island.LyricsEnabled, delegate(bool v) { island.SetFlag("lyrics", v); }), false));

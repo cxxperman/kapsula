@@ -132,6 +132,22 @@ namespace Kapsula
         public static readonly Color LightIsland = Color.FromRgb(0xF4, 0xF4, 0xF6);
         public Color IslandColor = Colors.Black, DarkColor = Colors.Black;
         public bool FollowWindows, PillTitle, HoverMini = true, LiquidOn = true, ShowSeconds, ShowInCapture;
+        public int PillMode, PlayerStyle;
+        string currentLyric = "";
+
+        public void SetPillMode(int mode)
+        {
+            PillMode = mode; PillTitle = mode != 0;
+            Store.Set("pillMode", mode.ToString());
+            RenderCompact(); SetTargets();
+        }
+
+        public void SetPlayerStyle(int style)
+        {
+            PlayerStyle = style;
+            Store.Set("playerStyle", style.ToString());
+            ApplyPlayerStyle();
+        }
         public double Scale = 1;
         public string TestColor;
         public bool TestSettings, TestSettingsTop;
@@ -162,7 +178,12 @@ namespace Kapsula
             if (TryHex(Store.Get("color"), out c)) IslandColor = c;
             if (TryHex(Store.Get("darkColor"), out c)) DarkColor = c;
             FollowWindows = Store.Get("followWin") == "1";
-            PillTitle = Store.Get("pillTitle") == "1";
+            // Вид капсулы при музыке: 0 — часы и погода, 1 — название, 2 — строка песни, 3 — полоса трека
+            int pm;
+            PillMode = int.TryParse(Store.Get("pillMode"), out pm) && pm >= 0 && pm <= 3 ? pm : (Store.Get("pillTitle") == "1" ? 1 : 0);
+            PillTitle = PillMode != 0;
+            int ps;
+            PlayerStyle = int.TryParse(Store.Get("playerStyle"), out ps) && ps >= 0 && ps <= 2 ? ps : 0;
             HoverMini = Store.Get("hoverMini") != "0";
             LiquidOn = Store.Get("liquid") != "0";
             ShowSeconds = Store.Get("seconds") == "1";
@@ -1383,10 +1404,11 @@ namespace Kapsula
         void SetLyrics(List<LyricLine> list)
         {
             lyrics = list;
+            if (list == null && currentLyric != "") { currentLyric = ""; if (state == 0 && PillMode == 2) RenderCompact(); }
             miniLyrics.SetLines(list);
             homeLyrics.SetLines(list);
             miniLyrics.Root.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
-            homeLyrics.Root.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
+            homeLyrics.Root.Visibility = list != null && homeLyricsShown ? Visibility.Visible : Visibility.Collapsed;
             miniHost.Width = MiniW();
             if (list != null) UpdateLyrics();
             if (state == 1) SetTargets();
@@ -1410,6 +1432,12 @@ namespace Kapsula
             double pos = media.Now() + 0.3 + LyricOffset;
             int idx = -1;
             for (int i = 0; i < lyrics.Count; i++) { if (lyrics[i].T <= pos) idx = i; else break; }
+            string line = idx >= 0 && idx < lyrics.Count ? lyrics[idx].Text : "";
+            if (line != currentLyric)
+            {
+                currentLyric = line;
+                if (state == 0 && PillMode == 2 && !toastOn) RenderCompact();   // капсула «С текстом» показывает новую строку
+            }
             miniLyrics.Tick(idx);
             homeLyrics.Tick(idx);
         }
@@ -1435,7 +1463,52 @@ namespace Kapsula
             glowBottom.Color = Color.FromArgb(0x66, c.R, c.G, c.B);
             coverGlowA.Color = Color.FromArgb(0x70, c.R, c.G, c.B);
             coverGlowB.Color = Color.FromArgb(0, c.R, c.G, c.B);
+            if (playerTint != null) playerTint.Color = Color.FromArgb(0xB0, c.R, c.G, c.B);
         }
+
+        // ---- вид плеера на «Главной»: 0 — компактный, 1 — крупная обложка по центру, 2 — в цвет обложки
+        GradientStop playerTint, playerTintEnd;
+        LinearGradientBrush playerTintBrush;
+        Grid homeTop;
+        StackPanel homeNames;
+
+        void ApplyPlayerStyle()
+        {
+            if (homePlayerCard == null || homeTop == null) return;
+            bool centered = PlayerStyle == 1, tinted = PlayerStyle == 2;
+            if (playerTintBrush == null)
+            {
+                playerTint = new GradientStop(Color.FromArgb(0xB0, accent.Color.R, accent.Color.G, accent.Color.B), 0);
+                playerTintEnd = new GradientStop(Card.Color, 1);
+                playerTintBrush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1.1) };
+                playerTintBrush.GradientStops.Add(playerTint); playerTintBrush.GradientStops.Add(playerTintEnd);
+            }
+            playerTintEnd.Color = Card.Color;
+            homePlayerCard.Background = tinted ? (Brush)playerTintBrush : Card;
+            coverGlow.Opacity = tinted ? 0 : 1;   // в залитом плеере отдельное свечение лишнее
+            // На цветном фоне серые подписи теряются — делаем их светлее
+            Brush soft = tinted ? (Brush)new SolidColorBrush(Color.FromArgb(0xD0, Fg.Color.R, Fg.Color.G, Fg.Color.B)) : Dim;
+            mArtist.Foreground = soft; mPos.Foreground = soft; mDur.Foreground = soft;
+
+            // Крупная обложка: она по центру, название и исполнитель под ней
+            playerBody.RowDefinitions[0].Height = new GridLength(centered ? 110 : 84);
+            mCover.Width = mCover.Height = centered ? 66 : 84;
+            mCover.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            mCover.VerticalAlignment = centered ? VerticalAlignment.Top : VerticalAlignment.Center;
+            Grid.SetColumnSpan(mCover, centered ? 3 : 1);
+            Grid.SetColumn(homeNames, centered ? 0 : 2);
+            Grid.SetColumnSpan(homeNames, centered ? 3 : 1);
+            homeNames.VerticalAlignment = centered ? VerticalAlignment.Bottom : VerticalAlignment.Center;
+            homeNames.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+            mTitle.TextAlignment = mArtist.TextAlignment = centered ? TextAlignment.Center : TextAlignment.Left;
+            mTitle.FontSize = centered ? 14.5 : 16;
+            mArtist.Margin = new Thickness(0, centered ? 1 : 3, 0, 0);
+            homeLyricsShown = !centered;
+            homeLyrics.Root.Visibility = homeLyricsShown && lyrics != null ? Visibility.Visible : Visibility.Collapsed;
+            coverGlow.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            coverGlow.Margin = centered ? new Thickness(0, -52, 0, 0) : new Thickness(-43, -43, 0, 0);
+        }
+        bool homeLyricsShown = true;
 
         void BuildCompact()
         {
@@ -1662,13 +1735,13 @@ namespace Kapsula
             playerBody.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             playerBody.RowDefinitions.Add(new RowDefinition { Height = new GridLength(42) });
 
-            var top = new Grid();
+            var top = homeTop = new Grid();
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             mCover = new Border { Width = 84, Height = 84, CornerRadius = new CornerRadius(16), Background = Chip };
             top.Children.Add(mCover);
-            var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var names = homeNames = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             mTitle = new TextBlock { Foreground = Fg, FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
             mArtist = new TextBlock { Foreground = Dim, FontSize = 13, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
             homeLyrics = new LyricView(216, 20, false, 0, accent, 12.5, false);
@@ -1777,6 +1850,7 @@ namespace Kapsula
             Grid.SetRow(volCard, 2); Grid.SetColumnSpan(volCard, 3);
             g.Children.Add(volCard);
             ApplyHomeLayout();
+            ApplyPlayerStyle();
             return g;
         }
 
@@ -4330,10 +4404,23 @@ namespace Kapsula
 
             if (timerRinging) { cText.Text = "Время вышло"; cRight.Visibility = Visibility.Collapsed; return; }
             SetClock(cText);
-            if (PillTitle && playing)
+            if (playing && PillMode != 0)
             {
-                // Режим «С названием»: вместо часов — трек и исполнитель.
-                cText.Text = string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
+                string title = string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
+                if (PillMode == 3 && media.Dur > 0 && !timing)
+                {
+                    // «Полоса трека»: сколько прошло и сколько осталось
+                    double pos = media.Now();
+                    cText.Visibility = Visibility.Collapsed;
+                    cBar.Root.Visibility = Visibility.Visible; cBar.Set(pos / media.Dur);
+                    eq.Visibility = Visibility.Collapsed;
+                    cRight.Visibility = Visibility.Visible; cRight.Foreground = Dim;
+                    cRight.Text = "−" + FmtSec(Math.Max(0, media.Dur - pos));
+                    if (state == 1) SetClock(nClock);
+                    return;
+                }
+                // «С текстом»: строка песни, которая звучит сейчас; пока текста нет — название. «С названием»: трек и исполнитель.
+                cText.Text = PillMode == 2 && !string.IsNullOrEmpty(currentLyric) ? currentLyric : title;
                 cText.MaxWidth = timing ? 190 : 232;
             }
             if (state == 1) SetClock(nClock);
@@ -4902,7 +4989,8 @@ namespace Kapsula
             }
             if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
-            if ((expanded && page == 0 || state == 1) && pollN % 2 == 0) UpdateLyrics();
+            if ((expanded && page == 0 || state == 1 || state == 0 && PillMode == 2) && pollN % 2 == 0) UpdateLyrics();
+            if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
             if (expanded && page == PWeather && weatherAnimAt != 0) AnimateWeather();
             if (expanded && page == PNote && pollN % 4 == 0) UpdateRing();
         }
