@@ -60,6 +60,7 @@ namespace Kapsula
                 if (args[i] == "--mini") w.ForceOpen = -2;
                 if (args[i] == "--demo") w.Demo = true;
                 if (args[i] == "--steamtest") { w.TestSteam = true; SteamBridge.Logging = true; }
+                if (args[i] == "--replytest") w.TestReply = true;
                 if (args[i] == "--fstest") { w.Demo = true; w.TestFs = true; }
                 if (args[i] == "--lyrictest") w.TestLyrics = true;
                 if (args[i] == "--notetest") w.TestNote = true;

@@ -9,7 +9,7 @@ const MILLENNIUM_IS_CLIENT_MODULE = !0, pluginName = "kapsula";
 let PluginEntryPointMain = function () {
   return function (exports, millenniumApi, react) {
     "use strict";
-    const PORT = 42071, VERSION = "0.6.0";
+    const PORT = 42071, VERSION = "0.7.0";
     let ws = null, stopped = false, timer = null;
     const queue = [], cleanup = [];
 
@@ -234,8 +234,36 @@ let PluginEntryPointMain = function () {
       try { if (ws) ws.close(); } catch (e) { }
     }
 
+    // Progress of the game Steam is downloading right now, at most once a second.
+    function watchDownloads() {
+      const sc = window.SteamClient;
+      if (!sc || !sc.Downloads || typeof sc.Downloads.RegisterForDownloadOverview !== "function") return;
+      let lastAt = 0, lastKey = "";
+      const handle = sc.Downloads.RegisterForDownloadOverview(function (o) {
+        try {
+          const appid = o && o.update_appid ? Number(o.update_appid) : 0;
+          const state = o && typeof o.update_state === "string" ? o.update_state : "";
+          if (!appid || state === "None") {
+            if (lastKey !== "none") { lastKey = "none"; send({ type: "download", appid: 0 }); }
+            return;
+          }
+          const key = appid + "|" + (o.paused ? 1 : 0) + "|" + state, now = Date.now();
+          if (key === lastKey && now - lastAt < 1000) return;
+          lastKey = key; lastAt = now;
+          send({
+            type: "download", appid: appid, name: appName(appid), state: state, paused: !!o.paused,
+            percent: Math.max(0, Math.min(100, Number(o.overall_percent_complete) || 0)),
+            rate: Number(o.update_network_bytes_per_second) || 0,
+            eta: Number(o.overall_estimated_time_remaining_sec) || -1
+          });
+        } catch (e) { }
+      });
+      if (handle && typeof handle.unregister === "function") cleanup.push(function () { handle.unregister(); });
+    }
+
     exports.default = async function () {
       hooked = hook();
+      try { watchDownloads(); } catch (e) { }
       connect();
       return { icon: null, onDismount: stop };
     };

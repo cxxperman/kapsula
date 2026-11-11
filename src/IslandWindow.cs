@@ -484,6 +484,7 @@ namespace Kapsula
                     else if (body == "") body = game != "" && game != title ? kind + " · " + game : kind;
                     object inv; bool invite = d.TryGetValue("invite", out inv) && inv is bool && (bool)inv && SteamBridge.InviteUrlAllowed(url);
                     string steamid = get("steamid"), appid = get("appid");
+                    if (icon == null) icon = Steam.IconBytes(appid);   // «загрузка завершена» и подобные: значок игры с диска
                     bool hasFriend = System.Text.RegularExpressions.Regex.IsMatch(steamid, "^\\d{5,20}$");
                     bool message = hasFriend && !invite && get("kind").ToLowerInvariant() == "friend message";
                     // Куда ведёт клик: чат с этим другом, страница игры в библиотеке, иначе — то, что предложил сам Steam.
@@ -496,6 +497,17 @@ namespace Kapsula
                         if (invite) SteamInvite(title, body, icon, url, steamid);
                         else SteamNotify(title, body, icon, open, message ? steamid : null);
                     }));
+                }
+                else if ((type as string) == "download")
+                {
+                    Func<string, string> get = delegate(string k) { object v; return d.TryGetValue(k, out v) && v != null ? Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) : ""; };
+                    string appid = get("appid"), name = DiscordBridge.Clean(get("name"), 60);
+                    double pct, rate;
+                    double.TryParse(get("percent"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out pct);
+                    double.TryParse(get("rate"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out rate);
+                    object pz; bool paused = d.TryGetValue("paused", out pz) && pz is bool && (bool)pz;
+                    byte[] icon = appid != "" && appid != "0" && appid != steamDlApp ? Steam.IconBytes(appid) : null;
+                    Dispatcher.BeginInvoke(new Action(delegate { SteamDownload(appid, name, pct, rate, paused, icon); }));
                 }
                 else if ((type as string) == "replied")
                 {
@@ -727,7 +739,7 @@ namespace Kapsula
             if (force && (state == 2 || state == 4)) SetState(0);
             if (state == 2 || state == 4) { Toast(glyph ?? "", title, null, -1, accent); return; }
             // Аватар и значок достижения — квадратные, как в Steam: так тексту остаётся больше места. Снимки экрана — широкие.
-            bool square = false;
+            bool square = img == null;   // карточка со значком вместо картинки — тоже квадратная
             var bs = img as BitmapSource;
             if (bs != null && bs.PixelHeight > 0) { double ratio = (double)bs.PixelWidth / bs.PixelHeight; square = ratio > 0.8 && ratio < 1.25; }
             cardThumbBox.Width = square ? 52 : 84;
@@ -1254,6 +1266,8 @@ namespace Kapsula
             cCover = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             cGlyph = new TextBlock { FontFamily = Icons, FontSize = 14, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(micDot);
+            cDlIcon = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(5), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            left.Children.Add(cDlIcon);
             // «Глаза»: следят за курсором, моргают и закрываются, когда вы отошли от компьютера.
             eyes = new Canvas { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 6, 0) };
             pupils = new Ellipse[2];
@@ -3125,7 +3139,7 @@ namespace Kapsula
             if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
-            if (TestSteam && replyTo != null && !replyShown)
+            if (TestReply && replyTo != null && !replyShown)
             {
                 // Проверочный режим: один раз показываем поле ответа с набранным текстом. Ничего не отправляется.
                 replyShown = true;
@@ -3135,6 +3149,35 @@ namespace Kapsula
             }
         }
         bool replyShown;
+        public bool TestReply;   // ключ --replytest
+
+        // ---- загрузка игры в Steam: значок, полоса и проценты в капсуле
+        volatile string steamDlApp;
+        string steamDlName = "";
+        double steamDlPct, steamDlRate;
+        bool steamDlPaused;
+        int steamDlAt;
+        Border cDlIcon;
+
+        public void SteamDownload(string appid, string name, double percent, double rate, bool paused, byte[] icon)
+        {
+            if (appid == "" || appid == "0")
+            {
+                if (steamDlApp != null) { steamDlApp = null; RenderCompact(); SetTargets(); }
+                return;
+            }
+            bool started = steamDlApp != appid;
+            steamDlApp = appid; steamDlName = name; steamDlPct = percent; steamDlRate = rate; steamDlPaused = paused;
+            steamDlAt = Environment.TickCount;
+            if (started)
+            {
+                ImageSource img = ImageFrom(icon);
+                cDlIcon.Background = img != null ? (Brush)new ImageBrush(img) { Stretch = Stretch.UniformToFill } : Chip;
+                if (state == 0 && !hiddenFs) Toast("", name != "" ? "Скачивается: " + name : "Steam скачивает игру", null, -1, accent);
+            }
+            if (!toastOn) RenderCompact();
+            if (started) SetTargets();
+        }
 
         // Приглашение в игру: «Принять» открывает ссылку входа из самого приглашения, крестик отклоняет его в Steam.
         public void SteamInvite(string title, string text, byte[] icon, string url, string steamid)
@@ -3426,6 +3469,7 @@ namespace Kapsula
             if (toastOn) return 300;
             if (timerRinging) return 230;
             if (Recorder.Active) return 240;
+            if (steamDlApp != null) return 360;
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
             double sec = ShowSeconds ? 24 : 0;
@@ -3701,6 +3745,9 @@ namespace Kapsula
             cBar.Root.Visibility = Visibility.Collapsed;
             cText.Visibility = Visibility.Visible;
             cText.MaxWidth = 1000;
+            cDlIcon.Visibility = Visibility.Collapsed;
+            // Steam перестал сообщать о загрузке (закрыт или плагин выгружен) — убираем полосу
+            if (steamDlApp != null && unchecked(Environment.TickCount - steamDlAt) > 20000) steamDlApp = null;
 
             if (toastOn)
             {
@@ -3723,6 +3770,19 @@ namespace Kapsula
                 TimeSpan el = DateTime.Now - Recorder.Started;
                 cText.Text = "Запись · " + (int)el.TotalMinutes + ":" + el.Seconds.ToString("00");
                 cRight.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (steamDlApp != null && !timerRinging)
+            {
+                // Steam скачивает игру: её значок, полоса и проценты (на паузе — «пауза»).
+                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
+                cGlyph.Visibility = Visibility.Collapsed;
+                cDlIcon.Visibility = Visibility.Visible;
+                cText.Visibility = Visibility.Collapsed;
+                cBar.Root.Visibility = Visibility.Visible; cBar.Set(steamDlPct / 100.0);
+                cRight.Visibility = Visibility.Visible; cRight.Foreground = Dim;
+                cRight.Text = steamDlPaused ? "пауза" : Math.Round(steamDlPct) + "%" + (steamDlRate > 1024 ? " · " + SizeText(steamDlRate) + "/с" : "");
                 return;
             }
 

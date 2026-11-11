@@ -585,6 +585,25 @@ namespace Kapsula
             return games;
         }
 
+        // Значок игры из кэша библиотеки Steam на диске (маленькая квадратная картинка). null — если его там нет.
+        public static byte[] IconBytes(string appid)
+        {
+            try
+            {
+                string dir = Dir();
+                if (dir == null || !Regex.IsMatch(appid ?? "", "^\\d{1,10}$")) return null;
+                string cache = System.IO.Path.Combine(dir, @"appcache\librarycache");
+                string folder = System.IO.Path.Combine(cache, appid);
+                if (System.IO.Directory.Exists(folder))
+                    foreach (string f in System.IO.Directory.GetFiles(folder, "*.jpg"))
+                        if (Regex.IsMatch(System.IO.Path.GetFileNameWithoutExtension(f), "^[0-9a-f]{40}$")) return System.IO.File.ReadAllBytes(f);
+                string old = System.IO.Path.Combine(cache, appid + "_icon.jpg");   // так значки лежали в старых версиях Steam
+                if (System.IO.File.Exists(old)) return System.IO.File.ReadAllBytes(old);
+            }
+            catch { }
+            return null;
+        }
+
         public static void Launch(string id)
         {
             try { System.Diagnostics.Process.Start("steam://rungameid/" + id); } catch { }
