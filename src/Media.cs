@@ -251,7 +251,9 @@ namespace Kapsula
             Root.Children.Add(canvas);
             if (fadeEdges)
             {
-                var m = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+                // Координаты маски — в точках самого окошка, а не в долях. В долях маска растягивалась на всю ленту строк,
+                // даже невидимую, и в начале и в конце песни текущая строка попадала в «затухание» и выглядела тусклой.
+                var m = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(0, 0), EndPoint = new Point(0, height) };
                 m.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0));
                 m.GradientStops.Add(new GradientStop(Colors.Black, 0.26));
                 m.GradientStops.Add(new GradientStop(Colors.Black, 0.74));

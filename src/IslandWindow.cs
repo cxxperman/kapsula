@@ -3027,6 +3027,7 @@ namespace Kapsula
             else if (ForceOpen == -3) SetTargets();
             if (Demo)
             {
+                TestLyrics = true;   // не искать текст выдуманной песни в сети
                 media = new MediaInfo { Has = true, Playing = true, Title = "Ночной маршрут", Artist = "Kapsula Demo", Cover = DemoCover(), Pos = 47, Dur = 204, PosAt = DateTime.UtcNow };
                 RenderMedia();
                 LoadLauncher();
