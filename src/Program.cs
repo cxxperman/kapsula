@@ -61,6 +61,8 @@ namespace Kapsula
                 if (args[i] == "--demo") w.Demo = true;
                 if (args[i] == "--steamtest") { w.TestSteam = true; SteamBridge.Logging = true; }
                 if (args[i] == "--replytest") w.TestReply = true;
+                if (args[i] == "--character" && i + 1 < args.Length) w.TestCharacter = args[i + 1];
+                if (args[i] == "--mood" && i + 1 < args.Length) w.TestMood = args[i + 1];
                 if (args[i] == "--fstest") { w.Demo = true; w.TestFs = true; }
                 if (args[i] == "--lyrictest") w.TestLyrics = true;
                 if (args[i] == "--notetest") w.TestNote = true;

@@ -80,6 +80,8 @@ namespace Kapsula
 
             sp.Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
             sp.Children.Add(Row("Смена трека поверх игр и видео", "В полноэкранной программе остров спрятан. С этой настройкой он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
+            int ci = Math.Max(0, Array.IndexOf(IslandWindow.CharacterIds, island.Character));
+            sp.Children.Add(Row("Персонаж", "Кто живёт в капсуле. Он следит за курсором, задумывается, пока отвечает нейросеть, пугается таймера и радуется, когда что-то получилось.", Chips(IslandWindow.CharacterNames, ci, delegate(int i) { Store.Set("character", IslandWindow.CharacterIds[i]); island.BuildCharacter(); }), true));
             sp.Children.Add(Row("Глаза в капсуле", "Следят за курсором, моргают и засыпают, когда вы отошли.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
             if (island.MonitorCount > 1)
             {

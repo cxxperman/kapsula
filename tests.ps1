@@ -154,6 +154,12 @@ T 'Discord: источник canary разрешён' (Call 'DiscordBridge' 'Ori
 T 'Discord: посторонний сайт запрещён' (Call 'DiscordBridge' 'OriginAllowed' @('https://evil.example')).Result $false
 T 'Discord: подделка под discord.com запрещена' (Call 'DiscordBridge' 'OriginAllowed' @('https://discord.com.evil.example')).Result $false
 
+# --- погода: какая часть светового дня прошла
+$noon = Get-Date '2026-06-01 12:00:00'
+T 'Погода: полдень между 06:00 и 18:00 — половина дня' (Call 'IslandWindow' 'DayProgress' @('06:00', '18:00', $noon)).Result 0.5
+T 'Погода: ночью солнца нет' (Call 'IslandWindow' 'DayProgress' @('06:00', '18:00', (Get-Date '2026-06-01 23:00:00'))).Result -1
+T 'Погода: непонятное время не ломает расчёт' (Call 'IslandWindow' 'DayProgress' @('', 'abc', $noon)).Result -1
+
 # --- поиск файлов и названия плееров
 T 'Поиск файлов: опасные символы убраны' (Call 'FileSearch' 'Sanitize' @("a' OR 1=1 --")).Result 'a OR 1=1 --'
 T 'Поиск файлов: шаблоны убраны' (Call 'FileSearch' 'Sanitize' @('100%_[x]')).Result '100x'

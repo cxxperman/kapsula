@@ -41,8 +41,64 @@ namespace Kapsula
         bool autoHidden;
         int lastLayout;
         Canvas eyes;
-        Ellipse[] pupils;
+        Shape[] pupils, whites;
+        Path[] smiles;
         ScaleTransform[] lids;
+        double pupilW, pupilH;
+        string character;
+        int happyUntil;
+        public string TestCharacter, TestMood;   // ключи --character и --mood: для снимков
+
+        public static readonly string[] CharacterIds = { "eyes", "cat", "robot", "dots" };
+        public static readonly string[] CharacterNames = { "Глаза", "Кот", "Робот", "Точки" };
+        public string Character { get { string c = TestCharacter ?? Store.Get("character"); return Array.IndexOf(CharacterIds, c) >= 0 ? c : "eyes"; } }
+
+        // Персонаж ненадолго радуется: глаза превращаются в дужки
+        public void Happy(int ms) { happyUntil = Environment.TickCount + ms; }
+
+        // Персонаж в капсуле собирается из простых фигур, у каждого свои глаза и детали.
+        public void BuildCharacter()
+        {
+            if (eyes == null) return;
+            eyes.Children.Clear();
+            character = Character;
+            bool cat = character == "cat", robot = character == "robot", dots = character == "dots";
+            pupilW = cat ? 3 : robot ? 4.5 : dots ? 6 : 5;
+            pupilH = cat ? 9 : robot ? 4.5 : dots ? 6 : 5;
+            whites = new Shape[2]; pupils = new Shape[2]; smiles = new Path[2]; lids = new ScaleTransform[2];
+            for (int i = 0; i < 2; i++)
+            {
+                lids[i] = new ScaleTransform(1, 1);
+                Shape white = robot ? (Shape)new Rectangle { RadiusX = 2.5, RadiusY = 2.5 } : new Ellipse();
+                white.Width = 11; white.Height = 13;
+                white.Fill = dots ? Brushes.Transparent : Fg;
+                white.RenderTransformOrigin = new Point(0.5, 0.5); white.RenderTransform = lids[i];
+                Canvas.SetLeft(white, i * 14); Canvas.SetTop(white, 0.5);
+                whites[i] = white; eyes.Children.Add(white);
+                Shape pupil = robot ? (Shape)new Rectangle { RadiusX = 1, RadiusY = 1 } : new Ellipse();
+                pupil.Width = pupilW; pupil.Height = pupilH;
+                pupil.Fill = dots ? Fg : Ink;
+                pupils[i] = pupil; eyes.Children.Add(pupil);
+                var smile = new Path { Stroke = Fg, StrokeThickness = 2.2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Data = Geometry.Parse("M 1,9 Q 5.5,1 10,9"), Visibility = Visibility.Collapsed };
+                Canvas.SetLeft(smile, i * 14); Canvas.SetTop(smile, 1);
+                smiles[i] = smile; eyes.Children.Add(smile);
+            }
+            if (cat)
+            {
+                // уши
+                var earL = new Polygon { Fill = Fg, Points = new PointCollection { new Point(0.5, 1.5), new Point(2.5, -5), new Point(7.5, 0) } };
+                var earR = new Polygon { Fill = Fg, Points = new PointCollection { new Point(17.5, 0), new Point(22.5, -5), new Point(24.5, 1.5) } };
+                eyes.Children.Insert(0, earL); eyes.Children.Insert(0, earR);
+            }
+            if (robot)
+            {
+                // антенна с огоньком
+                eyes.Children.Add(new Line { X1 = 12.5, Y1 = -1, X2 = 12.5, Y2 = -5, Stroke = Fg, StrokeThickness = 1.5 });
+                var lamp = new Ellipse { Width = 4, Height = 4, Fill = accent };
+                Canvas.SetLeft(lamp, 10.5); Canvas.SetTop(lamp, -8.5);
+                eyes.Children.Add(lamp);
+            }
+        }
         int blinkAt, blinkUntil;
 
         // ИИ-чат и диктовка
@@ -1392,19 +1448,8 @@ namespace Kapsula
             cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 104, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlName);
             // «Глаза»: следят за курсором, моргают и закрываются, когда вы отошли от компьютера.
-            eyes = new Canvas { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 6, 0) };
-            pupils = new Ellipse[2];
-            lids = new ScaleTransform[2];
-            for (int i = 0; i < 2; i++)
-            {
-                lids[i] = new ScaleTransform(1, 1);
-                var white = new Ellipse { Width = 11, Height = 13, Fill = Fg, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = lids[i] };
-                Canvas.SetLeft(white, i * 14); Canvas.SetTop(white, 0.5);
-                eyes.Children.Add(white);
-                pupils[i] = new Ellipse { Width = 5, Height = 5, Fill = Ink };
-                Canvas.SetLeft(pupils[i], i * 14 + 3); Canvas.SetTop(pupils[i], 4.5);
-                eyes.Children.Add(pupils[i]);
-            }
+            eyes = new Canvas { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(5, 0, 6, 0) };
+            BuildCharacter();
             left.Children.Add(eyes);
             left.Children.Add(cCover);
             left.Children.Add(cGlyph);
@@ -2742,13 +2787,14 @@ namespace Kapsula
             right.Children.Add(wHours);
             var tiles = new UniformGrid { Rows = 2, Columns = 3, Margin = new Thickness(-3) };
             TextBlock dummy;
-            tiles.Children.Add(WTile("Ветер", out wWind, out wWindSub, true));
-            tiles.Children.Add(WTile("Влажность", out wHum, out dummy, false));
-            tiles.Children.Add(WTile("Давление", out wPres, out dummy, false));
-            tiles.Children.Add(WTile("УФ-индекс", out wUv, out wUvSub, false));
-            tiles.Children.Add(WTile("Осадки", out wRain, out dummy, false));
-            tiles.Children.Add(WTile("Восход · закат", out wSun, out dummy, false));
-            wSun.FontSize = 12.5;
+            BuildWeatherGauges();
+            tiles.Children.Add(WTile("Ветер", out wWind, out wWindSub, false, gCompass));
+            tiles.Children.Add(WTile("Влажность", out wHum, out dummy, false, gHum.Root));
+            tiles.Children.Add(WTile("Давление", out wPres, out dummy, false, gPressure));
+            tiles.Children.Add(WTile("УФ-индекс", out wUv, out wUvSub, false, gUv));
+            tiles.Children.Add(WTile("Осадки", out wRain, out dummy, false, gRain.Root));
+            tiles.Children.Add(WTile("Восход · закат", out wSun, out dummy, false, gSun));
+            wSun.FontSize = 11; wWind.FontSize = 13;
             Grid.SetRow(tiles, 2); right.Children.Add(tiles);
             wDays = new Grid();
             Grid.SetRow(wDays, 4); right.Children.Add(wDays);
@@ -2758,6 +2804,113 @@ namespace Kapsula
             dock.Children.Add(body);
             RenderWeather();
             return dock;
+        }
+
+        // ---- «живая» погода: маленькие приборы на плитках, которые оживают вместе с цифрами
+        class Ring
+        {
+            public Grid Root;
+            Path arc;
+            public Ring(Brush color)
+            {
+                Root = new Grid { Width = 30, Height = 30 };
+                Root.Children.Add(new Ellipse { Stroke = Bar.TrackBrush, StrokeThickness = 3.5, Margin = new Thickness(1.75) });
+                arc = new Path { Stroke = color, StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+                Root.Children.Add(arc);
+            }
+            public void Set(double f)
+            {
+                if (double.IsNaN(f) || f < 0) f = 0; if (f > 0.999) f = 0.999;
+                arc.Data = f < 0.004 ? null : ArcGeometry(15, 15, 13.25, 0, f * 360);
+            }
+        }
+
+        // Дуга окружности: углы в градусах по часовой стрелке от «12 часов»
+        static Geometry ArcGeometry(double cx, double cy, double r, double startDeg, double sweepDeg)
+        {
+            double a0 = (startDeg - 90) * Math.PI / 180, a1 = (startDeg + sweepDeg - 90) * Math.PI / 180;
+            var fig = new PathFigure { StartPoint = new Point(cx + r * Math.Cos(a0), cy + r * Math.Sin(a0)), IsClosed = false };
+            fig.Segments.Add(new ArcSegment(new Point(cx + r * Math.Cos(a1), cy + r * Math.Sin(a1)), new Size(r, r), 0, sweepDeg > 180, SweepDirection.Clockwise, true));
+            var g = new PathGeometry();
+            g.Figures.Add(fig);
+            return g;
+        }
+
+        Ring gHum, gRain;
+        Canvas gCompass, gPressure, gUv, gSun;
+        RotateTransform gNeedle = new RotateTransform(0, 15, 15), gPresNeedle = new RotateTransform(0, 15, 17);
+        Ellipse gUvDot, gSunDot;
+
+        void BuildWeatherGauges()
+        {
+            gHum = new Ring(accent);
+            gRain = new Ring(new SolidColorBrush(Color.FromRgb(0x4D, 0xA3, 0xFF)));
+
+            // Компас: стрелка показывает, куда дует ветер
+            gCompass = new Canvas { Width = 30, Height = 30 };
+            var rim = new Ellipse { Width = 28, Height = 28, Stroke = Bar.TrackBrush, StrokeThickness = 2 };
+            Canvas.SetLeft(rim, 1); Canvas.SetTop(rim, 1);
+            gCompass.Children.Add(rim);
+            gCompass.Children.Add(new Polygon { Fill = accent, Points = new PointCollection { new Point(15, 4), new Point(18.5, 17), new Point(15, 15), new Point(11.5, 17) }, RenderTransform = gNeedle });
+            gCompass.Children.Add(new Polygon { Fill = Faint, Points = new PointCollection { new Point(15, 26), new Point(17.5, 17), new Point(15, 15), new Point(12.5, 17) }, RenderTransform = gNeedle });
+
+            // Барометр: дуга-шкала и стрелка
+            gPressure = new Canvas { Width = 30, Height = 30 };
+            gPressure.Children.Add(new Path { Stroke = Bar.TrackBrush, StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Data = ArcGeometry(15, 17, 12.5, -110, 220) });
+            gPressure.Children.Add(new Line { X1 = 15, Y1 = 17, X2 = 15, Y2 = 7, Stroke = accent, StrokeThickness = 2, StrokeEndLineCap = PenLineCap.Round, RenderTransform = gPresNeedle });
+            var hub = new Ellipse { Width = 5, Height = 5, Fill = Fg };
+            Canvas.SetLeft(hub, 12.5); Canvas.SetTop(hub, 14.5);
+            gPressure.Children.Add(hub);
+
+            // УФ-индекс: цветная шкала от спокойного к опасному и ползунок
+            gUv = new Canvas { Width = 12, Height = 30 };
+            var scale = new LinearGradientBrush { StartPoint = new Point(0, 1), EndPoint = new Point(0, 0) };
+            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0x4C, 0xD9, 0x64), 0));
+            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0xD6, 0x0A), 0.35));
+            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0x8A, 0x1E), 0.6));
+            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0x45, 0x3A), 0.8));
+            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xAF, 0x52, 0xDE), 1));
+            var strip = new Rectangle { Width = 4, Height = 30, RadiusX = 2, RadiusY = 2, Fill = scale };
+            Canvas.SetLeft(strip, 4);
+            gUv.Children.Add(strip);
+            gUvDot = new Ellipse { Width = 9, Height = 9, Fill = Fg, Stroke = Ink, StrokeThickness = 1.5 };
+            Canvas.SetLeft(gUvDot, 1.5); Canvas.SetTop(gUvDot, 21);
+            gUv.Children.Add(gUvDot);
+
+            // Путь солнца: дуга от восхода до заката и точка «сейчас»
+            gSun = new Canvas { Width = 34, Height = 30 };
+            gSun.Children.Add(new Path { Stroke = Faint, StrokeThickness = 1.6, StrokeDashArray = new DoubleCollection { 2, 2 }, Data = ArcGeometry(17, 23, 14, -90, 180) });
+            gSun.Children.Add(new Line { X1 = 1, Y1 = 23, X2 = 33, Y2 = 23, Stroke = Bar.TrackBrush, StrokeThickness = 1.5 });
+            gSunDot = new Ellipse { Width = 8, Height = 8, Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0xC2, 0x3D)) };
+            gSun.Children.Add(gSunDot);
+        }
+
+        // Доля светового дня, которая уже прошла: 0 — восход, 1 — закат; вне дня — -1
+        public static double DayProgress(string sunrise, string sunset, DateTime now)
+        {
+            TimeSpan a, b;
+            if (!TimeSpan.TryParse(sunrise, out a) || !TimeSpan.TryParse(sunset, out b) || b <= a) return -1;
+            double f = (now.TimeOfDay - a).TotalMinutes / (b - a).TotalMinutes;
+            return f < 0 || f > 1 ? -1 : f;
+        }
+
+        FrameworkElement WTile(string label, out TextBlock value, out TextBlock sub, bool arrow, FrameworkElement gauge)
+        {
+            var tile = (Border)WTile(label, out value, out sub, arrow);
+            if (gauge == null) return tile;
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = (FrameworkElement)tile.Child;
+            tile.Child = null;
+            text.Margin = new Thickness(10, 0, 2, 0);
+            g.Children.Add(text);
+            gauge.VerticalAlignment = VerticalAlignment.Center;
+            gauge.Margin = new Thickness(0, 0, 9, 0);
+            Grid.SetColumn(gauge, 1);
+            g.Children.Add(gauge);
+            tile.Child = g;
+            return tile;
         }
 
         FrameworkElement WTile(string label, out TextBlock value, out TextBlock sub, bool arrow)
@@ -2813,6 +2966,25 @@ namespace Kapsula
             wUv.Text = (weather.Uv * e).ToString("0.#");
             wRain.Text = Math.Round(weather.RainProb * e) + "%";
             wWindRot.Angle = (weather.WindDir + 180) * e;
+            if (gHum != null)
+            {
+                // Приборы оживают вместе с цифрами
+                gHum.Set(weather.Humidity / 100.0 * e);
+                gRain.Set(weather.RainProb / 100.0 * e);
+                gNeedle.Angle = (weather.WindDir + 180) * e;                       // стрелка смотрит туда, куда дует
+                double pf = Math.Max(0, Math.Min(1, (weather.Pressure - 720) / 60.0));   // 720…780 мм рт. ст.
+                gPresNeedle.Angle = -110 + 220 * pf * e;
+                double uf = Math.Max(0, Math.Min(1, weather.Uv / 11.0)) * e;
+                Canvas.SetTop(gUvDot, 21 - 21 * uf);
+                double day = DayProgress(weather.Sunrise, weather.Sunset, DateTime.Now);
+                gSunDot.Visibility = day < 0 ? Visibility.Collapsed : Visibility.Visible;
+                if (day >= 0)
+                {
+                    double ang = Math.PI * day * e;   // от левого края дуги к правому
+                    Canvas.SetLeft(gSunDot, 17 - 14 * Math.Cos(ang) - 4);
+                    Canvas.SetTop(gSunDot, 23 - 14 * Math.Sin(ang) - 4);
+                }
+            }
             if (t >= 1) weatherAnimAt = 0;
         }
 
@@ -3233,12 +3405,27 @@ namespace Kapsula
             if (unchecked(now - blinkAt) >= 0) { blinkUntil = now + 130; blinkAt = now + 2500 + rnd.Next(4500); }
             bool asleep = Native.IdleMs() > 120000;
             double lid = asleep ? 0.14 : (unchecked(now - blinkUntil) < 0 ? 0.12 : 1);
+            if (character != Character) BuildCharacter();
+
+            // Настроение: тревога, когда звенит таймер; задумчивость, пока отвечает нейросеть; радость после удачного действия.
+            string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : unchecked(now - happyUntil) < 0 ? "happy" : asleep ? "sleep" : "");
+            bool happy = mood == "happy", alarm = mood == "alarm";
+            double wide = 1, shrink = 1;
+            if (alarm) { ox = rnd.NextDouble() * 1.8 - 0.9; oy = rnd.NextDouble() * 1.4 - 0.7; lid = 1.16; wide = 1.1; shrink = 0.7; }
+            else if (mood == "think") { ox = Math.Sin(now / 420.0) * 1.7; oy = -2.3; lid = 1; }
+            else if (mood == "sleep") lid = 0.14;
+            bool dots = character == "dots";
             for (int i = 0; i < 2; i++)
             {
-                Canvas.SetLeft(pupils[i], i * 14 + 3 + ox);
-                Canvas.SetTop(pupils[i], 4.5 + oy);
-                lids[i].ScaleY = lid;
-                pupils[i].Visibility = lid < 0.5 ? Visibility.Hidden : Visibility.Visible;
+                double w = pupilW * shrink, h = pupilH * shrink;
+                if (dots && lid < 0.5) h = 1.6;   // у «точек» нет белков — при моргании сплющивается сама точка
+                pupils[i].Width = w; pupils[i].Height = h;
+                Canvas.SetLeft(pupils[i], i * 14 + (11 - w) / 2 + ox);
+                Canvas.SetTop(pupils[i], 0.5 + (13 - h) / 2 + oy * (character == "cat" ? 0.4 : 1));
+                lids[i].ScaleY = lid; lids[i].ScaleX = wide;
+                whites[i].Visibility = happy ? Visibility.Hidden : Visibility.Visible;
+                pupils[i].Visibility = happy || (!dots && lid < 0.5) ? Visibility.Hidden : Visibility.Visible;
+                smiles[i].Visibility = happy ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -3993,7 +4180,9 @@ namespace Kapsula
         // ----------------------------------------------------------- отрисовка
         void Toast(string glyph, string text, string right, double value, Brush glyphBrush)
         {
+            if (TestCharacter != null) return;   // при съёмке персонажей надписи не нужны
             toastGlyph = glyph; toastText = text; toastRight = right; toastValue = value; toastBrush = glyphBrush;
+            if (glyphBrush == accent && value < 0) Happy(3300);   // удачное действие — персонаж радуется, когда надпись уйдёт
             toastUntil = Environment.TickCount + 1800;
             toastOn = true;
             RenderCompact();
@@ -4073,7 +4262,7 @@ namespace Kapsula
 
             cGlyph.Visibility = Visibility.Collapsed;
             micDot.Visibility = micInUse && !playing ? Visibility.Visible : Visibility.Collapsed;
-            eyes.Visibility = ShowEyes && (!playing || TestEyes) && !timerRinging ? Visibility.Visible : Visibility.Collapsed;
+            eyes.Visibility = (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
             if (TestEyes) cCover.Visibility = Visibility.Collapsed;
             cCover.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
             eq.Visibility = playing && !timing && !timerRinging ? Visibility.Visible : Visibility.Collapsed;
