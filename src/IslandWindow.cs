@@ -5001,13 +5001,14 @@ namespace Kapsula
         void RenderWeather()
         {
             bool ok = weather != null && weather.Error == null;
+            if (wCredit != null) wCredit.Text = "Данные " + (ok ? weather.Source : "Open-Meteo");
             if (weatherSearch != null) weatherSearch.Visibility = !ok || weatherSearchOpen ? Visibility.Visible : Visibility.Collapsed;
             weatherGrid.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
             weatherBody.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
             weatherBody.Children.Clear();
             if (weather == null || weather.Error != null)
             {
-                string msg = weather != null ? weather.Error : "Введите город и нажмите «Показать».\nТолько после этого приложение обратится в сеть — к open-meteo.com.";
+                string msg = weather != null ? weather.Error : "Введите город и нажмите «Показать».\nТолько после этого приложение обратится в сеть — к open-meteo.com (если он недоступен — к OpenStreetMap и MET Norway).";
                 weatherBody.Children.Add(new TextBlock { Text = msg, Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 60, 0, 0), LineHeight = 20 });
                 return;
             }

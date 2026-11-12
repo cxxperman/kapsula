@@ -67,7 +67,7 @@ namespace Kapsula
     // ================================================================ Погода
     class WeatherData
     {
-        public string City = "", Error;
+        public string City = "", Error, Source = "Open-Meteo";
         public double Temp, Max, Min, Feels, Wind, WindDir, Humidity, Pressure, Uv, RainProb;
         public double DewPoint, PressureTrend, UvTomorrow = -1, RainMm;   // точка росы, изменение давления за 3 часа (мм), УФ завтра
         public string Sunrise = "", Sunset = "";
@@ -163,20 +163,25 @@ namespace Kapsula
                 w.City = Store.Get("cityName");
                 if (Store.Get("cityQuery") != city || lat == "" || lon == "")
                 {
-                    string g = Download("https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name=" + Uri.EscapeDataString(city));
-                    var gr = (Dictionary<string, object>)js.DeserializeObject(g);
-                    object res;
-                    if (!gr.TryGetValue("results", out res) || Arr(res).Length == 0) { w.Error = "Город не найден"; return w; }
-                    var first = (Dictionary<string, object>)Arr(res)[0];
-                    lat = Convert.ToDouble(first["latitude"], inv).ToString("0.####", inv);
-                    lon = Convert.ToDouble(first["longitude"], inv).ToString("0.####", inv);
-                    w.City = Convert.ToString(first["name"]);
+                    double la, lo; string name; bool reached;
+                    if (!Geocode(city, out la, out lo, out name, out reached))
+                    {
+                        w.Error = reached ? "Город не найден" : "Сервисы поиска городов недоступны — возможно, их блокирует провайдер";
+                        return w;
+                    }
+                    lat = la.ToString("0.####", inv); lon = lo.ToString("0.####", inv);
+                    w.City = name;
                     Store.Set("lat", lat); Store.Set("lon", lon); Store.Set("cityName", w.City); Store.Set("cityQuery", city);
                 }
-                string f = Download("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+                string f = null;
+                if (Environment.GetEnvironmentVariable("KAPSULA_WEATHER") != "met")
+                    try { f = Download("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
                     "&current=temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_direction_10m,relative_humidity_2m,surface_pressure" +
                     "&hourly=temperature_2m,weather_code,surface_pressure,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum" +
-                    "&wind_speed_unit=ms&timezone=auto&forecast_days=6");
+                    "&wind_speed_unit=ms&timezone=auto&forecast_days=6"); }
+                    catch (Exception ex) { Store.LogError("погода open-meteo", ex); }
+                // open-meteo недоступен (бывает, что его блокирует провайдер) — прогноз норвежской метеослужбы
+                if (f == null) { FetchMet(lat, lon, w); return w; }
                 var r = (Dictionary<string, object>)js.DeserializeObject(f);
                 var cur = (Dictionary<string, object>)r["current"];
                 w.Temp = Convert.ToDouble(cur["temperature_2m"], inv);
@@ -237,13 +242,182 @@ namespace Kapsula
             return w;
         }
 
+        // Проверка (ключ --weathertest город файл): каждый сервис по отдельности
+        public static string Test(string city)
+        {
+            var sb = new StringBuilder();
+            foreach (string g in new[] { "om", "osm", "photon" })
+            {
+                Environment.SetEnvironmentVariable("KAPSULA_GEO", g);
+                double la, lo; string name; bool reached; var sw = System.Diagnostics.Stopwatch.StartNew();
+                bool ok = Geocode(city, out la, out lo, out name, out reached);
+                sb.AppendLine("город " + g + ": " + (ok ? name + " " + la.ToString("0.00") + "," + lo.ToString("0.00") : reached ? "не найден" : "нет связи") + " · " + sw.ElapsedMilliseconds + " мс");
+            }
+            Environment.SetEnvironmentVariable("KAPSULA_GEO", null);
+            double la2, lo2; string n2; bool r2;
+            Geocode(city, out la2, out lo2, out n2, out r2);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (string src in new[] { "om", "met" })
+            {
+                var w = new WeatherData();
+                if (src == "met") FetchMet(la2.ToString("0.####", inv), lo2.ToString("0.####", inv), w);
+                else { Environment.SetEnvironmentVariable("KAPSULA_WEATHER", null); }
+                if (src == "om")
+                {
+                    string q = Store.Get("cityQuery"), lat = Store.Get("lat"), lon = Store.Get("lon"), cn = Store.Get("cityName");
+                    Store.Set("cityQuery", city); Store.Set("lat", la2.ToString("0.####", inv)); Store.Set("lon", lo2.ToString("0.####", inv));
+                    w = Fetch(city);
+                    Store.Set("cityQuery", q); Store.Set("lat", lat); Store.Set("lon", lon); Store.Set("cityName", cn);
+                }
+                sb.AppendLine("прогноз " + w.Source + ": " + (w.Error ?? (Temp(w.Temp) + " код " + w.Code + ", ветер " + w.Wind.ToString("0.0") + " м/с, влажность " + w.Humidity.ToString("0") + "%, часов " + w.Hours.Count + ", дней " + w.Days.Count + (w.Days.Count > 0 ? " (" + w.Days[0][2] + "/" + w.Days[0][3] + ")" : ""))));
+            }
+            return sb.ToString();
+        }
+
+        // Не дольше 8 секунд: если сервис заблокирован, лучше быстро перейти к запасному, чем висеть
         static string Download(string url)
         {
-            using (var wc = new System.Net.WebClient())
+            System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;   // TLS 1.2
+            var rq = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+            rq.UserAgent = "Kapsula/" + Updater.CurrentText + " (+https://github.com/cxxperman/kapsula)";   // так просят OpenStreetMap и MET Norway
+            rq.Timeout = 8000; rq.ReadWriteTimeout = 8000;
+            rq.AutomaticDecompression = System.Net.DecompressionMethods.GZip;   // deflate в .NET читается с ошибками у некоторых серверов
+            using (var r = rq.GetResponse())
+            using (var sr = new System.IO.StreamReader(r.GetResponseStream(), Encoding.UTF8)) return sr.ReadToEnd();
+        }
+
+        // Поиск города: open-meteo, при недоступности — OpenStreetMap (Nominatim), затем Photon.
+        // reached — хотя бы один сервис ответил (тогда «не найден» значит именно не найден).
+        static bool Geocode(string city, out double lat, out double lon, out string name, out bool reached)
+        {
+            lat = lon = 0; name = city; reached = false;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var js = new System.Web.Script.Serialization.JavaScriptSerializer();
+            string q = Uri.EscapeDataString(city);
+            string only = Environment.GetEnvironmentVariable("KAPSULA_GEO") ?? "";   // для проверки: om, osm, photon
+            if (only == "" || only == "om")
+                try
+                {
+                    var gr = (Dictionary<string, object>)js.DeserializeObject(Download("https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name=" + q));
+                    reached = true;
+                    object res;
+                    if (gr.TryGetValue("results", out res) && Arr(res).Length > 0)
+                    {
+                        var first = (Dictionary<string, object>)Arr(res)[0];
+                        lat = Convert.ToDouble(first["latitude"], inv); lon = Convert.ToDouble(first["longitude"], inv); name = Convert.ToString(first["name"]);
+                        return true;
+                    }
+                }
+                catch (Exception ex) { Store.LogError("город open-meteo", ex); }
+            if (only == "" || only == "osm")
+                try
+                {
+                    var arr = js.DeserializeObject(Download("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=ru&q=" + q)) as object[];
+                    reached = true;
+                    if (arr != null && arr.Length > 0)
+                    {
+                        var first = (Dictionary<string, object>)arr[0];
+                        lat = double.Parse(Convert.ToString(first["lat"]), inv); lon = double.Parse(Convert.ToString(first["lon"]), inv);
+                        object nm; name = first.TryGetValue("name", out nm) && Convert.ToString(nm).Length > 0 ? Convert.ToString(nm) : city;
+                        return true;
+                    }
+                }
+                catch (Exception ex) { Store.LogError("город OpenStreetMap", ex); }
+            if (only == "" || only == "photon")
+                try
+                {
+                    var gr = (Dictionary<string, object>)js.DeserializeObject(Download("https://photon.komoot.io/api/?limit=1&q=" + q));
+                    reached = true;
+                    object feats;
+                    if (gr.TryGetValue("features", out feats) && Arr(feats).Length > 0)
+                    {
+                        var ft = (Dictionary<string, object>)Arr(feats)[0];
+                        object[] c = Arr(((Dictionary<string, object>)ft["geometry"])["coordinates"]);
+                        lon = Convert.ToDouble(c[0], inv); lat = Convert.ToDouble(c[1], inv);
+                        object nm; var props = (Dictionary<string, object>)ft["properties"];
+                        name = props.TryGetValue("name", out nm) ? Convert.ToString(nm) : city;
+                        return true;
+                    }
+                }
+                catch (Exception ex) { Store.LogError("город Photon", ex); }
+            return false;
+        }
+
+        // Запасной прогноз — MET Norway (api.met.no): бесплатно, без ключа. Его значки переводим в коды WMO, как у open-meteo.
+        static int MetCode(string sym)
+        {
+            string s = (sym ?? "").Replace("_day", "").Replace("_night", "").Replace("_polartwilight", "");
+            if (s.Contains("thunder")) return 95;
+            switch (s)
             {
-                wc.Encoding = Encoding.UTF8;
-                wc.Headers["User-Agent"] = "Kapsula";
-                return wc.DownloadString(url);
+                case "clearsky": return 0; case "fair": return 1; case "partlycloudy": return 2; case "cloudy": return 3; case "fog": return 45;
+                case "lightrain": return 61; case "rain": return 63; case "heavyrain": return 65;
+                case "lightrainshowers": return 80; case "rainshowers": return 81; case "heavyrainshowers": return 82;
+                case "lightsleet": case "sleet": case "heavysleet": case "lightsleetshowers": case "sleetshowers": case "heavysleetshowers": return 67;
+                case "lightsnow": return 71; case "snow": return 73; case "heavysnow": return 75;
+                case "lightsnowshowers": case "snowshowers": return 85; case "heavysnowshowers": return 86;
+            }
+            return 3;
+        }
+
+        static void FetchMet(string lat, string lon, WeatherData w)
+        {
+            w.Source = "MET Norway";
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var js = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+            string json;
+            try { json = Download("https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=" + lat + "&lon=" + lon); }
+            catch (Exception ex) { w.Error = "Погодные сервисы недоступны — возможно, их блокирует провайдер (" + ex.Message + ")"; return; }
+            var root = (Dictionary<string, object>)js.DeserializeObject(json);
+            object[] ts = Arr(((Dictionary<string, object>)root["properties"])["timeseries"]);
+            if (ts.Length == 0) { w.Error = "Прогноз пуст"; return; }
+            Func<object, Dictionary<string, object>> D = delegate(object o) { return o as Dictionary<string, object>; };
+            Func<Dictionary<string, object>, string, double> V = delegate(Dictionary<string, object> d, string k) { object o; return d != null && d.TryGetValue(k, out o) && o != null ? Convert.ToDouble(o, inv) : double.NaN; };
+            Func<Dictionary<string, object>, string> Sym = delegate(Dictionary<string, object> e)
+            {
+                foreach (string k in new[] { "next_1_hours", "next_6_hours", "next_12_hours" })
+                {
+                    object o; if (!e.TryGetValue(k, out o)) continue;
+                    var sm = D(D(o)["summary"]); object sc; if (sm != null && sm.TryGetValue("symbol_code", out sc)) return Convert.ToString(sc);
+                }
+                return "";
+            };
+            var first = D(ts[0]); var data = D(first["data"]); var inst = D(D(data["instant"])["details"]);
+            string sym0 = Sym(data);
+            w.Temp = V(inst, "air_temperature"); w.Feels = w.Temp;
+            w.Code = MetCode(sym0); w.IsDay = !sym0.Contains("_night");
+            w.Wind = V(inst, "wind_speed"); w.WindDir = V(inst, "wind_from_direction");
+            w.Humidity = V(inst, "relative_humidity"); double p = V(inst, "air_pressure_at_sea_level"); w.Pressure = double.IsNaN(p) ? 0 : p * 0.750062;
+            if (double.IsNaN(w.Wind)) w.Wind = 0; if (double.IsNaN(w.WindDir)) w.WindDir = 0; if (double.IsNaN(w.Humidity)) w.Humidity = 0;
+            if (w.Humidity > 0) { double g = Math.Log(w.Humidity / 100.0) + 17.62 * w.Temp / (243.12 + w.Temp); w.DewPoint = 243.12 * g / (17.62 - g); }
+            double uv = V(inst, "ultraviolet_index_clear_sky"); if (!double.IsNaN(uv)) w.Uv = uv;
+            // по часам: время в UTC — переводим в местное
+            var byDay = new SortedDictionary<DateTime, double[]>();   // дата → min, max, код днём, осадки
+            DateTime t0 = DateTime.MinValue;
+            for (int i = 0; i < ts.Length; i++)
+            {
+                var e = D(ts[i]); var dd = D(e["data"]); var det = D(D(dd["instant"])["details"]);
+                DateTime t = DateTime.Parse(Convert.ToString(e["time"]), inv, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal).ToLocalTime();
+                if (i == 0) t0 = t;
+                double temp = V(det, "air_temperature"); string sy = Sym(dd); int code = MetCode(sy);
+                if (w.Hours.Count < 8 && (t - t0).TotalHours >= w.Hours.Count * 3 - 0.01)
+                    w.Hours.Add(new string[] { t.ToString("HH:mm"), Symbol(code), T(temp), code.ToString(), sy.Contains("_night") ? "0" : "1" });
+                if (i == 3) { double p3 = V(det, "air_pressure_at_sea_level"); if (!double.IsNaN(p3) && !double.IsNaN(p)) w.PressureTrend = (p3 - p) * 0.750062; }
+                double[] day; if (!byDay.TryGetValue(t.Date, out day)) { day = new[] { temp, temp, -1, 0 }; byDay[t.Date] = day; }
+                day[0] = Math.Min(day[0], temp); day[1] = Math.Max(day[1], temp);
+                if (t.Hour >= 11 && t.Hour <= 15 && day[2] < 0) day[2] = code;
+                object n1; if (dd.TryGetValue("next_1_hours", out n1)) { double pr = V(D(D(n1)["details"]), "precipitation_amount"); if (!double.IsNaN(pr)) day[3] += pr; }
+            }
+            var ru = new System.Globalization.CultureInfo("ru-RU");
+            int n = 0;
+            foreach (var kv in byDay)
+            {
+                if (n >= 6) break;
+                int dc = kv.Value[2] >= 0 ? (int)kv.Value[2] : w.Code;
+                string dn = ru.DateTimeFormat.GetAbbreviatedDayName(kv.Key.DayOfWeek);
+                w.Days.Add(new string[] { n == 0 ? "Сегодня" : char.ToUpper(dn[0]) + dn.Substring(1), Symbol(dc), T(kv.Value[1]), T(kv.Value[0]), dc.ToString() });
+                if (n == 0) { w.Max = kv.Value[1]; w.Min = kv.Value[0]; w.RainMm = kv.Value[3]; }
+                n++;
             }
         }
 

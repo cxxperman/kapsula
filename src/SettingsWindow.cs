@@ -21,6 +21,118 @@ namespace Kapsula
 {
     // ============================================================= Первый запуск
     // Короткое окно, которое один раз объясняет новому человеку, что это за капсула вверху экрана и что с ней делать.
+    // Kapsula — украинский проект. Флаг рисуется в коде: две полосы, в большой карточке — с мягкой волной, как на ветру
+    static class Ua
+    {
+        public const string Made = "Зроблено в Україні";
+        static readonly Color Blue = Color.FromRgb(0x00, 0x5B, 0xBB), Yellow = Color.FromRgb(0xFF, 0xD5, 0x00);
+
+        public static FrameworkElement Flag(double w, double h)
+        {
+            var g = new Grid { Width = w, Height = h, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Kapsula — украинский проект" };
+            g.RowDefinitions.Add(new RowDefinition()); g.RowDefinitions.Add(new RowDefinition());
+            var top = new Border { Background = new SolidColorBrush(Blue), CornerRadius = new CornerRadius(h * 0.18, h * 0.18, 0, 0) };
+            var bottom = new Border { Background = new SolidColorBrush(Yellow), CornerRadius = new CornerRadius(0, 0, h * 0.18, h * 0.18) };
+            Grid.SetRow(bottom, 1);
+            g.Children.Add(top); g.Children.Add(bottom);
+            return g;
+        }
+
+        // Плашка: маленький флаг и подпись, рамка переливается из синего в жёлтый
+        public static FrameworkElement Pill(double size)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(Flag(size * 1.45, size));
+            sp.Children.Add(new TextBlock { Text = Made, Foreground = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xEA)), FontSize = size * 1.15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center });
+            return new Border
+            {
+                Child = sp, CornerRadius = new CornerRadius(size + 4), Padding = new Thickness(size * 0.8, size * 0.35, size, size * 0.4), HorizontalAlignment = HorizontalAlignment.Left,
+                Background = new LinearGradientBrush(Color.FromArgb(0x30, Blue.R, Blue.G, Blue.B), Color.FromArgb(0x24, Yellow.R, Yellow.G, Yellow.B), 0),
+                BorderBrush = new LinearGradientBrush(Color.FromArgb(0xA0, Blue.R, Blue.G, Blue.B), Color.FromArgb(0xA0, Yellow.R, Yellow.G, Yellow.B), 0), BorderThickness = new Thickness(1),
+                ToolTip = "Kapsula — украинский проект"
+            };
+        }
+
+        // Флаг на ветру: полосы изгибаются бегущей волной, по краю — лёгкая тень складок. Анимация идёт, только пока флаг виден.
+        public static FrameworkElement WavyFlag(double w, double h)
+        {
+            var c = new Canvas { Width = w, Height = h + 6, ClipToBounds = false };
+            var top = new Path { Fill = new SolidColorBrush(Blue) };
+            var bottom = new Path { Fill = new SolidColorBrush(Yellow) };
+            var shade = new Path { Fill = new LinearGradientBrush(new GradientStopCollection { new GradientStop(Color.FromArgb(0, 0, 0, 0), 0), new GradientStop(Color.FromArgb(0x38, 0, 0, 0), 0.5), new GradientStop(Color.FromArgb(0, 0, 0, 0), 1) }, 0) { MappingMode = BrushMappingMode.RelativeToBoundingBox }, Opacity = 0.9 };
+            c.Children.Add(top); c.Children.Add(bottom); c.Children.Add(shade);
+            double phase = 0;
+            Func<double, double, double> Y = delegate(double x, double y0)
+            {
+                double k = x / w;   // у древка флаг почти неподвижен, к краю волна сильнее
+                return y0 + Math.Sin(phase + k * 5.2) * 2.6 * k + 3;
+            };
+            Action draw = delegate
+            {
+                int n = 24;
+                Func<double, double, Geometry> band = delegate(double y0, double y1)
+                {
+                    var g = new StreamGeometry();
+                    using (var ctx = g.Open())
+                    {
+                        ctx.BeginFigure(new Point(0, Y(0, y0)), true, true);
+                        for (int i = 1; i <= n; i++) { double x = w * i / n; ctx.LineTo(new Point(x, Y(x, y0)), true, true); }
+                        for (int i = n; i >= 0; i--) { double x = w * i / n; ctx.LineTo(new Point(x, Y(x, y1)), true, true); }
+                    }
+                    g.Freeze();
+                    return g;
+                };
+                top.Data = band(0, h / 2 + 0.4);
+                bottom.Data = band(h / 2, h);
+                // складки: тень там, где волна уходит вниз
+                var sg = new StreamGeometry();
+                using (var ctx = sg.Open())
+                {
+                    ctx.BeginFigure(new Point(0, Y(0, 0)), true, true);
+                    for (int i = 1; i <= n; i++) { double x = w * i / n; ctx.LineTo(new Point(x, Y(x, 0)), true, true); }
+                    for (int i = n; i >= 0; i--) { double x = w * i / n; ctx.LineTo(new Point(x, Y(x, h)), true, true); }
+                }
+                sg.Freeze();
+                shade.Data = sg;
+                double pos = (Math.Sin(phase) + 1) / 2;
+                ((LinearGradientBrush)shade.Fill).GradientStops[1].Offset = 0.25 + pos * 0.5;
+            };
+            draw();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+            timer.Tick += delegate { phase += 0.11; draw(); };
+            c.Loaded += delegate { timer.Start(); };
+            c.Unloaded += delegate { timer.Stop(); };
+            c.IsVisibleChanged += delegate { if (c.IsVisible) timer.Start(); else timer.Stop(); };
+            return c;
+        }
+
+        // Карточка «Украинский проект» для раздела «Общее»
+        public static Border Banner(FrameworkElement button)
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var flag = WavyFlag(66, 44);
+            flag.Margin = new Thickness(2, 2, 20, 0); flag.VerticalAlignment = VerticalAlignment.Center;
+            g.Children.Add(flag);
+            var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            texts.Children.Add(new TextBlock { Text = "Український проєкт", Foreground = Brushes.White, FontSize = 17, FontWeight = FontWeights.Bold });
+            texts.Children.Add(new TextBlock { Text = "Kapsula делают в Украине. Программа бесплатная, исходный код открыт — его можно посмотреть и проверить.", Foreground = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)), FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
+            button.HorizontalAlignment = HorizontalAlignment.Left;
+            texts.Children.Add(button);
+            Grid.SetColumn(texts, 1);
+            g.Children.Add(texts);
+            var bg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            bg.GradientStops.Add(new GradientStop(Color.FromRgb(0x0B, 0x2E, 0x63), 0));
+            bg.GradientStops.Add(new GradientStop(Color.FromRgb(0x14, 0x22, 0x3D), 0.55));
+            bg.GradientStops.Add(new GradientStop(Color.FromRgb(0x3A, 0x33, 0x12), 1));
+            return new Border
+            {
+                Child = g, Background = bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(20, 16, 20, 16), Margin = new Thickness(0, 0, 0, 16),
+                BorderBrush = new LinearGradientBrush(Color.FromArgb(0x70, Blue.R, Blue.G, Blue.B), Color.FromArgb(0x70, Yellow.R, Yellow.G, Yellow.B), 0), BorderThickness = new Thickness(1)
+            };
+        }
+    }
     class WelcomeWindow : Window
     {
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
@@ -247,6 +359,10 @@ namespace Kapsula
             Closed += delegate { statusTimer.Stop(); };
             checkBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (verStatus != null) verStatus.Text = "Проверяю…"; Updater.CheckNow(); };
             sp.Children.Add(verRow);
+            var banner = Ua.Banner(LinkButton("Исходный код на GitHub", "https://github.com/cxxperman/kapsula"));
+            sp.Children.Add(banner);
+            rowsByTitle["Украинский проект"] = banner;
+            rowText[banner] = "украинский проект украина сделано в украине github исходный код";
 
             sp = Sec("Внешний вид");
             sp.Children.Add(Row("Цвет острова", "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.", BuildSwatches(), true));
@@ -490,7 +606,7 @@ namespace Kapsula
 
         static readonly string[][] Layout =
         {
-            new[] { "Общее", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
+            new[] { "Общее", "Украинский проект", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
             new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Матовое стекло", "Секунды в часах", "#Зверёк", "Зверёк в капсуле", "Сезонные наряды зверька" },
             new[] { "Поведение", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки" },
             new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },

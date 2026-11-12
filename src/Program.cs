@@ -35,6 +35,7 @@ namespace Kapsula
                 return;
             }
             if (args.Length == 2 && args[0] == "--qwenengines") { var o = new System.Text.StringBuilder(); o.AppendLine("wanted " + QwenLocal.WantedEngine()); foreach (string k in new string[] { "vulkan", "cuda-12", "cuda-13" }) { string u, r; try { System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072; QwenLocal.FindEngine(k, out u, out r); o.AppendLine(k + ": " + u + " | " + r); } catch (Exception ex) { o.AppendLine(k + ": " + ex.Message); } } System.IO.File.WriteAllText(args[1], o.ToString()); return; }
+            if (args.Length == 3 && args[0] == "--weathertest") { Store.Load(); System.IO.File.WriteAllText(args[2], Weather.Test(args[1])); return; }
             if (args.Length == 3 && args[0] == "--spectest")
             {
                 // проверка: слушаем только указанный плеер 6 секунд и пишем, что услышали
