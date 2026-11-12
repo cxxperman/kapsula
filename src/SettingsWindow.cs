@@ -90,10 +90,15 @@ namespace Kapsula
             sp = Sec("Внешний вид");
             sp.Children.Add(Row("Цвет острова", "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.", BuildSwatches(), true));
             sp.Children.Add(Row("Как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false));
-            double[] scales = { 0.8, 1, 1.25, 1.5, 1.75, 2 };
-            int si = 1;
-            for (int i = 0; i < scales.Length; i++) if (Math.Abs(scales[i] - island.Scale) < 0.01) si = i;
-            sp.Children.Add(Row("Размер", "Для больших мониторов.", Chips(new string[] { "80%", "100%", "125%", "150%", "175%", "200%" }, si, delegate(int i) { island.ApplyScale(scales[i]); }), true));
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            sp.Children.Add(Row("Размер", "Потяните — остров меняется сразу. Для больших мониторов удобнее покрупнее.", SliderCtl(0.8, 2, 0.05, island.Scale,
+                delegate(double v) { return Math.Round(v * 100) + "%"; },
+                delegate(double v) { island.PreviewScale(v.ToString("0.##", inv)); },
+                delegate(double v) { island.ApplyScale(v); }), true));
+            sp.Children.Add(Row("Прозрачность фона", "Фон острова становится полупрозрачным, текст и значки остаются плотными.", SliderCtl(0.5, 1, 0.05, island.IslandOpacity,
+                delegate(double v) { return v >= 0.995 ? "нет" : Math.Round((1 - v) * 100) + "%"; },
+                delegate(double v) { island.ApplyOpacity(v, false); },
+                delegate(double v) { island.ApplyOpacity(v, true); }), true));
 
             sp.Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
             sp.Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так.", HideAppsEditor(), true));
@@ -439,6 +444,41 @@ namespace Kapsula
                 changed(state);
             };
             return b;
+        }
+
+        // Ползунок: live вызывается при каждом движении (без записи в настройки), done — когда отпустили.
+        FrameworkElement SliderCtl(double min, double max, double step, double value, Func<double, string> fmt, Action<double> live, Action<double> done)
+        {
+            const double W = 300, T = 18;
+            double cur = Math.Max(min, Math.Min(max, value));
+            var track = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = ChipBg, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(T / 2, 0, T / 2, 0) };
+            var fill = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = OnBg, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(T / 2, 0, 0, 0) };
+            var thumb = new Ellipse { Width = T, Height = T, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            var area = new Grid { Width = W, Height = 28, Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            area.Children.Add(track); area.Children.Add(fill); area.Children.Add(thumb);
+            var label = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 1), Width = 56 };
+            Action paint = delegate
+            {
+                double f = (cur - min) / (max - min);
+                fill.Width = f * (W - T);
+                thumb.Margin = new Thickness(f * (W - T), 0, 0, 0);
+                label.Text = fmt(cur);
+            };
+            Action<MouseEventArgs> move = delegate(MouseEventArgs e)
+            {
+                double f = Math.Max(0, Math.Min(1, (e.GetPosition(area).X - T / 2) / (W - T)));
+                double v = min + Math.Round(f * (max - min) / step) * step;
+                v = Math.Max(min, Math.Min(max, v));
+                if (Math.Abs(v - cur) < 1e-9) return;
+                cur = v; paint(); live(cur);
+            };
+            area.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { area.CaptureMouse(); move(e); e.Handled = true; };
+            area.MouseMove += delegate(object s, MouseEventArgs e) { if (area.IsMouseCaptured) move(e); };
+            area.MouseLeftButtonUp += delegate { if (area.IsMouseCaptured) { area.ReleaseMouseCapture(); done(cur); } };
+            paint();
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(area); row.Children.Add(label);
+            return row;
         }
 
         FrameworkElement Chips(string[] labels, int selected, Action<int> pick)

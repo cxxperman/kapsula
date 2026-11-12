@@ -78,6 +78,8 @@ namespace Kapsula
                 if (args[i] == "--color" && i + 1 < args.Length) w.PreviewOnly(args[i + 1]);
                 if (args[i] == "--scale" && i + 1 < args.Length) w.PreviewScale(args[i + 1]);
                 if (args[i] == "--card") { w.TestCard = true; w.ForceOpen = -3; }
+                if (args[i] == "--opacity" && i + 1 < args.Length && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out y)) w.ApplyOpacity(y, false);
+                if (args[i] == "--chatlong") { w.TestChat = true; w.TestChatLong = true; }
                 if (args[i] == "--homeclips") { w.TestHomeClips = true; w.ApplyHomeLayout(); }
                 if (args[i] == "--hideapps" && i + 1 < args.Length) w.TestHideApps = args[i + 1];
                 if (args[i] == "--democard" && i + 1 < args.Length) { w.TestCard = true; w.TestDemoCard = args[i + 1]; w.ForceOpen = -3; }

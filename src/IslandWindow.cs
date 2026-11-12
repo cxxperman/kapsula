@@ -112,7 +112,7 @@ namespace Kapsula
         bool chatBusy, dictating;
         int chatGen;
         IntPtr prevFg = IntPtr.Zero;
-        public bool TestChat, TestEyes;
+        public bool TestChat, TestEyes, TestChatLong;
         const double Pitch = 22;
         static readonly Brush Amber = new SolidColorBrush(Color.FromRgb(0xFF, 0xC2, 0x3D));
         const double PageW = 548, PageH = 300;
@@ -128,7 +128,8 @@ namespace Kapsula
         static readonly SolidColorBrush TabOn = new SolidColorBrush(Color.FromRgb(0x26, 0x26, 0x2A));
 
         // Настройки вида и поведения
-        const double BaseW = EW + 120, BaseH = EH + 90;
+        const double ChatGrowMax = 260;   // на сколько чат может вытянуть панель вниз под длинный разговор
+        const double BaseW = EW + 120, BaseH = EH + 90 + ChatGrowMax;
         public static readonly Color LightIsland = Color.FromRgb(0xF4, 0xF4, 0xF6);
         public Color IslandColor = Colors.Black, DarkColor = Colors.Black;
         public bool FollowWindows, PillTitle, HoverMini = true, LiquidOn = true, ShowSeconds, ShowInCapture;
@@ -248,6 +249,15 @@ namespace Kapsula
             Height = BaseH * Scale;
             PlaceWindow();
             Store.Set("scale", Scale.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        // Прозрачность фона острова (сам текст и значки остаются плотными): от 0.5 до 1
+        public double IslandOpacity = 1;
+        public void ApplyOpacity(double v, bool save)
+        {
+            IslandOpacity = Math.Max(0.5, Math.Min(1, v));
+            if (shape != null) shape.Opacity = IslandOpacity;
+            if (save) Store.Set("opacity", IslandOpacity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
         }
 
         void ApplyCapture()
@@ -609,7 +619,9 @@ namespace Kapsula
         {
             // Интерфейс рисуется в базовом размере и масштабируется целиком — так работает настройка «Размер».
             root = new Grid { RenderTransform = slide, Width = BaseW, Height = BaseH, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, LayoutTransform = scaleT };
-            shape = new Path { Fill = Ink, SnapsToDevicePixels = false };
+            double op;
+            if (double.TryParse(Store.Get("opacity"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out op) && op >= 0.5 && op <= 1) IslandOpacity = op;
+            shape = new Path { Fill = Ink, SnapsToDevicePixels = false, Opacity = IslandOpacity };
             root.Children.Add(shape);
 
             clipHost = new Grid();
@@ -1555,7 +1567,8 @@ namespace Kapsula
             var g = new Grid { Margin = new Thickness(18, 12, 18, 16) };
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(PageH) });
+            pageRow = new RowDefinition { Height = new GridLength(PageH) };
+            g.RowDefinitions.Add(pageRow);
 
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система" };
@@ -1584,9 +1597,38 @@ namespace Kapsula
             ShowPage(0);
         }
 
+        // ---- чат растёт вниз вместе с разговором, чтобы длинные ответы было удобно читать
+        RowDefinition pageRow;
+        double chatExtra;
+
+        double PageExtra() { return page == PChat ? chatExtra : 0; }
+
+        void ApplyPageExtra()
+        {
+            double ex = PageExtra();
+            pageRow.Height = new GridLength(PageH + ex);
+            expandedHost.Height = EH + ex;
+            if (state == 2) SetTargets();
+        }
+
+        // Пересчитать высоту чата и прокрутить к последнему сообщению
+        void ChatGrow()
+        {
+            chatScroll.ScrollToEnd();
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                // 220 — высота списка сообщений в обычной панели; расти можно, пока панель помещается на экране
+                double room = SystemParameters.WorkArea.Height / Scale - EH - 40;
+                double want = Math.Max(0, Math.Min(Math.Min(ChatGrowMax, room), chatList.ActualHeight - 220));
+                if (Math.Abs(want - chatExtra) >= 1) { chatExtra = want; ApplyPageExtra(); }
+                chatScroll.ScrollToEnd();
+            }), DispatcherPriority.Loaded);
+        }
+
         void ShowPage(int idx)
         {
             page = idx;
+            ApplyPageExtra();
             if (state == 2) SetTargets();   // у «Главной» своя высота
             for (int i = 0; i < pages.Length; i++)
             {
@@ -1597,7 +1639,7 @@ namespace Kapsula
                 tabGlyphs[i].Foreground = on ? Fg : Dim;
             }
             if (idx != PClip && idx != PNote && idx != PWeather && idx != PChat) { Keyboard.ClearFocus(); }
-            if (idx == PChat) RenderChatEmpty();
+            if (idx == PChat) { RenderChatEmpty(); ChatGrow(); }
             if (idx == PShelf) RenderShelf();
             pages[idx].Opacity = 0;
             var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
@@ -1704,7 +1746,7 @@ namespace Kapsula
         }
 
         // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
-        double ExpandedH() { return EH - (page == 0 ? homeCut : 0); }
+        double ExpandedH() { return EH - (page == 0 ? homeCut : 0) + PageExtra(); }
 
         // Для окна настроек: оно рисует у себя живую копию острова, главной панели и мини-плеера.
         public Visual PreviewRoot { get { return root; } }
@@ -2110,7 +2152,7 @@ namespace Kapsula
             var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 8) };
             chatModelLabel = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             top.Children.Add(chatModelLabel);
-            var fresh = Btn("Новый чат", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); });
+            var fresh = Btn("Новый чат", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); });
             fresh.HorizontalAlignment = HorizontalAlignment.Right;
             top.Children.Add(fresh);
             DockPanel.SetDock(top, Dock.Top);
@@ -2187,7 +2229,7 @@ namespace Kapsula
             b.MouseLeftButtonDown += delegate { try { Clipboard.SetText(tb.Text); Toast("", "Скопировано", null, -1, accent); } catch { } };
             chatList.Children.Add(b);
             chatEmpty.Visibility = Visibility.Collapsed;
-            chatScroll.ScrollToEnd();
+            ChatGrow();
             return tb;
         }
 
@@ -2284,7 +2326,7 @@ namespace Kapsula
                         sb.Append(piece);
                         answer.Foreground = Fg;
                         answer.Text = sb.ToString();
-                        chatScroll.ScrollToEnd();
+                        ChatGrow();
                     }));
                 });
                 Dispatcher.BeginInvoke(new Action(delegate
@@ -2296,7 +2338,7 @@ namespace Kapsula
                     chatHistory.RemoveAt(chatHistory.Count - 1);
                     answer.Foreground = Dim;
                     answer.Text = (sb.Length > 0 ? sb + "\n\n" : "") + (err ?? "Пустой ответ.");
-                    chatScroll.ScrollToEnd();
+                    ChatGrow();
                 }));
             });
         }
@@ -3978,6 +4020,11 @@ namespace Kapsula
                 AddBubble(false, "360.\n\nСчитается так: 2400 × 0,15 = 360. Если нужно отнять эти проценты от суммы, останется 2040.");
                 AddBubble(true, "А как это быстро прикинуть в уме?");
                 AddBubble(false, "Возьмите 10% — это 240, затем половину от них — 120. В сумме 360.");
+                if (TestChatLong)
+                {
+                    AddBubble(true, "А если процент неудобный, например 17%?");
+                    AddBubble(false, "Разбейте его на удобные части: 17% = 10% + 5% + 2%.\n\n10% от 2400 — это 240.\n5% — половина от этого, 120.\n2% — пятая часть от 10%, то есть 48.\n\nСкладываем: 240 + 120 + 48 = 408.\n\nТот же приём работает с любым числом: сначала найдите 10% и 1%, а остальное соберите из них сложением.");
+                }
             }
             if (TestSettings) OpenSettings();
             if (TestNote)
