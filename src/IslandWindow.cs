@@ -4922,6 +4922,22 @@ namespace Kapsula
         // Зверёк — сам персонаж капсулы (а не только значок Claude Code)?
         bool PetIsCharacter() { return Character == "pet" && (ShowEyes || TestCharacter != null) && (!(media.Has && media.Playing) || TestEyes); }
 
+        // Играет музыка — зверёк встаёт справа от обложки и танцует.
+        bool PetDancing() { return Character == "pet" && ShowEyes && media.Has && media.Playing && !TestEyes; }
+        bool petByCover;
+        int petMove = -1, petMoveUntil;
+
+        void PlacePet()
+        {
+            bool by = PetDancing();
+            if (by == petByCover) return;
+            petByCover = by;
+            var p = (Panel)claudeDot.Parent;
+            p.Children.Remove(claudeDot);
+            p.Children.Insert(by ? p.Children.IndexOf(cCover) + 1 : 1, claudeDot);
+            claudeDot.Margin = by ? new Thickness(9, 0, 0, 0) : new Thickness(9, 0, 5, 0);
+        }
+
         int petBlinkAt, petBlinkUntil;
 
         // Настроение и движение зверька. Важное перебивает обычное: ждёт вас → тревога таймера → работает → думает →
@@ -4945,6 +4961,58 @@ namespace Kapsula
             else if (mood == "happy") { PetFace(3, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; }
             else if (chr && pomoPhase == 1 && timerEnd > DateTime.Now) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 2.2)) * -1.2 * 2) / 2; }   // помодоро, работа: сосредоточен
             else if (chr && pomoPhase == 2 && timerEnd > DateTime.Now) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }       // помодоро, перерыв: отдыхает
+            else if (PetDancing() && (claudeState == 0 || claudeState == 4))
+            {
+                // Под музыку зверёк не спит. Раз в несколько секунд он выбирает новое движение — наугад, но не то же самое.
+                if (unchecked(now - petMoveUntil) >= 0)
+                {
+                    int next = rnd.Next(6);
+                    if (next == petMove) next = (next + 1) % 6;
+                    petMove = next; petMoveUntil = now + 3500 + rnd.Next(3500);
+                }
+                double beat = t * 2.1 * Math.PI, amp = 1 + 1.6 * level;
+                int look = 0;
+                string note = "♪";
+                if (petMove == 0)
+                {   // качается и подпрыгивает
+                    petShift.X = Math.Sin(beat) * 1.6; petShift.Y = Math.Abs(Math.Sin(beat)) * -1.4 * amp;
+                    PetFace(3, note, accent);
+                }
+                else if (petMove == 1)
+                {   // кивает в такт, смотрит то влево, то вправо
+                    petShift.Y = Math.Abs(Math.Sin(beat * 2)) * 1.2 * amp - 0.6;
+                    look = Math.Sin(beat / 2) > 0 ? 1 : -1;
+                    PetFace(0, note, accent);
+                }
+                else if (petMove == 2)
+                {   // скользит из стороны в сторону, глаза — куда едет
+                    petShift.X = Math.Sin(beat / 2) * 3;
+                    look = Math.Cos(beat / 2) > 0 ? 1 : -1;
+                    PetFace(0, "♫", accent);
+                }
+                else if (petMove == 3)
+                {   // прыгает высоко, глаза круглые
+                    petShift.Y = Math.Abs(Math.Sin(beat / 2)) * -3.2 * Math.Min(1.4, amp);
+                    PetFace(2, "♫", accent);
+                }
+                else if (petMove == 4)
+                {   // мелко трясётся от удовольствия
+                    petShift.X = Math.Sin(beat * 4) * 0.9; petShift.Y = Math.Sin(beat) * 0.6;
+                    PetFace(3, note, accent);
+                }
+                else
+                {   // закрыл глаза и плавно покачивается
+                    petShift.X = Math.Sin(beat / 2) * 1.8; petShift.Y = Math.Cos(beat) * 0.7;
+                    PetFace(4, "♫", accent);
+                }
+                petShift.X = Math.Round(petShift.X * 2) / 2; petShift.Y = Math.Round(petShift.Y * 2) / 2;
+                petMark.Opacity = 0.45 + 0.55 * Math.Abs(Math.Cos(beat));
+                foreach (Rectangle r in petEyes[0])
+                {
+                    double[] home = (double[])r.Tag;
+                    Canvas.SetLeft(r, home[0] + look * PetPx); Canvas.SetTop(r, home[1]);
+                }
+            }
             else if (mood == "sleep" || (claudeState == 4 && !chr)) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }
             else
             {
@@ -5840,8 +5908,8 @@ namespace Kapsula
             if (steamDlApp != null) return 360 + steamDlNameW;
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
-            double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
-            if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270) + sec;
+            double sec = (ShowSeconds ? 24 : 0) + ((claudeState != 0 && !PetIsCharacter()) || PetDancing() ? 40 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
+            if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 + (PetDancing() ? 40 : 0) : (w ? 310 : 270) + sec;
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
         }
@@ -6251,7 +6319,8 @@ namespace Kapsula
             cDlName.Visibility = Visibility.Collapsed;
             // Точка Claude Code: цветная — работает, оранжевая — ждёт вас, зелёная — только что закончил
             bool plain = !toastOn && !Recorder.Active && steamDlApp == null && dlActive == null;
-            claudeDot.Visibility = (claudeState != 0 || PetIsCharacter()) && plain ? Visibility.Visible : Visibility.Collapsed;
+            PlacePet();
+            claudeDot.Visibility = (claudeState != 0 || PetIsCharacter() || PetDancing()) && plain ? Visibility.Visible : Visibility.Collapsed;
             PetMood(claudeState);
             int unread = unreadDiscord + unreadSteam;
             unreadBadge.Visibility = unread > 0 && plain ? Visibility.Visible : Visibility.Collapsed;
