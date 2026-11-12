@@ -214,6 +214,15 @@ namespace Kapsula
             int ps;
             PlayerStyle = int.TryParse(Store.Get("playerStyle"), out ps) && ps >= 0 && ps <= 2 ? ps : 0;
             HoverMini = Store.Get("hoverMini") != "0";
+            // Разовый перевод настроек на новый вид программы (выполняется один раз, дальше выбор человека не трогаем):
+            // зверёк включается у всех, у кого персонаж был выключен, а постоянное автоскрытие выключается.
+            // Скрытие в играх на весь экран и список «Прятаться в программах» остаются как были.
+            if (Store.Get("petMigrated") != "1")
+            {
+                if (Store.Get("eyes") == "0") Store.Set("eyes", "1");
+                if (Store.Get("autoHide") == "1") Store.Set("autoHide", "0");
+                Store.Set("petMigrated", "1");
+            }
             LiquidOn = Store.Get("liquid") != "0";
             ShowSeconds = Store.Get("seconds") == "1";
             AutoHide = Store.Get("autoHide") == "1";
