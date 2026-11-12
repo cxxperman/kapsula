@@ -469,6 +469,9 @@ namespace Kapsula
     static class Ai
     {
         public static bool Gemini { get { return Store.Get("aiProvider") == "gemini"; } }
+        // Duck.ai во встроенном браузере: выбран в настройках или ничего не выбрано и своего ключа нет
+        public static bool ForceDuck;
+        public static bool Duck { get { string p = Store.Get("aiProvider"); return ForceDuck || p == "duck" || p == "" && Secrets.GetKey() == ""; } }
         public static string ProviderName { get { return Gemini ? "Gemini" : "Claude"; } }
         public static string Key() { return Gemini ? Secrets.GetKey("geminiKey", "GEMINI_API_KEY") : Secrets.GetKey(); }
         public static string Model() { return Gemini ? GeminiChat.Model() : ClaudeChat.Model(); }

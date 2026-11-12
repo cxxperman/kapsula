@@ -1,4 +1,4 @@
-﻿# Собирает Kapsula.exe встроенным в Windows компилятором C#. Ничего не скачивает.
+﻿# Собирает Kapsula.exe встроенным в Windows компилятором C#. Ничего не скачивает: библиотеки WebView2 лежат в lib\webview2.
 # Номер версии берётся из файла version.txt; -Version и -Out нужны только для проверок.
 param([string]$Version, [string]$Out)
 $ErrorActionPreference = 'Stop'
@@ -41,7 +41,9 @@ $refs = @(
     "$meta\Windows.Graphics.winmd",
     "$meta\Windows.Globalization.winmd",
     "$meta\Windows.UI.winmd",
-    "$meta\Windows.ApplicationModel.winmd"
+    "$meta\Windows.ApplicationModel.winmd",
+    "$here\lib\webview2\Microsoft.Web.WebView2.Core.dll",
+    "$here\lib\webview2\Microsoft.Web.WebView2.Wpf.dll"
 )
 
 $args2 = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/utf8output', '/codepage:65001', "/out:$Out")
@@ -55,6 +57,9 @@ $args2 += $verFile
 if (Test-Path "$here\assets\kapsula.ico") { $args2 += "/win32icon:$here\assets\kapsula.ico" }
 $args2 += "/resource:$here\integrations\millennium\kapsula\plugin.json,Kapsula.millennium.plugin.json"
 $args2 += "/resource:$here\integrations\millennium\kapsula\.millennium\Dist\index.js,Kapsula.millennium.index.js"
+
+# Встроенный браузер (Microsoft WebView2): библиотеки лежат внутри exe и достаются при первом открытии
+foreach ($n in "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Wpf.dll", "WebView2Loader.dll") { $args2 += "/resource:$here\lib\webview2\$n,Kapsula.webview2.$n" }
 
 & $csc $args2
 $code = $LASTEXITCODE

@@ -24,6 +24,7 @@ namespace Kapsula
         [STAThread]
         static void Main(string[] args)
         {
+            WebFiles.Hook();   // библиотеки встроенного браузера лежат внутри exe
             bool created;
             var mutex = new Mutex(true, "Kapsula_single_instance", out created);
             if (!created)
@@ -92,6 +93,8 @@ namespace Kapsula
                 if (args[i] == "--hideapps" && i + 1 < args.Length) w.TestHideApps = args[i + 1];
                 if (args[i] == "--democard" && i + 1 < args.Length) { w.TestCard = true; w.TestDemoCard = args[i + 1]; w.ForceOpen = -3; }
                 if (args[i] == "--cmd" && i + 1 < args.Length) { w.TestCmd = args[i + 1]; w.ForceOpen = -3; }
+                if (args[i] == "--gamelite") w.TestGameLite = true;
+                if (args[i] == "--ducktest") Ai.ForceDuck = true;
                 if (args[i] == "--pill") w.ForceOpen = -3;
                 if (args[i] == "--y" && i + 1 < args.Length && double.TryParse(args[i + 1], out y)) w.Top = y;
                 if (args[i] == "--open" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) w.ForceOpen = n;

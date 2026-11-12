@@ -370,6 +370,8 @@ namespace Kapsula
         ScaleTransform expandScale = new ScaleTransform(1, 1);
         Spring sw = new Spring(190, 250, 23), sh = new Spring(CH, 250, 23), sr = new Spring(CR, 250, 26), sy = new Spring(0, 200, 26);
         bool frameOn, hiddenFs, snipActive, fsPeeking;
+        bool gameLite;                 // остров показан поверх игры: экономим перерисовки
+        public bool TestGameLite;      // ключ --gamelite
         int fsPeekUntil;
         public bool TestFs;   // ключ --fstest: в демо-режиме через 4 с «переключает трек»
         int state; // 0 — капсула, 1 — мини-плеер, 2 — панель, 3 — карточка события, 4 — командная строка
@@ -1728,6 +1730,13 @@ namespace Kapsula
                     AddCmd("Вставить: " + (one.Length > 54 ? one.Substring(0, 53) + "…" : one), "закреплено в буфере", "", null, delegate { PasteText(pin.Text); });
                     if (cmdItems.Count >= 3) break;
                 }
+                foreach (string askWord in new string[] { "спроси ", "спросить ", "ask " })
+                    if (pq.StartsWith(askWord) && q.Length > askWord.Length + 1)
+                    {
+                        string ask = q.Substring(askWord.Length).Trim();
+                        AddCmd("Спросить: " + (ask.Length > 54 ? ask.Substring(0, 53) + "…" : ask), Ai.Duck ? "вопрос вставится в Duck.ai, останется нажать Enter" : "ответит " + Ai.ProviderName + " во вкладке «Чат»", ((char)0xE8BD).ToString(), null, delegate { AskInChat(ask); });
+                        break;
+                    }
                 if (pq.StartsWith("помод") || pq.StartsWith("pomod"))
                 {
                     if (pomoPhase != 0) AddCmd("Остановить помодоро", "кругов сделано: " + pomoRounds, "", null, delegate { PomodoroStop(); });
@@ -2148,7 +2157,7 @@ namespace Kapsula
             {
                 // 220 — высота списка сообщений в обычной панели; расти можно, пока панель помещается на экране
                 double room = SystemParameters.WorkArea.Height / Scale - EH - 40;
-                double want = Math.Max(0, Math.Min(Math.Min(ChatGrowMax, room), chatList.ActualHeight - 220));
+                double want = Math.Max(0, Math.Min(Math.Min(ChatGrowMax, room), Ai.Duck ? ChatGrowMax : chatList.ActualHeight - 220));
                 if (Math.Abs(want - chatExtra) >= 1) { chatExtra = want; ApplyPageExtra(); }
                 chatScroll.ScrollToEnd();
             }), DispatcherPriority.Loaded);
@@ -2276,6 +2285,7 @@ namespace Kapsula
             }
             if (idx != PClip && idx != PNote && idx != PWeather && idx != PChat) { Keyboard.ClearFocus(); }
             if (idx == PChat) { RenderChatEmpty(); ChatGrow(); }
+            DuckTick();
             if (idx == PClaude) { RenderClaudePage(); ClaudeUsage.Refresh(); }
             if (idx == PShelf) RenderShelf();
             pages[idx].Opacity = 0;
@@ -2791,6 +2801,7 @@ namespace Kapsula
         {
             var dock = new DockPanel();
             var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 16) };
+            chatTopRow = top;
             chatModelLabel =new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             top.Children.Add(chatModelLabel);
             var fresh = Btn("Очистить", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); });
@@ -2826,6 +2837,7 @@ namespace Kapsula
             Grid.SetColumn(send, 2); input.Children.Add(send);
             DockPanel.SetDock(input, Dock.Bottom);
             dock.Children.Add(input);
+            chatInputRow = input;
 
             var body = new Grid();
             chatEmpty = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
@@ -2847,10 +2859,87 @@ namespace Kapsula
             return pet.Root;
         }
 
+        // Duck.ai открывается окном без адресной строки (так умеет Edge); не вышло — обычной вкладкой браузера.
+        // Kapsula только открывает сайт: переписка идёт в нём и хранится в браузере.
+        void OpenDuckAi()
+        {
+            try { System.Diagnostics.Process.Start("msedge.exe", "--app=https://duck.ai"); }
+            catch { try { System.Diagnostics.Process.Start("https://duck.ai"); } catch { } }
+            SetState(0);
+        }
+
+        // ---- Duck.ai во встроенном браузере. Окно браузера лежит поверх страницы «Чат» и появляется, когда панель
+        // раскрылась и остановилась; при любом движении панели оно прячется.
+        FrameworkElement chatTopRow, chatInputRow;
+        MiniBrowser duck;
+
+        // «спроси …» из командной строки: открыть «Чат» и передать туда вопрос
+        int holdOpenUntil;
+        string duckAsk;
+
+        void AskInChat(string text)
+        {
+            holdOpenUntil = Environment.TickCount + 20000;   // курсор не над островом — не закрываться сразу
+            SetState(2);
+            ShowPage(PChat);
+            if (Ai.Duck) { duckAsk = text; return; }
+            chatBox.Text = text;
+            SendChat();
+        }
+
+        void NewDuck()
+        {
+            duck = new MiniBrowser(this, "https://duck.ai/");
+            duck.Changed = delegate { if (page == PChat) RenderChatEmpty(); };
+        }
+
+        void DuckTick()
+        {
+            bool want = Ai.Duck && state == 2 && page == PChat && !hiddenFs && !autoHidden
+                && so[2].X > 0.9 && Math.Abs(sh.X - sh.Target) < 5 && Math.Abs(sw.X - sw.Target) < 5 && Math.Abs(sy.X - sy.Target) < 3;
+            if (!want)
+            {
+                if (duck != null) duck.Hide();
+                // Чатом уже пользовались — грузим страницу заранее, как только открылась панель: вкладка откроется без ожидания
+                else if (Ai.Duck && state == 2 && Store.Get("duckUsed") == "1") { NewDuck(); duck.Warm(Ink.Color); }
+                return;
+            }
+            FrameworkElement pg = pages[PChat];
+            if (pg.ActualWidth < 50 || pg.ActualHeight < 50 || PresentationSource.FromVisual(pg) == null) return;
+            if (duck == null) NewDuck();
+            if (duck.Error != null) return;
+            if (Store.Get("duckUsed") != "1") Store.Set("duckUsed", "1");
+            Point a = pg.PointToScreen(new Point(0, 0)), b = pg.PointToScreen(new Point(pg.ActualWidth, pg.ActualHeight));
+            if (duckAsk != null && duck.Visible) { duck.Ask(duckAsk); duckAsk = null; }
+            duck.Place((int)Math.Round(a.X), (int)Math.Round(a.Y), (int)Math.Round(b.X - a.X), (int)Math.Round(b.Y - a.Y), (int)Math.Round(18 * Scale * dpi), Ink.Color);
+        }
+
         void RenderChatEmpty()
         {
+            if (Ai.Duck)
+            {
+                // Вся страница отдана браузеру; под ним — подпись на случай, если он ещё грузится или не запустился
+                chatTopRow.Visibility = chatInputRow.Visibility = chatScroll.Visibility = Visibility.Collapsed;
+                chatEmpty.Children.Clear();
+                chatEmpty.Visibility = Visibility.Visible;
+                bool bad = duck != null && duck.Error != null;
+                chatEmpty.Children.Add(PetSpot(bad ? "sad" : "think", 0, 12));
+                chatEmpty.Children.Add(new TextBlock { Text = bad ? duck.Error : "Открываю Duck.ai…", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 });
+                if (bad)
+                {
+                    chatEmpty.Children.Add(new TextBlock { Text = "Duck.ai можно открыть отдельным окном или выбрать в настройках Claude либо Gemini со своим ключом.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 6, 0, 12) });
+                    var row2 = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+                    row2.Children.Add(Btn("Открыть Duck.ai", true, 0, 30, delegate { OpenDuckAi(); }));
+                    var st = Btn("Настройки…", false, 0, 30, delegate { OpenSettings(); });
+                    st.Margin = new Thickness(8, 0, 0, 0);
+                    row2.Children.Add(st);
+                    chatEmpty.Children.Add(row2);
+                }
+                return;
+            }
+            chatTopRow.Visibility = chatInputRow.Visibility = chatScroll.Visibility = Visibility.Visible;
             bool key = Ai.Key() != "";
-            chatModelLabel.Text = key ? Ai.Label : Ai.ProviderName + " · ключ не задан";
+            chatModelLabel.Text = key ? Ai.Label : "Duck.ai · без ключа";
             chatEmpty.Children.Clear();
             chatEmpty.Visibility = chatHistory.Count == 0 && chatList.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             chatEmpty.Children.Add(PetSpot(key ? "idle" : "sleep", 0, 12));
@@ -2861,11 +2950,14 @@ namespace Kapsula
             }
             else
             {
-                chatEmpty.Children.Add(new TextBlock { Text = "Чтобы чат заработал, добавьте свой ключ " + Ai.ProviderName + " API.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
-                chatEmpty.Children.Add(new TextBlock { Text = "Ключ вводится в настройках и хранится зашифрованным на этом компьютере.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 12) });
-                var open = Btn("Открыть настройки", false, 0, 30, delegate { OpenSettings(); });
-                open.HorizontalAlignment = HorizontalAlignment.Center;
-                chatEmpty.Children.Add(open);
+                chatEmpty.Children.Add(new TextBlock { Text = "Без ключа — Duck.ai: бесплатно, без входа, нейросеть выбирается там же.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
+                chatEmpty.Children.Add(new TextBlock { Text = "Откроется отдельным окном. Чтобы отвечать прямо здесь, добавьте свой ключ " + Ai.ProviderName + " API.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 12) });
+                var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+                row.Children.Add(Btn("Открыть Duck.ai", true, 0, 30, delegate { OpenDuckAi(); }));
+                var open = Btn("Свой ключ…", false, 0, 30, delegate { OpenSettings(); });
+                open.Margin = new Thickness(8, 0, 0, 0);
+                row.Children.Add(open);
+                chatEmpty.Children.Add(row);
             }
         }
 
@@ -4896,7 +4988,7 @@ namespace Kapsula
                     petEyes[m].Add(PetPixel(c, 11 - e[0] - e[2], e[1], e[2], e[3], Ink));
                 }
             }
-            petMark = new TextBlock { FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2.5, -4, 0, 0), Width = 8 };
+            petMark = new TextBlock { FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2.5, -4, 0, 0), MinWidth = 8 };
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 5, 0), Visibility = Visibility.Collapsed };
             sp.Children.Add(c); sp.Children.Add(petMark);
             PetFace(0, "", null);
@@ -4938,7 +5030,16 @@ namespace Kapsula
             claudeDot.Margin = by ? new Thickness(8, 0, -6, 0) : new Thickness(9, 0, 5, 0);
         }
 
-        int petBlinkAt, petBlinkUntil;
+        int petBlinkAt, petBlinkUntil, petNotifyUntil, petLowUntil;
+
+        // Погода у зверька: в дождь он с зонтиком, в снег — со снежинкой, в грозу — с молнией
+        string PetWeatherMark()
+        {
+            if (TestMood == "rain") return "☂";
+            if (weather == null || weather.Error != null) return "";
+            string sym = Weather.Symbol(weather.Code);
+            return sym == "☂" || sym == "❄" || sym == "⚡" ? sym : "";
+        }
 
         // Настроение и движение зверька. Важное перебивает обычное: ждёт вас → тревога таймера → работает → думает →
         // радуется → спит → просто смотрит за курсором и моргает.
@@ -4950,15 +5051,22 @@ namespace Kapsula
             bool chr = PetIsCharacter();
             bool asleep = Native.IdleMs() > 120000;
             string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : unchecked(now - happyUntil) < 0 ? "happy" : asleep ? "sleep" : "");
-            if (!chr && TestMood == null) mood = "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
+            if (mood == "" || mood == "sleep")
+            {
+                if (unchecked(now - petNotifyUntil) < 0) mood = "notify";
+                else if (unchecked(now - petLowUntil) < 0) mood = "low";
+            }
+            if (!chr && !PetDancing() && TestMood == null) mood = "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
             petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
 
             if (claudeState == 2) { PetFace(2, "!", ClaudeOrange); petMark.Opacity = (now / 420) % 2 == 0 ? 1 : 0.25; }
             else if (mood == "alarm") { PetFace(2, "!", RecRed); petShift.X = rnd.NextDouble() * 2.4 - 1.2; petShift.Y = rnd.NextDouble() * 1.6 - 0.8; }
+            else if (mood == "notify") { PetFace(2, "!", accent); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 6)) * -1.8 * 2) / 2; }   // пришло сообщение: глаза круглые, подпрыгивает
             else if (claudeState == 1) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 5.5)) * -2.2 * 2) / 2; }
             else if (mood == "think") { PetFace(1, "…", Dim); petShift.Y = Math.Round(Math.Sin(t * 3) * 0.8 * 2) / 2; }
             else if (claudeState == 3) PetFace(3, "✓", ClaudeGreen);
             else if (mood == "happy") { PetFace(3, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; }
+            else if (mood == "low") { PetFace(4, "!", RecRed); petShift.Y = 1; petMark.Opacity = 0.4 + 0.6 * (0.5 + 0.5 * Math.Sin(t * 2.4)); }   // наушники садятся: прикрыл глаза и осел
             else if (chr && pomoPhase == 1 && timerEnd > DateTime.Now) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 2.2)) * -1.2 * 2) / 2; }   // помодоро, работа: сосредоточен
             else if (chr && pomoPhase == 2 && timerEnd > DateTime.Now) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }       // помодоро, перерыв: отдыхает
             else if (PetDancing() && (claudeState == 0 || claudeState == 4))
@@ -5019,8 +5127,9 @@ namespace Kapsula
                 // Обычное состояние: глаза сдвигаются на клетку в сторону курсора; раз в несколько секунд зверёк моргает
                 if (petBlinkAt == 0) petBlinkAt = now + 2500 + rnd.Next(4000);
                 if (unchecked(now - petBlinkAt) >= 0) { petBlinkUntil = now + 140; petBlinkAt = now + 2500 + rnd.Next(4500); }
-                if (unchecked(now - petBlinkUntil) < 0) { PetFace(4, "", null); return; }
-                PetFace(0, "", null);
+                string wm = PetWeatherMark();
+                if (unchecked(now - petBlinkUntil) < 0) { PetFace(4, wm, Dim); return; }
+                PetFace(0, wm, Dim);
                 Native.POINT pt;
                 int sx = 0, sy = 0;
                 if (Native.GetCursorPos(out pt))
@@ -5200,6 +5309,7 @@ namespace Kapsula
                         budsWarned = mark;
                         if (StartingUp()) break;   // при запуске не предупреждаем: заряд и так виден в панели
                         Toast(BudsGlyph, s.Model + ": заряд " + low + "%", null, -1, low <= 10 ? RecRed : (Brush)accent);
+                        petLowUntil = Environment.TickCount + 12000;   // зверёк «устаёт» вместе с наушниками
                         break;
                     }
             // Сняли наушники — ставим музыку на паузу; надели обратно — продолжаем (только если паузу поставили мы)
@@ -5344,6 +5454,7 @@ namespace Kapsula
 
         void UnreadAdd(bool discord)
         {
+            petNotifyUntil = Environment.TickCount + 7000;   // зверёк удивляется новому сообщению
             if (Store.Get("unread") == "0") return;
             if (discord) unreadDiscord++; else unreadSteam++;
             if (!toastOn) RenderCompact();
@@ -5963,7 +6074,7 @@ namespace Kapsula
         // Жидкий край: каждая «капля» тянется вниз в такт реальной громкости звука.
         bool StepLiquid(double dt)
         {
-            bool playingNow = media.Has && media.Playing && !hiddenFs;
+            bool playingNow = media.Has && media.Playing && !hiddenFs && !gameLite;
             // Звенит таймер — остров «ощетинивается»: край встаёт дыбом и дрожит, пока таймер не остановят.
             bool alarm = (timerRinging || TestMood == "alarm") && !hiddenFs;
             bool on = playingNow && LiquidOn || alarm;
@@ -6078,7 +6189,7 @@ namespace Kapsula
         // обычному таймеру: когда панель открыта и неподвижна, отрисовка останавливается, а фон должен жить дальше.
         void GlassTick()
         {
-            if (!GlassOn || glassFailed || !glassHide || glassLayer.Visibility != Visibility.Visible) return;
+            if (!GlassOn || gameLite || glassFailed || !glassHide || glassLayer.Visibility != Visibility.Visible) return;
             int now = Environment.TickCount;
             // первый снимок — чуть позже, когда система уже убрала остров из снимков экрана
             bool ready = Capturable || unchecked(now - glassHideAt) > 70;
@@ -6165,7 +6276,7 @@ namespace Kapsula
 
             // «Матовое стекло»: раскрытая панель и строка команд становятся полупрозрачными, а фон за ними размывается.
             // Капсула и карточки остаются плотными чёрными.
-            double glassAmt = GlassOn && !glassFailed ? Clamp01(Math.Max(so[2].X, so[4].X)) : 0;
+            double glassAmt = GlassOn && !glassFailed && !gameLite ? Clamp01(Math.Max(so[2].X, so[4].X)) : 0;
             shape.Opacity = IslandOpacity * (1 - 0.26 * glassAmt);   // стекло тёмное: фон просвечивает на четверть, текст остаётся читаемым
             if (glassAmt > 0.03)
             {
@@ -6257,9 +6368,10 @@ namespace Kapsula
             }
             RenderCompact();
             SetTargets();
+            DuckTick();
         }
 
-        bool Typing() { return IsActive && Keyboard.FocusedElement is TextBoxBase; }
+        bool Typing() { return IsActive && Keyboard.FocusedElement is TextBoxBase || duck != null && duck.Active; }
 
         void UpdateHover()
         {
@@ -6299,7 +6411,8 @@ namespace Kapsula
             {
                 double tw = state == 2 ? EW : MiniW(), th = state == 2 ? ExpandedH() : MH;
                 bool inside = Math.Abs(x - cx) <= tw / 2 + 14 && y <= th + 20;
-                if (inside || Typing() || volBar.Root.IsMouseCaptured) { leaveAt = 0; return; }
+                if (inside) holdOpenUntil = 0;   // курсор пришёл на остров — дальше обычные правила
+                if (inside || Typing() || volBar.Root.IsMouseCaptured || holdOpenUntil != 0 && unchecked(Environment.TickCount - holdOpenUntil) < 0) { leaveAt = 0; return; }
                 if (leaveAt == 0) leaveAt = now;
                 else if (unchecked(now - leaveAt) >= 260) { leaveAt = 0; SetState(0); }
             }
@@ -7044,8 +7157,9 @@ namespace Kapsula
                 }
             }
             if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
-            if (state == 0) PetAnimate();
+            if (state == 0 && (!gameLite || pollN % 6 == 0)) PetAnimate();   // в игре — пять раз в секунду вместо тридцати
             GlassTick();
+            DuckTick();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
             if ((expanded && page == 0 || state == 1 || state == 0 && PillMode == 2) && pollN % 2 == 0) UpdateLyrics();
             if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
@@ -7056,7 +7170,16 @@ namespace Kapsula
         void OnTick()
         {
             tick++;
-            bool fs = Store.Get("showInGames") != "1" && FullscreenAppInFront();   // «Показывать в играх» — остров остаётся на месте
+            // «Показывать в играх» — остров остаётся на месте, но в облегчённом виде: без пляшущего края, без стекла,
+            // зверёк двигается реже. Каждая перерисовка окна поверх игры отнимает у неё кадры.
+            bool fsRaw = FullscreenAppInFront(), showGames = Store.Get("showInGames") == "1";
+            bool fs = fsRaw && !showGames;
+            bool lite = TestGameLite || fsRaw && showGames;
+            if (lite != gameLite)
+            {
+                gameLite = lite;
+                RenderCompact(); Wake();
+            }
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
             if (tick % 60 == 7) BatteryTick();
