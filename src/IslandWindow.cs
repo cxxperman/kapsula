@@ -5888,6 +5888,15 @@ namespace Kapsula
             quiet.Click += delegate { SetQuiet(QuietNow ? 0 : 60); };
             menu.Items.Add(quiet);
             menu.Opening += delegate { quiet.Text = QuietNow ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
+            var games = new WF.ToolStripMenuItem("Показывать в играх и на весь экран");
+            games.Click += delegate
+            {
+                bool v = Store.Get("showInGames") != "1";
+                Store.Set("showInGames", v ? "1" : "0");
+                Toast("", v ? "В играх остров остаётся на месте" : "В играх остров прячется", null, -1, v ? (Brush)accent : Dim);
+            };
+            menu.Opening += delegate { games.Checked = Store.Get("showInGames") == "1"; };
+            menu.Items.Add(games);
             menu.Items.Add("Сообщить об ошибке…", null, delegate { ReportBug(); });
             var stopClaude = new WF.ToolStripMenuItem("Остановить Claude Code");
             stopClaude.Click += delegate { ClaudeStop(null, null); };
@@ -7047,7 +7056,7 @@ namespace Kapsula
         void OnTick()
         {
             tick++;
-            bool fs = FullscreenAppInFront();
+            bool fs = Store.Get("showInGames") != "1" && FullscreenAppInFront();   // «Показывать в играх» — остров остаётся на месте
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
             if (tick % 60 == 7) BatteryTick();
