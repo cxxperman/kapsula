@@ -6669,6 +6669,15 @@ namespace Kapsula
         // Qwen выгружается из видеопамяти, остров тратит минимум ресурсов. Повторное нажатие — всё как было.
         // После перезапуска Kapsula режим выключен.
         public bool GamerMode, TestGamer;
+        public volatile bool InGame;   // игра на весь экран или игровой режим
+        int phoneBlockedToastAt;
+        // Телефон попытался нажать за игрока во время игры — напоминаем не чаще раза в минуту
+        public void PhoneInputBlocked()
+        {
+            if (phoneBlockedToastAt != 0 && unchecked(Environment.TickCount - phoneBlockedToastAt) < 60000) return;
+            phoneBlockedToastAt = Environment.TickCount;
+            Toast(((char)0xE8EA).ToString(), "В игре курсор с телефона выключен", null, -1, null);
+        }
         public void ToggleGamerMode()
         {
             GamerMode = !GamerMode;
@@ -9423,6 +9432,7 @@ namespace Kapsula
             // «Показывать в играх» — остров остаётся на месте, но в облегчённом виде: без пляшущего края, без стекла,
             // зверёк двигается реже. Каждая перерисовка окна поверх игры отнимает у неё кадры.
             bool fsRaw = FullscreenAppInFront(), showGames = Store.Get("showInGames") == "1";
+            InGame = fsRaw || GamerMode;   // для пульта с телефона: в игре он не нажимает за игрока
             bool fs = fsRaw && !showGames && !GamerMode;   // в игровом режиме остров и так спрятан, а уведомления должны доходить
             bool lite = TestGameLite || fsRaw && showGames || GamerMode;
             if (lite != gameLite)

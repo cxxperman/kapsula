@@ -209,11 +209,20 @@ namespace Kapsula
             return i;
         }
 
+        static readonly string[] GameBlocked = { "move", "click", "rclick", "scroll", "type", "key", "slidenext", "slideprev" };
+
         static void Do(string a, string v)
         {
             int x = 0, y = 0;
             string[] xy = v.Split(',');
             if (xy.Length == 2) { int.TryParse(xy[0], out x); int.TryParse(xy[1], out y); }
+            // Во время игры телефон не двигает курсор и не нажимает клавиши: античит мог бы принять такие
+            // нажатия от программы за макрос. Музыка, громкость, блокировка и файлы работают как обычно.
+            if (island != null && island.InGame && Array.IndexOf(GameBlocked, a) >= 0)
+            {
+                island.Dispatcher.BeginInvoke(new Action(delegate { island.PhoneInputBlocked(); }));
+                return;
+            }
             switch (a)
             {
                 case "play": island.Dispatcher.BeginInvoke(new Action(delegate { island.PhoneMedia(0xB3); })); break;
