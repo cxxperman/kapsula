@@ -1638,7 +1638,9 @@ namespace Kapsula
         // ------------------------------------------------------ Главная
         // ---- «Главная» под себя: какие части показывать. Остров перестраивается и уменьшается под то, что осталось.
         Grid homeGrid;
-        Border homePlayerCard, homeVolCard, homeLaunchCard;
+        Border homePlayerCard, homeVolCard, homeLaunchCard, homeClipCard;
+        Grid homeClipRow;
+        public bool TestHomeClips;   // ключ --homeclips
         UniformGrid homeTilesGrid;
         Tile[] homeTileList;
         TextBlock homeEmpty;
@@ -1660,6 +1662,8 @@ namespace Kapsula
             homeTilesGrid.Visibility = tiles ? Visibility.Visible : Visibility.Collapsed;
             homeVolCard.Visibility = vol ? Visibility.Visible : Visibility.Collapsed;
             homeLaunchCard.Visibility = launch ? Visibility.Visible : Visibility.Collapsed;
+            bool clip = TestHomeClips || Store.Get("homeClips") == "1";
+            homeClipCard.Visibility = clip ? Visibility.Visible : Visibility.Collapsed;
 
             double top;
             if (player && tiles)
@@ -1681,18 +1685,21 @@ namespace Kapsula
             else top = 0;
 
             if (mProgress != null) mProgress.Resize(player && !tiles ? 444 : 244);   // плеер во всю ширину — и полоса перемотки длиннее
-            bool nothing = top == 0 && !vol && !launch;
+            bool nothing = top == 0 && !vol && !launch && !clip;
             homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
             if (nothing) top = 46;
             homeGrid.RowDefinitions[0].Height = new GridLength(top);
-            homeGrid.RowDefinitions[1].Height = new GridLength(top > 0 && (vol || launch) ? 10 : 0);
+            homeGrid.RowDefinitions[1].Height = new GridLength(top > 0 && (vol || launch || clip) ? 10 : 0);
             homeGrid.RowDefinitions[2].Height = new GridLength(vol ? 34 : 0);
-            homeGrid.RowDefinitions[3].Height = new GridLength(vol && launch ? 10 : 0);
+            homeGrid.RowDefinitions[3].Height = new GridLength(vol && (launch || clip) ? 10 : 0);
             homeGrid.RowDefinitions[4].Height = new GridLength(launch ? 46 : 0);
+            homeGrid.RowDefinitions[5].Height = new GridLength(launch && clip ? 10 : 0);
+            homeGrid.RowDefinitions[6].Height = new GridLength(clip ? 38 : 0);
             double total = 0;
             foreach (RowDefinition r in homeGrid.RowDefinitions) total += r.Height.Value;
             homeGrid.Height = total;
-            homeCut = Math.Max(0, PageH - total);
+            if (clip) RenderHomeClips();
+            homeCut = PageH - total; // со строкой «Недавно скопированное» панель может стать и выше обычной (тогда число отрицательное)
             if (state == 2) SetTargets();
         }
 
@@ -1735,6 +1742,17 @@ namespace Kapsula
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+
+            // Недавно скопированное (по умолчанию выключено)
+            homeClipRow = new Grid { Margin = new Thickness(40, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+            var clipBody = new Grid();
+            clipBody.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 14, Foreground = Dim, Margin = new Thickness(15, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center });
+            clipBody.Children.Add(homeClipRow);
+            homeClipCard = new Border { Background = Card, CornerRadius = new CornerRadius(17), Child = clipBody };
+            Grid.SetRow(homeClipCard, 6); Grid.SetColumnSpan(homeClipCard, 3);
+            g.Children.Add(homeClipCard);
 
             // Ряд программ, закреплённых на панели задач
             launcherRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
@@ -1884,7 +1902,11 @@ namespace Kapsula
             g.Children.Add(volCard);
             ApplyHomeLayout();
             ApplyPlayerStyle();
-            return g;
+            // Холст не обрезает содержимое: со строкой «Недавно скопированное» «Главная» бывает выше остальных вкладок.
+            g.Width = PageW;
+            var cv = new Canvas();
+            cv.Children.Add(g);
+            return cv;
         }
 
         // ------------------------------------------------------ Буфер
@@ -1919,8 +1941,44 @@ namespace Kapsula
             return dock;
         }
 
+        // «Недавно скопированное» на «Главной»: три последние текстовые записи, клик вставляет.
+        void RenderHomeClips()
+        {
+            if (homeClipRow == null) return;
+            homeClipRow.Children.Clear();
+            int shown = 0;
+            IEnumerable<ClipItem> source = clips;
+            if (TestHomeClips)   // для снимков: выдуманные записи вместо настоящего буфера
+                source = new ClipItem[] { new ClipItem { Text = "Встреча в 15:00, переговорная 2" }, new ClipItem { Text = "kapsula-0.1.9.zip" }, new ClipItem { Text = "#34C759" } };
+            foreach (ClipItem it in source)
+            {
+                if (it.Image != null || string.IsNullOrEmpty(it.Text)) continue;
+                ClipItem item = it;
+                string one = item.Text.Replace("\r", " ").Replace("\n", " ").Trim();
+                if (one.Length == 0) continue;
+                if (one.Length > 60) one = one.Substring(0, 60);
+                var b = new Border { Background = Chip, CornerRadius = new CornerRadius(10), Height = 24, Margin = new Thickness(shown == 0 ? 0 : 6, 0, 0, 0), Padding = new Thickness(10, 0, 10, 1), Cursor = Cursors.Hand, ToolTip = "Вставить",
+                    Child = new TextBlock { Text = one, Foreground = Fg, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center } };
+                b.MouseEnter += delegate { b.Background = ChipHover; };
+                b.MouseLeave += delegate { b.Background = Chip; };
+                b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    try { Clipboard.SetText(item.Text); } catch { return; }
+                    if (!IsActive) Native.PasteIntoActiveWindow();
+                };
+                Grid.SetColumn(b, shown);
+                homeClipRow.Children.Add(b);
+                if (++shown == 3) break;
+            }
+            homeClipRow.ColumnDefinitions.Clear();
+            for (int i = 0; i < Math.Max(1, shown); i++) homeClipRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            if (shown == 0) homeClipRow.Children.Add(new TextBlock { Text = "Скопируйте что-нибудь — появится здесь", Foreground = Dim, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+        }
+
         void RenderClips()
         {
+            RenderHomeClips();
             clipList.Children.Clear();
             if (clips.Count == 0)
             {

@@ -49,6 +49,22 @@ namespace Kapsula
             FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI");
             UseLayoutRounding = true;
 
+            // Полоса прокрутки под тёмное окно: тонкая, без стрелок.
+            try
+            {
+                var sbStyle = (Style)System.Windows.Markup.XamlReader.Parse(
+                    "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ScrollBar'>" +
+                    "<Setter Property='Width' Value='10'/><Setter Property='MinWidth' Value='10'/><Setter Property='Background' Value='Transparent'/>" +
+                    "<Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'><Grid Background='Transparent'>" +
+                    "<Track Name='PART_Track' IsDirectionReversed='True'>" +
+                    "<Track.DecreaseRepeatButton><RepeatButton Command='ScrollBar.PageUpCommand' Opacity='0' Focusable='False'/></Track.DecreaseRepeatButton>" +
+                    "<Track.IncreaseRepeatButton><RepeatButton Command='ScrollBar.PageDownCommand' Opacity='0' Focusable='False'/></Track.IncreaseRepeatButton>" +
+                    "<Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType='Thumb'><Border CornerRadius='3' Background='#55555E' Margin='2,2,2,2'/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>" +
+                    "</Track></Grid></ControlTemplate></Setter.Value></Setter></Style>");
+                Resources.Add(typeof(ScrollBar), sbStyle);
+            }
+            catch { }
+
             // Настройки разложены по разделам: слева список, справа — только выбранный раздел.
             StackPanel sp = Sec("Общее");
             // Версия и обновление — первой строкой, чтобы не искать
@@ -105,6 +121,7 @@ namespace Kapsula
             }), true));
             sp.Children.Add(Row("Громкость", null, Toggle(Store.Get("homeVolume") != "0", delegate(bool v) { island.SetFlag("homeVolume", v); island.ApplyHomeLayout(); }), false));
             sp.Children.Add(Row("Ряд программ", "Программы, закреплённые на панели задач.", Toggle(Store.Get("homeLauncher") != "0", delegate(bool v) { island.SetFlag("homeLauncher", v); island.ApplyHomeLayout(); }), false));
+            sp.Children.Add(Row("Недавно скопированное", "Три последние записи буфера обмена. Клик вставляет запись в активное окно.", Toggle(Store.Get("homeClips") == "1", delegate(bool v) { Store.Set("homeClips", v ? "1" : "0"); island.ApplyHomeLayout(); }), false));
 
             sp = Sec("Музыка");
             sp.Children.Add(Row("Смена трека поверх игр и видео", "В полноэкранной программе остров спрятан. С этой настройкой он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
@@ -299,7 +316,7 @@ namespace Kapsula
             grid.Children.Add(pvIsland);
 
             pvHomeBox = new Border { Width = IslandWindow.PreviewEW, Height = island.PreviewHomeH, Background = island.PreviewInk, CornerRadius = new CornerRadius(IslandWindow.PreviewER), ClipToBounds = true,
-                Child = new Rectangle { Width = IslandWindow.PreviewEW, Height = IslandWindow.PreviewEH, VerticalAlignment = VerticalAlignment.Top, Fill = new VisualBrush(island.PreviewHome) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, IslandWindow.PreviewEW, IslandWindow.PreviewEH) } } };
+                Child = new Rectangle { Width = IslandWindow.PreviewEW, Height = IslandWindow.PreviewEH + 60, VerticalAlignment = VerticalAlignment.Top, Fill = new VisualBrush(island.PreviewHome) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, IslandWindow.PreviewEW, IslandWindow.PreviewEH + 60) } } };
             pvHome = new Viewbox { Height = PvHomeH - 16, Child = pvHomeBox, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             grid.Children.Add(pvHome);
 
@@ -319,10 +336,23 @@ namespace Kapsula
             return pvBox;
         }
 
+        int hoverKind = -1;
+
+        // Что показать в превью для строки настроек: 1 — главная панель, 2 — мини-плеер, 0 — сам остров, -1 — как у раздела
+        static int PreviewKindFor(string title)
+        {
+            string t = title ?? "";
+            if (t.Contains("Главн")) return 1;
+            if (t.StartsWith("Мини-плеер") || t.Contains("екст")) return 2;
+            if (t.StartsWith("Капсула") || t.Contains("край") || t.Contains("Край") || t.StartsWith("Смена трека") || t.Contains("ерсонаж") || t.StartsWith("Секунды")) return 0;
+            return -1;
+        }
+
         void UpdatePreview()
         {
             if (pvIsland == null) return;
-            int kind = currentSection == "Главная" ? 1 : (currentSection == "Музыка" && island.PreviewHasMedia ? 2 : 0);
+            int kind = hoverKind >= 0 ? hoverKind : currentSection == "Главная" ? 1 : currentSection == "Музыка" ? 2 : 0;
+            if (kind == 2 && !island.PreviewHasMedia) kind = 0;   // ничего не играет — мини-плеер пуст, показываем сам остров
             pvIsland.Visibility = kind == 0 ? Visibility.Visible : Visibility.Collapsed;
             pvHome.Visibility = kind == 1 ? Visibility.Visible : Visibility.Collapsed;
             pvMini.Visibility = kind == 2 ? Visibility.Visible : Visibility.Collapsed;
@@ -385,7 +415,15 @@ namespace Kapsula
                 g.Children.Add(control);
                 body = g;
             }
-            return new Border { Background = RowBg, CornerRadius = new CornerRadius(14), Padding = new Thickness(16, 12, 16, 12), Margin = new Thickness(0, 0, 0, 8), Child = body };
+            var rowBox = new Border { Background = RowBg, CornerRadius = new CornerRadius(14), Padding = new Thickness(16, 12, 16, 12), Margin = new Thickness(0, 0, 0, 8), Child = body };
+            // Превью показывает то, что меняет строка под курсором: главную панель, мини-плеер или сам остров.
+            int kind = PreviewKindFor(title);
+            if (kind >= 0)
+            {
+                rowBox.MouseEnter += delegate { hoverKind = kind; UpdatePreview(); };
+                rowBox.MouseLeave += delegate { if (hoverKind == kind) { hoverKind = -1; UpdatePreview(); } };
+            }
+            return rowBox;
         }
 
         FrameworkElement Toggle(bool on, Action<bool> changed)
