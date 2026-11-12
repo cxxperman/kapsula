@@ -454,32 +454,177 @@ namespace Kapsula
             foreach (Hot hk in island.Hots) sp.Children.Add(Row(hk.Name, null, HotChip(hk), false));
             PreviewKeyDown += OnCaptureKey;
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
+            try { Arrange(); } catch (Exception ex) { Store.LogError("порядок настроек", ex); }
             try { BuildLayout(); } catch (Exception ex) { Store.LogError("окно настроек", ex); Content = new TextBlock { Text = ex.ToString(), Foreground = Txt, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(16) }; }
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "AirPods и Beats", "Уведомления", "Steam и Discord", "Запись и снимки", "Нейросети", "Телефон", "Безопасность", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
-            "Версия, обновления, запуск",
-            "Цвет, размер, стекло, зверёк",
-            "Когда остров прячется и на каком экране живёт",
+            "Версия, обновления, запуск, монитор",
+            "Цвет, размер, стекло, часы, зверёк",
+            "Когда остров прячется и что подсказывает",
             "Что показывать на главной вкладке",
-            "Плеер, жидкий край, тексты песен",
+            "Плеер, жидкий край, тексты песен, оценки",
+            "Карточки уведомлений и напоминания",
+            "Остров в играх, игровой режим, Twitch",
+            "Чат, Qwen на компьютере, ключи, Claude Code",
+            "Пульт и веб-камера из телефона",
             "Заряд наушников и пауза, когда их сняли",
-            "Что и когда показывает остров",
-            "Игры, сообщения и уведомления",
-            "Звук в записи и снимки экрана",
-            "Чат, ключи, Claude Code",
-            "Веб-камера из телефона и пульт",
-            "Камера, микрофон, пароли, скриншоты",
-            "Звонки, дека, игры, виджет, агенты",
+            "Карточки и плагины Steam и Discord",
+            "Звук в записи, остров на снимках",
+            "Камера, микрофон, пароли, текст уведомлений",
+            "Пробные функции: звонки, дека, виджет",
             "Сочетания клавиш"
         };        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
         List<Border> navItems = new List<Border>();
         TextBlock paneTitle, paneHint;
         string currentSection;
+
+        // ---- Порядок: каждая настройка — там, где её станут искать. Строки создаются по ходу кода, а здесь
+        // раскладываются по разделам и подзаголовкам («#…»). Чего нет в списке — остаётся в конце своего раздела.
+        readonly Dictionary<string, Border> rowsByTitle = new Dictionary<string, Border>();
+        readonly Dictionary<Border, string> rowText = new Dictionary<Border, string>();
+
+        static readonly string[][] Layout =
+        {
+            new[] { "Общее", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
+            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Матовое стекло", "Секунды в часах", "#Зверёк", "Зверёк в капсуле", "Сезонные наряды зверька" },
+            new[] { "Поведение", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки" },
+            new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
+            new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
+            new[] { "Игры", "#Остров в играх", "Игровой режим", "Показывать в играх", "Новый трек поверх игр и видео", "Нагрузка в играх", "#Twitch", "Чат Twitch поверх игры", "Канал Twitch", "Чат Twitch и вне игр" },
+            new[] { "Нейросети", "#Чат", "Кто отвечает в чате", "#Qwen на этом компьютере", "Модель Qwen 3.5", "Скачать на компьютер", "#Claude", "Ключ Claude API", "Модель Claude", "#Gemini", "Ключ Gemini API", "Модель Gemini", "#Claude Code", "Claude Code на острове", "Показывать, что делает Claude Code", "Звук, когда Claude Code ждёт вас", "Кнопка «Открыть в VS Code»", "#Другие ИИ-агенты (MCP)", "Остров для любых агентов" },
+            new[] { "Телефон", "#Пульт", "Пульт с телефона", "Подключить телефон", "Новая секретная ссылка", "#Камера телефона", "Телефон как веб-камера", "Качество камеры" },
+            new[] { "Запись и снимки", "Звук в записи экрана", "Показывать остров на скриншотах" },
+            new[] { "Безопасность", "#Камера и микрофон", "Индикатор микрофона", "Индикатор камеры", "#Приватность", "Скрывать текст уведомлений", "Не запоминать пароли из буфера" },
+            new[] { "Дополнительно", "#Пробные функции", "Режим звонка", "Дека", "Клавиши деки", "Виджет на рабочем столе" },
+        };
+
+        Border FindRow(string key)
+        {
+            Border b;
+            if (rowsByTitle.TryGetValue(key, out b)) return b;
+            foreach (var kv in rowsByTitle) if (kv.Key.StartsWith(key)) return kv.Value;   // «Kapsula 0.2.5» и подобные
+            return null;
+        }
+
+        void Arrange()
+        {
+            // Игровой режим — отдельной строкой в «Играх», чтобы о нём знали не только по сочетанию клавиш
+            var gameRow = (Border)Row("Игровой режим", "Остров уезжает за край и не выезжает от мыши — открыть его можно двойным щелчком у верхней кромки. Уведомления приходят как обычно, Qwen выгружается из видеопамяти, курсор с телефона не работает. Быстро включается сочетанием из раздела «Клавиши» (по умолчанию Ctrl+Alt+G).",
+                Toggle(island.GamerMode, delegate(bool v) { if (v != island.GamerMode) island.ToggleGamerMode(); }), false);
+            Sec("Игры").Children.Add(gameRow);
+            rowsByTitle["Игровой режим"] = gameRow;   // одноимённая строка в «Клавишах» — это сочетание, она остаётся там
+            // все строки из списка сначала вынимаем из их прежних мест
+            var placed = new Dictionary<string, List<UIElement>>();
+            foreach (string[] spec in Layout)
+            {
+                var items = new List<UIElement>();
+                for (int i = 1; i < spec.Length; i++)
+                {
+                    if (spec[i].StartsWith("#")) { items.Add(Header(spec[i].Substring(1))); continue; }
+                    Border r = FindRow(spec[i]);
+                    if (r == null) continue;   // строки нет на этом компьютере (например, один монитор)
+                    var parent = r.Parent as Panel;
+                    if (parent != null) parent.Children.Remove(r);
+                    items.Add(r);
+                }
+                // подзаголовок без строк под ним не нужен
+                for (int i = items.Count - 1; i >= 0; i--)
+                {
+                    bool hdr = items[i] is TextBlock && (string)((TextBlock)items[i]).Tag == "hdr";
+                    bool nextHdr = i == items.Count - 1 || items[i + 1] is TextBlock && (string)((TextBlock)items[i + 1]).Tag == "hdr";
+                    if (hdr && nextHdr) items.RemoveAt(i);
+                }
+                placed[spec[0]] = items;
+            }
+            foreach (var kv in placed)
+            {
+                StackPanel sec = Sec(kv.Key);
+                var rest = new List<UIElement>();
+                foreach (UIElement k in sec.Children)
+                {
+                    var tb = k as TextBlock;
+                    if (tb != null && (string)tb.Tag == "hdr") continue;   // старые подзаголовки заменяются новыми
+                    rest.Add(k);
+                }
+                sec.Children.Clear();
+                foreach (UIElement u in kv.Value) sec.Children.Add(u);
+                foreach (UIElement u in rest) sec.Children.Add(u);
+            }
+            // разделы, из которых всё переехало, могли остаться с одними подзаголовками
+            foreach (StackPanel sec in sections.Values)
+            {
+                bool any = false;
+                foreach (UIElement k in sec.Children) if (!(k is TextBlock && (string)((TextBlock)k).Tag == "hdr")) any = true;
+                if (!any) sec.Children.Clear();
+            }
+        }
+
+        // ---- Поиск по настройкам: найденные строки на время поиска собираются на одну страницу
+        TextBox searchBox;
+        StackPanel searchPage = new StackPanel();
+        readonly List<KeyValuePair<UIElement, KeyValuePair<Panel, int>>> borrowed = new List<KeyValuePair<UIElement, KeyValuePair<Panel, int>>>();
+
+        void ReturnBorrowed()
+        {
+            for (int i = borrowed.Count - 1; i >= 0; i--)
+            {
+                var b = borrowed[i];
+                searchPage.Children.Remove(b.Key);
+                Panel home = b.Value.Key;
+                home.Children.Insert(Math.Min(b.Value.Value, home.Children.Count), b.Key);
+            }
+            borrowed.Clear();
+            searchPage.Children.Clear();
+            foreach (StackPanel sec in sections.Values) GroupRows(sec);
+        }
+
+        void RunSearch(string q)
+        {
+            ReturnBorrowed();
+            q = (q ?? "").Trim().ToLowerInvariant();
+            if (q.Length < 2) { ShowSection(currentSection ?? "Общее"); return; }
+            string[] words = q.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int found = 0;
+            foreach (string name in SectionOrder)
+            {
+                StackPanel sec;
+                if (!sections.TryGetValue(name, out sec)) continue;
+                var hits = new List<Border>();
+                foreach (UIElement k in sec.Children)
+                {
+                    var b = k as Border; string txt;
+                    if (b == null || !rowText.TryGetValue(b, out txt)) continue;
+                    bool all = true;
+                    foreach (string w in words) if (!txt.Contains(w) && !name.ToLowerInvariant().Contains(w)) { all = false; break; }
+                    if (all) hits.Add(b);
+                }
+                if (hits.Count == 0) continue;
+                var head = new TextBlock { Text = name, Foreground = Sub, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 12, 0, 8), Cursor = Cursors.Hand, ToolTip = "Открыть раздел" };
+                string target = name;
+                head.MouseLeftButtonDown += delegate { searchBox.Text = ""; ShowSection(target); };
+                searchPage.Children.Add(head);
+                foreach (Border b in hits)
+                {
+                    borrowed.Add(new KeyValuePair<UIElement, KeyValuePair<Panel, int>>(b, new KeyValuePair<Panel, int>(sec, sec.Children.IndexOf(b))));
+                    sec.Children.Remove(b);
+                    searchPage.Children.Add(b);
+                    found++;
+                }
+            }
+            if (found == 0) searchPage.Children.Add(new TextBlock { Text = "Ничего не нашлось. Попробуйте другое слово — например, «звук», «телефон» или «игры».", Foreground = Sub, FontSize = 13, Margin = new Thickness(4, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
+            GroupRows(searchPage);
+            paneTitle.Text = "Поиск";
+            if (pvBox != null) pvBox.Visibility = Visibility.Visible;
+            paneHint.Text = found > 0 ? "Найдено: " + found : "";
+            scroller.Content = searchPage;
+            scroller.ScrollToTop();
+            foreach (Border b in navItems) b.Background = Brushes.Transparent;
+        }
 
         // Панель раздела по названию: строки настроек добавляются в неё
         StackPanel Sec(string name)
@@ -492,8 +637,8 @@ namespace Kapsula
         // Цвета значков разделов, в порядке SectionOrder
         static readonly Color[] SectionColors =
         {
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xAC, 0xAC, 0xB2),
-            Color.FromRgb(0xFF, 0x45, 0x3A), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
+            Color.FromRgb(0x30, 0xD1, 0x58), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
         static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x2A));
@@ -532,7 +677,17 @@ namespace Kapsula
             brand.Children.Add(navPet.Root);
             brand.Children.Add(new TextBlock { Text = "Kapsula", Foreground = Txt, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             nav.Children.Add(brand);
-            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 14) });
+            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 12) });
+            // поиск по всем настройкам
+            var sGrid = new Grid { Margin = new Thickness(2, 0, 2, 12) };
+            searchBox = new TextBox { Height = 32, Background = ChipBg, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 13 };
+            var sIcon = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Sub, Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+            var sHint = new TextBlock { Text = "Поиск настроек", Foreground = Sub, FontSize = 13, Margin = new Thickness(32, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+            var sClip = new Border { CornerRadius = new CornerRadius(10), Background = ChipBg, Child = searchBox, ClipToBounds = true };
+            sGrid.Children.Add(sClip); sGrid.Children.Add(sIcon); sGrid.Children.Add(sHint);
+            searchBox.TextChanged += delegate { sHint.Visibility = searchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; if (!searchMuted) RunSearch(searchBox.Text); };
+            searchBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Escape) { searchBox.Text = ""; e.Handled = true; } };
+            nav.Children.Add(sGrid);
             for (int i = 0; i < SectionOrder.Length; i++)
             {
                 string name = SectionOrder[i];
@@ -622,6 +777,22 @@ namespace Kapsula
 
         int hoverKind = -1, hoverSeq;
 
+        // Какой пример показывает остров при наведении на строку
+        static string DemoFor(string title)
+        {
+            switch (title)
+            {
+                case "Уведомления Windows на острове": case "Уведомления только на острове": case "Скрывать текст уведомлений": return "notif";
+                case "Напоминать о событиях календаря": return "calendar";
+                case "Смена раскладки": return "layout";
+                case "Игровой режим": return "gamer";
+                case "Новый трек поверх игр и видео": return "track";
+                case "Счётчик непрочитанного": return "unread";
+                case "Индикатор микрофона": case "Индикатор камеры": return "privacy";
+            }
+            return null;
+        }
+
         // Что показать в превью для строки настроек: 1 — главная панель, 2 — мини-плеер, 0 — сам остров, -1 — как у раздела
         static int PreviewKindFor(string title)
         {
@@ -647,9 +818,14 @@ namespace Kapsula
             pvCaption.Text = kind == 1 ? "Главная" : kind == 2 ? "Мини-плеер" : "Остров сейчас";
         }
 
+        bool searchMuted;
         public void ShowSection(string name)
         {
             if (!sections.ContainsKey(name)) return;
+            if (borrowed.Count > 0 || scroller != null && scroller.Content == searchPage) ReturnBorrowed();
+            if (searchBox != null && searchBox.Text.Length > 0) { searchMuted = true; searchBox.Text = ""; searchMuted = false; }
+            // где настройки ничего не меняют на самом острове, большое превью только мешает
+            if (pvBox != null) pvBox.Visibility = name == "Нейросети" || name == "Телефон" || name == "Клавиши" ? Visibility.Collapsed : Visibility.Visible;
             currentSection = name;
             UpdatePreview();
             int idx = Array.IndexOf(SectionOrder, name);
@@ -678,7 +854,7 @@ namespace Kapsula
 
         FrameworkElement Header(string text)
         {
-            return new TextBlock { Text = text, Foreground = Sub, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 12, 0, 8) };
+            return new TextBlock { Text = text, Foreground = Sub, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 12, 0, 8), Tag = "hdr" };
         }
 
         FrameworkElement Row(string title, string desc, FrameworkElement control, bool below)
@@ -725,6 +901,18 @@ namespace Kapsula
                 body = g;
             }
             var rowBox = new Border { Background = RowBg, CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 13, 18, 14), Margin = new Thickness(0, 0, 0, 8), Child = body, Tag = "row" };
+            string baseTitle = title.Replace(" · бета", "").Replace(" · альфа", "");
+            if (!rowsByTitle.ContainsKey(baseTitle)) rowsByTitle[baseTitle] = rowBox;
+            rowText[rowBox] = (baseTitle + " " + (desc ?? "")).ToLowerInvariant();
+            // Наведение на строку — остров сам показывает пример: карточку, подсказку, напоминание
+            string demo = DemoFor(baseTitle);
+            if (demo != null)
+            {
+                var dt = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+                dt.Tick += delegate { dt.Stop(); island.ShowDemo(demo); };
+                rowBox.MouseEnter += delegate { dt.Stop(); dt.Start(); };
+                rowBox.MouseLeave += delegate { dt.Stop(); };
+            }
             rowBox.MouseEnter += delegate { rowBox.Background = RowHover; };
             rowBox.MouseLeave += delegate { rowBox.Background = RowBg; };
             // Превью показывает то, что меняет строка под курсором: главную панель, мини-плеер или сам остров.

@@ -6678,6 +6678,28 @@ namespace Kapsula
             phoneBlockedToastAt = Environment.TickCount;
             Toast(((char)0xE8EA).ToString(), "В игре курсор с телефона выключен", null, -1, null);
         }
+        // Пример для окна настроек: наведение на строку — остров показывает, как это выглядит
+        public void ShowDemo(string kind)
+        {
+            if (state == 2 || state == 4) return;
+            Action card = null;
+            switch (kind)
+            {
+                case "notif":
+                    card = delegate { ShowCardEx(null, ((char)0xEA8F).ToString(), "Пример уведомления", Store.Get("hideNotifText") == "1" ? "Новое уведомление" : "Так сообщения программ выглядят на острове", delegate { }, null, null, false); };
+                    break;
+                case "calendar":
+                    card = delegate { ShowCardEx(null, ((char)0xE787).ToString(), "Через 10 минут: созвон", "Так остров напоминает о событиях календаря", delegate { }, null, null, false); };
+                    break;
+                case "layout": Toast("", "Раскладка: RU", null, -1, null); return;
+                case "gamer": Toast(((char)0xE7FC).ToString(), "Игровой режим включён", null, -1, accent); return;
+                case "track": Toast("", media.Has ? (string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist) : "Новый трек — Исполнитель", null, -1, accent); return;
+                case "unread": Toast(((char)0xE8BD).ToString(), "Красный кружок — непрочитанное в Discord и Steam", null, -1, null); return;
+                case "privacy": Toast(((char)0xE720).ToString(), "Точка у острова — микрофон или камера включены", null, -1, null); return;
+            }
+            if (card != null) { card(); HideCardButton(); cardUntil = Environment.TickCount + 2600; }
+        }
+
         public void ToggleGamerMode()
         {
             GamerMode = !GamerMode;
