@@ -239,6 +239,7 @@ namespace Kapsula
             GlassOn = Store.Get("glass") == "1";
             ShowLayout = Store.Get("layout") != "0";
             ShowEyes = Store.Get("eyes") != "0";
+            { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
             MonitorIndex = int.TryParse(Store.Get("monitor"), out mi) ? mi : -1;
@@ -727,7 +728,7 @@ namespace Kapsula
 
             expandedHost = new Grid { Width = EW, Height = EH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = expandScale, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
             miniHost = new Grid { Width = MW, Height = MH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = miniScale, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
-            compactHost = new Grid { Height = CH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
+            compactHost = new Grid { Height = pillH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
             var cardScale = new ScaleTransform(1, 1);
             var cmdScale = new ScaleTransform(1, 1);
             cardHost = new Grid { Width = CardW, Height = CardH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = cardScale, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
@@ -2383,7 +2384,12 @@ namespace Kapsula
             camDot = new Ellipse { Width = 7, Height = 7, Fill = ClaudeGreen, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(4, 0, 0, 0), ToolTip = "Камера включена" };
             left.Children.Add(camDot);
             claudeDot = BuildClaudePet();
+            // Свой стикер вместо зверька (картинка из настроек); пока Claude Code чем-то занят, показывается зверёк — он это обозначает
+            stickerImg = new Image { Height = 26, MaxWidth = 44, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 6, 0), Visibility = Visibility.Collapsed };
+            RenderOptions.SetBitmapScalingMode(stickerImg, BitmapScalingMode.HighQuality);
+            LoadSticker();
             left.Children.Add(claudeDot);
+            left.Children.Add(stickerImg);
             unreadText = new TextBlock { Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             unreadBadge = new Border { MinWidth = 16, Height = 16, CornerRadius = new CornerRadius(8), Padding = new Thickness(4, 0, 4, 1), Background = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0), Visibility = Visibility.Collapsed, Child = unreadText };
             left.Children.Add(unreadBadge);
@@ -2411,7 +2417,7 @@ namespace Kapsula
             cBar.Root.Visibility = Visibility.Collapsed;
             compactHost.Children.Add(cBar.Root);
             // Дорожка «курьера»: пока Steam качает игру, зверёк носит коробки по полосе загрузки
-            dlLane = new Canvas { Width = 130, Height = CH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            dlLane = new Canvas { Width = 130, Height = CH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
             BuildCourier();
             compactHost.Children.Add(dlLane);
 
@@ -5556,7 +5562,7 @@ namespace Kapsula
             Native.POINT pt;
             if (!Native.GetCursorPos(out pt)) return;
             // Центр глаз в координатах экрана
-            double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 13) * Scale, ey = Top + CH / 2 * Scale;
+            double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 13) * Scale, ey = Top + pillH / 2 * Scale;
             double dx = pt.X / dpi - ex, dy = pt.Y / dpi - ey, len = Math.Sqrt(dx * dx + dy * dy);
             double reach = Math.Min(1, len / 140);
             double ox = len < 1 ? 0 : dx / len * 2.6 * reach, oy = len < 1 ? 0 : dy / len * 2.4 * reach;
@@ -6316,6 +6322,106 @@ namespace Kapsula
         bool petByCover;
         int petMove = -1, petMoveUntil;
 
+        // ---- свой стикер в капсуле (PNG, JPG, GIF — с анимацией, WEBP)
+        Image stickerImg;
+        List<BitmapSource> stickerFrames;
+        List<int> stickerDelays;
+        DispatcherTimer stickerTimer;
+        int stickerFrame;
+        public static string StickerPath { get { foreach (string ext in new[] { ".gif", ".png", ".webp", ".jpg" }) { string p = System.IO.Path.Combine(Store.Dir, "sticker" + ext); if (System.IO.File.Exists(p)) return p; } return null; } }
+
+        public void LoadSticker()
+        {
+            if (stickerTimer != null) stickerTimer.Stop();
+            stickerFrames = null; stickerDelays = null;
+            string path = StickerPath;
+            if (path != null)
+                try
+                {
+                    byte[] data = System.IO.File.ReadAllBytes(path);
+                    var dec = BitmapDecoder.Create(new System.IO.MemoryStream(data), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    var frames = new List<BitmapSource>(); var delays = new List<int>();
+                    bool gif = dec is GifBitmapDecoder;
+                    WriteableBitmap canvas = null;
+                    foreach (BitmapFrame fr in dec.Frames)
+                    {
+                        if (frames.Count >= 300) break;
+                        int delay = 100;
+                        if (gif)
+                        {
+                            // кадры GIF бывают кусочками — собираем полный кадр поверх предыдущего
+                            var md = fr.Metadata as BitmapMetadata;
+                            int left = 0, top = 0;
+                            try { if (md != null) { delay = Math.Max(20, Convert.ToInt32(md.GetQuery("/grctlext/Delay")) * 10); left = Convert.ToInt32(md.GetQuery("/imgdesc/Left")); top = Convert.ToInt32(md.GetQuery("/imgdesc/Top")); } } catch { }
+                            int fw = dec.Frames[0].PixelWidth, fh = dec.Frames[0].PixelHeight;
+                            if (canvas == null) canvas = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Pbgra32, null);
+                            var src = new FormatConvertedBitmap(fr, PixelFormats.Pbgra32, null, 0);
+                            int w = Math.Min(src.PixelWidth, fw - left), h = Math.Min(src.PixelHeight, fh - top);
+                            if (w > 0 && h > 0)
+                            {
+                                var px = new byte[src.PixelWidth * src.PixelHeight * 4];
+                                src.CopyPixels(px, src.PixelWidth * 4, 0);
+                                var cur = new byte[fw * fh * 4];
+                                canvas.CopyPixels(cur, fw * 4, 0);
+                                for (int y = 0; y < h; y++)
+                                    for (int x = 0; x < w; x++)
+                                    {
+                                        int si = (y * src.PixelWidth + x) * 4, di = ((y + top) * fw + x + left) * 4;
+                                        if (px[si + 3] == 0) continue;   // прозрачное — оставляем прошлый кадр
+                                        cur[di] = px[si]; cur[di + 1] = px[si + 1]; cur[di + 2] = px[si + 2]; cur[di + 3] = px[si + 3];
+                                    }
+                                canvas.WritePixels(new Int32Rect(0, 0, fw, fh), cur, fw * 4, 0);
+                            }
+                            var snap = new WriteableBitmap(canvas); snap.Freeze();
+                            frames.Add(snap);
+                        }
+                        else { var f2 = fr.Clone(); f2.Freeze(); frames.Add(f2); }
+                        delays.Add(delay);
+                    }
+                    if (frames.Count > 0) { stickerFrames = frames; stickerDelays = delays; }
+                }
+                catch (Exception ex) { Store.LogError("стикер", ex); }
+            if (stickerImg == null) return;
+            stickerImg.Source = stickerFrames != null ? stickerFrames[0] : null;
+            if (stickerFrames != null && stickerFrames.Count > 1)
+            {
+                stickerFrame = 0;
+                if (stickerTimer == null)
+                {
+                    stickerTimer = new DispatcherTimer();
+                    stickerTimer.Tick += delegate
+                    {
+                        if (stickerFrames == null || stickerFrames.Count < 2) { stickerTimer.Stop(); return; }
+                        if (stickerImg.Visibility != Visibility.Visible || gameLite) { stickerTimer.Interval = TimeSpan.FromMilliseconds(300); return; }   // не виден или идёт игра — не тратим силы
+                        stickerFrame = (stickerFrame + 1) % stickerFrames.Count;
+                        stickerImg.Source = stickerFrames[stickerFrame];
+                        stickerTimer.Interval = TimeSpan.FromMilliseconds(stickerDelays[stickerFrame]);
+                    };
+                }
+                stickerTimer.Interval = TimeSpan.FromMilliseconds(stickerDelays[0]);
+                stickerTimer.Start();
+            }
+            Dispatcher.BeginInvoke(new Action(delegate { try { RenderCompact(); } catch { } }));
+        }
+
+        // Выбранная картинка копируется в папку Kapsula, чтобы стикер не пропал, если исходный файл удалят
+        public bool SetSticker(string file)
+        {
+            try
+            {
+                foreach (string ext in new[] { ".gif", ".png", ".webp", ".jpg" }) { string p = System.IO.Path.Combine(Store.Dir, "sticker" + ext); if (System.IO.File.Exists(p)) System.IO.File.Delete(p); }
+                if (file != null)
+                {
+                    string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                    if (ext == ".jpeg") ext = ".jpg";
+                    System.IO.File.Copy(file, System.IO.Path.Combine(Store.Dir, "sticker" + ext), true);
+                }
+                LoadSticker();
+                return file == null || stickerFrames != null;
+            }
+            catch (Exception ex) { Store.LogError("стикер", ex); return false; }
+        }
+
         void PlacePet()
         {
             bool by = PetDancing();
@@ -6325,6 +6431,14 @@ namespace Kapsula
             ((Panel)claudeDot.Parent).Children.Remove(claudeDot);
             if (by) ((Panel)eq.Parent).Children.Add(claudeDot); else ((Panel)micDot.Parent).Children.Insert(1, claudeDot);
             claudeDot.Margin = by ? new Thickness(8, 0, -6, 0) : new Thickness(9, 0, 5, 0);
+            // стикер стоит там же, где зверёк: справа во время музыки, слева без неё
+            if (stickerImg != null)
+            {
+                ((Panel)stickerImg.Parent).Children.Remove(stickerImg);
+                var host = (Panel)claudeDot.Parent;
+                host.Children.Insert(host.Children.IndexOf(claudeDot) + 1, stickerImg);
+                stickerImg.Margin = by ? new Thickness(8, 0, 0, 0) : new Thickness(6, 0, 6, 0);
+            }
         }
 
         int petBlinkAt, petBlinkUntil, petNotifyUntil, petLowUntil;
@@ -6534,7 +6648,7 @@ namespace Kapsula
                 double dist = 9999, speed = 0;
                 if (Native.GetCursorPos(out pt))
                 {
-                    double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 12) * Scale, ey = Top + CH / 2 * Scale;
+                    double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 12) * Scale, ey = Top + pillH / 2 * Scale;
                     double dx = pt.X / dpi - ex, dy = pt.Y / dpi - ey;
                     dist = Math.Sqrt(dx * dx + dy * dy);
                     sx = dx > 70 ? 1 : dx < -70 ? -1 : 0;
@@ -8040,7 +8154,22 @@ namespace Kapsula
         }
 
         // ------------------------------------------------- физика и геометрия
-        double CompactWidth()
+        // Своя форма капсулы: шире на pillExtraW точек и выше (pillH вместо 34) — настраивается в «Внешнем виде»
+        double pillH = CH, pillExtraW;
+        public double PillExtraW { get { return pillExtraW; } }
+        public double PillH { get { return pillH; } }
+        public void SetPillSize(double extraW, double h, bool save)
+        {
+            pillExtraW = Math.Max(0, Math.Min(240, extraW)); pillH = Math.Max(CH, Math.Min(60, h));
+            if (compactHost != null) compactHost.Height = pillH;
+            if (save) { Store.Set("pillW", ((int)pillExtraW).ToString()); Store.Set("pillH", ((int)pillH).ToString()); }
+            if (state != 0) SetState(0); else SetTargets();
+            RenderCompact();
+        }
+
+        double CompactWidth() { return CompactWidthBase() + pillExtraW; }
+
+        double CompactWidthBase()
         {
             if (toastOn) return 300;
             if (timerRinging) return 230;
@@ -8059,11 +8188,11 @@ namespace Kapsula
         {
             sw.Target = StateW();
             sh.Target = StateH();
-            sr.Target = state == 2 ? ER : (state == 1 ? MR : (state == 0 ? CR : 28));
+            sr.Target = state == 2 ? ER : (state == 1 ? MR : (state == 0 ? CR * pillH / CH : 28));
             for (int i = 0; i < so.Length; i++) so[i].Target = state == i ? 1 : 0;
             // В полноэкранной программе остров спрятан, но выглядывает на несколько секунд при смене трека (fsPeekUntil).
             bool fsHide = hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0;
-            sy.Target = (fsHide || autoHidden) && state == 0 ? -(CH + 28) : 0;
+            sy.Target = (fsHide || autoHidden) && state == 0 ? -(pillH + 44) : 0;   // с запасом на волну нижнего края
             Wake();
         }
 
@@ -8074,7 +8203,7 @@ namespace Kapsula
 
         double StateH()
         {
-            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return cardTall ? BudsH : CardH; case 4: return CmdH(); default: return CH; }
+            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return cardTall ? BudsH : CardH; case 4: return CmdH(); default: return pillH; }
         }
 
         double CmdH() { return 66 + (cmdItems.Count > 0 ? cmdItems.Count * 44 + 10 : 0); }
@@ -8101,7 +8230,8 @@ namespace Kapsula
             bool playingNow = media.Has && media.Playing && !hiddenFs && !gameLite;
             // Звенит таймер — остров «ощетинивается»: край встаёт дыбом и дрожит, пока таймер не остановят.
             bool alarm = (timerRinging || TestMood == "alarm") && !hiddenFs;
-            bool on = playingNow && LiquidOn || alarm;
+            bool hiddenNow = (autoHidden || hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0) && state == 0;
+            bool on = (playingNow && LiquidOn || alarm) && !hiddenNow;   // спрятанный остров не плещет краем из-за верхней кромки
             if (alarm) spikes = true; else if (level < 0.05) spikes = false;
             // Край как эквалайзер: слева низкие частоты, справа высокие. Не вышло снять звук — пляшет от общей громкости.
             if (specBands == null) specBands = new double[24];
@@ -8526,6 +8656,11 @@ namespace Kapsula
             PlacePet();
             bool petProp = PetProps() && (Recorder.Active || steamDlApp != null || dlActive != null || toastOn && toastValue >= 0);   // запись, загрузка, громкость — зверёк с реквизитом
             claudeDot.Visibility = (claudeState != 0 || PetIsCharacter() || PetDancing()) && plain || petProp ? Visibility.Visible : Visibility.Collapsed;
+            // свой стикер: зверёк уступает ему место (кроме случаев, когда зверёк что-то сообщает — Claude Code, загрузка, запись)
+            bool stickerOn = stickerFrames != null && claudeState == 0 && !petProp;
+            if (stickerOn) claudeDot.Visibility = Visibility.Collapsed;
+            stickerImg.Visibility = stickerOn && plain && (PetIsCharacter() || PetDancing()) ? Visibility.Visible : Visibility.Collapsed;   // там же, где был бы зверёк
+            stickerImg.Height = Math.Min(pillH - 6, 40);
             PetMood(claudeState);
             int unread = unreadDiscord + unreadSteam;
             unreadBadge.Visibility = unread > 0 && plain ? Visibility.Visible : Visibility.Collapsed;

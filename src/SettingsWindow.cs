@@ -359,6 +359,40 @@ namespace Kapsula
             Closed += delegate { statusTimer.Stop(); };
             checkBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (verStatus != null) verStatus.Text = "Проверяю…"; Updater.CheckNow(); };
             sp.Children.Add(verRow);
+            {
+                // свой стикер: выбор картинки и сброс
+                var stRow = new StackPanel { Orientation = Orientation.Horizontal };
+                var stNote = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+                var stCol = new StackPanel(); stCol.Children.Add(stRow); stCol.Children.Add(stNote);
+                Action stPaint = null;
+                stPaint = delegate
+                {
+                    stRow.Children.Clear();
+                    string cur = IslandWindow.StickerPath;
+                    if (cur != null)
+                    {
+                        var img = new Image { Height = 30, MaxWidth = 60, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+                        try { var bi = new BitmapImage(); bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad; bi.UriSource = new Uri(cur); bi.EndInit(); img.Source = bi; } catch { }
+                        stRow.Children.Add(img);
+                    }
+                    stRow.Children.Add(PillBtn(cur == null ? "Выбрать картинку…" : "Другая картинка…", cur == null, delegate
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Картинка для капсулы", Filter = "Картинки (PNG, GIF, WEBP, JPG)|*.png;*.gif;*.webp;*.jpg;*.jpeg" };
+                        if (dlg.ShowDialog(this) != true) return;
+                        bool ok = island.SetSticker(dlg.FileName);
+                        stNote.Text = ok ? "Готово — стикер уже в капсуле." : "Эту картинку открыть не получилось. Попробуйте PNG или GIF.";
+                        stPaint();
+                    }));
+                    if (cur != null)
+                    {
+                        var rm = PillBtn("Вернуть зверька", false, delegate { island.SetSticker(null); stNote.Text = "Зверёк вернулся."; stPaint(); });
+                        rm.Margin = new Thickness(8, 0, 0, 0); stRow.Children.Add(rm);
+                    }
+                };
+                stPaint();
+                stNote.Text = "PNG, GIF (с анимацией) или WEBP. Стикер из Telegram: сохраните его картинкой — анимированные стикеры Telegram в форматах TGS и WEBM не подойдут, GIF — подойдёт. Пока Claude Code чем-то занят или идёт загрузка, вместо стикера ненадолго появляется зверёк — он это показывает.";
+                Sec("Внешний вид").Children.Add(Row("Свой стикер вместо зверька", "Поставьте в капсулу любую картинку вместо зверька — например, любимый стикер.", stCol, true));
+            }
             var banner = Ua.Banner(LinkButton("Исходный код на GitHub", "https://github.com/cxxperman/kapsula"));
             sp.Children.Add(banner);
             rowsByTitle["Украинский проект"] = banner;
@@ -372,6 +406,14 @@ namespace Kapsula
                 delegate(double v) { return Math.Round(v * 100) + "%"; },
                 delegate(double v) { island.PreviewScale(v.ToString("0.##", inv)); },
                 delegate(double v) { island.ApplyScale(v); }), true));
+            sp.Children.Add(Row("Ширина капсулы", "Растяните капсулу вширь — например, под вырез вашего монитора или просто для вида. Остров меняется сразу.", SliderCtl(0, 240, 4, island.PillExtraW,
+                delegate(double v) { return v < 1 ? "как есть" : "+" + Math.Round(v); },
+                delegate(double v) { island.SetPillSize(v, island.PillH, false); },
+                delegate(double v) { island.SetPillSize(v, island.PillH, true); }), true));
+            sp.Children.Add(Row("Высота капсулы", "Капсула повыше — заметнее и удобнее попадать курсором.", SliderCtl(34, 60, 1, island.PillH,
+                delegate(double v) { return Math.Round(v) <= 34 ? "как есть" : "+" + Math.Round(v - 34); },
+                delegate(double v) { island.SetPillSize(island.PillExtraW, v, false); },
+                delegate(double v) { island.SetPillSize(island.PillExtraW, v, true); }), true));
             sp.Children.Add(Row("Матовое стекло · бета", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными. Функция пробная: на некоторых компьютерах фон может обновляться с задержкой или нагружать систему — тогда выключите.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
             Sec("Поведение").Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
             Sec("Поведение").Children.Add(Row("Показывать в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
@@ -607,7 +649,7 @@ namespace Kapsula
         static readonly string[][] Layout =
         {
             new[] { "Общее", "Украинский проект", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
-            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Матовое стекло", "Секунды в часах", "#Зверёк", "Зверёк в капсуле", "Сезонные наряды зверька" },
+            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Матовое стекло", "Секунды в часах", "#Форма капсулы", "Ширина капсулы", "Высота капсулы", "#Зверёк", "Зверёк в капсуле", "Свой стикер вместо зверька", "Сезонные наряды зверька" },
             new[] { "Поведение", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки" },
             new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
             new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
