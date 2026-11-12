@@ -1,4 +1,4 @@
-// Kapsula — «остров» для Windows. Часть исходного кода: ClaudeBridge.cs
+﻿// Kapsula — «остров» для Windows. Часть исходного кода: ClaudeBridge.cs
 // Связь с Claude Code: запросы разрешений («можно выполнить команду?») и уведомления приходят на остров.
 using System;
 using System.Collections.Generic;
@@ -202,11 +202,57 @@ namespace Kapsula
         }
 
         // Сессия Claude Code: их может быть открыто несколько сразу
-        public class Session { public string Id, Name, State, Detail, Last; public int At; }
+        // Steps — сколько действий сделано в текущем ответе, StartedAt — когда он начался; Cwd и Transcript — папка проекта и файл сессии
+        public class Session { public string Id, Name, State, Detail, Last, Cwd = "", Transcript = ""; public int At, Steps, StartedAt; }
 
         // Запомнить начало последнего ответа сессии — его показывает вкладка «Claude»
         static void Remember(string id, string last) { lock (sessions) { Session s; if (sessions.TryGetValue(id, out s)) s.Last = last; } }
         static readonly Dictionary<string, Session> sessions = new Dictionary<string, Session>();
+
+        // Папка проекта, где Claude Code работал последним (для «claude …» и «открыть в VS Code»)
+        public static string LastProject
+        {
+            get { return Store.Get("claudeLastProject"); }
+            set { if (Store.Get("claudeLastProject") != value) Store.Set("claudeLastProject", value); }
+        }
+
+        // Заполнение контекста сессии: входные токены последнего ответа из её файла (читаем только хвост)
+        public static long ContextTokens(string transcript)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(transcript) || !System.IO.File.Exists(transcript)) return -1;
+                using (var fs = new System.IO.FileStream(transcript, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete))
+                {
+                    long from = Math.Max(0, fs.Length - 256 * 1024);
+                    fs.Seek(from, System.IO.SeekOrigin.Begin);
+                    var buf = new byte[fs.Length - from];
+                    int n = fs.Read(buf, 0, buf.Length);
+                    string[] lines = Encoding.UTF8.GetString(buf, 0, n).Split('\n');
+                    var js = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
+                    for (int i = lines.Length - 1; i >= 0; i--)
+                    {
+                        if (lines[i].IndexOf("\"usage\"", StringComparison.Ordinal) < 0) continue;
+                        try
+                        {
+                            var o = js.DeserializeObject(lines[i]) as Dictionary<string, object>;
+                            object m; if (o == null || !o.TryGetValue("message", out m)) continue;
+                            var md = m as Dictionary<string, object>; object u;
+                            if (md == null || !md.TryGetValue("usage", out u)) continue;
+                            var ud = u as Dictionary<string, object>;
+                            if (ud == null) continue;
+                            long t = 0;
+                            foreach (string k in new string[] { "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens" })
+                            { object v; if (ud.TryGetValue(k, out v) && v != null) t += Convert.ToInt64(v); }
+                            return t;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            return -1;
+        }
 
         static Session Touch(Dictionary<string, object> d, string state, string detail)
         {
@@ -221,7 +267,17 @@ namespace Kapsula
                 if (!sessions.TryGetValue(id, out s)) { s = new Session { Id = id }; sessions[id] = s; }
                 if (name.Length > 0) s.Name = name;
                 if (s.Name == null) s.Name = "сессия";
+                if (cwd.Length > 0) s.Cwd = cwd;
+                string tp = Str(d, "transcript_path");
+                if (tp.Length > 0) s.Transcript = tp;
+                if (state == "работает")
+                {
+                    // новый ответ начинается после «закончил»/«остановлен» или долгой тишины
+                    if (s.State == null || s.State == "закончил" || s.State == "остановлен" || unchecked(Environment.TickCount - s.At) > 10 * 60000) { s.Steps = 0; s.StartedAt = Environment.TickCount; }
+                    s.Steps++;
+                }
                 s.State = state; s.Detail = detail ?? ""; s.At = Environment.TickCount;
+                if (cwd.Length > 0) LastProject = cwd;
                 return s;
             }
         }
@@ -233,7 +289,7 @@ namespace Kapsula
             int now = Environment.TickCount;
             lock (sessions)
             {
-                foreach (Session s in sessions.Values) if (unchecked(now - s.At) < 30 * 60000) list.Add(new Session { Id = s.Id, Name = s.Name, State = s.State, Detail = s.Detail, Last = s.Last ?? "", At = s.At });
+                foreach (Session s in sessions.Values) if (unchecked(now - s.At) < 30 * 60000) list.Add(new Session { Id = s.Id, Name = s.Name, State = s.State, Detail = s.Detail, Last = s.Last ?? "", At = s.At, Cwd = s.Cwd, Transcript = s.Transcript, Steps = s.Steps, StartedAt = s.StartedAt });
             }
             list.Sort(delegate(Session a, Session b) { return unchecked(b.At - a.At); });
             return list;
@@ -379,6 +435,7 @@ namespace Kapsula
             Dictionary<string, object> d = null;
             try { d = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 1024 * 1024 }.DeserializeObject(body) as Dictionary<string, object>; } catch { }
             string path = rq.Url.AbsolutePath;
+            if (path == "/mcp") { HandleMcp(ctx, d); return; }
             if (d == null) { Reply(ctx, 200, ""); return; }
 
             object ti;
@@ -506,6 +563,91 @@ namespace Kapsula
             string r = sb.ToString().Trim();
             return r.Length > max ? r.Substring(0, max - 1) + "…" : r;
         }
+
+        static string MJson(object o) { return new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 }.Serialize(o); }
+        static Dictionary<string, object> MObj(params object[] kv)
+        {
+            var d = new Dictionary<string, object>();
+            for (int i = 0; i + 1 < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+            return d;
+        }
+        // ---- MCP (Model Context Protocol) по HTTP: любой агент — Codex, Gemini CLI, Claude Code — может вызвать
+        // инструменты Kapsula «notify» (показать карточку) и «ask» (спросить с вариантами и дождаться ответа).
+        public class McpQuestion
+        {
+            public string Agent = "", Question = "";
+            public string[] Options = new string[0];
+            System.Net.HttpListenerContext ctx; object id; int done; Timer timer;
+            internal McpQuestion(System.Net.HttpListenerContext c, object rid)
+            {
+                ctx = c; id = rid;
+                timer = new Timer(delegate { Answer(null); }, null, 120000, Timeout.Infinite);
+            }
+            public void Answer(string choice)
+            {
+                if (Interlocked.Exchange(ref done, 1) != 0) return;
+                try { timer.Dispose(); } catch { }
+                string text = choice == null ? "Пользователь не ответил за две минуты." : "Пользователь выбрал: " + choice;
+                Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("content", new object[] { MObj("type", "text", "text", text) }))));
+            }
+        }
+        public static event Action<string, string, string> McpNotified;   // агент, заголовок, текст
+        public static event Action<McpQuestion> McpAsked;
+
+        static void HandleMcp(System.Net.HttpListenerContext ctx, Dictionary<string, object> d)
+        {
+            if (d == null) { Reply(ctx, 400, ""); return; }
+            object id; d.TryGetValue("id", out id);
+            string method = Str(d, "method");
+            object po; var prm = d.TryGetValue("params", out po) ? po as Dictionary<string, object> : null;
+            if (id == null) { Reply(ctx, 202, ""); return; }   // уведомления протокола ответа не ждут
+            if (method == "initialize")
+            {
+                string ver = prm != null ? Str(prm, "protocolVersion") : "";
+                Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("protocolVersion", ver.Length > 0 ? ver : "2025-03-26", "capabilities", MObj("tools", MObj()), "serverInfo", MObj("name", "kapsula", "version", "1")))));
+                return;
+            }
+            if (method == "ping") { Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj()))); return; }
+            if (method == "tools/list")
+            {
+                var notify = MObj("name", "notify", "description", "Показать человеку карточку на острове Kapsula вверху экрана: например, что задача готова. Используй, когда закончил долгую работу.",
+                    "inputSchema", MObj("type", "object", "properties", MObj("title", MObj("type", "string", "description", "Короткий заголовок"), "message", MObj("type", "string", "description", "Подробности в одну-две строки")), "required", new object[] { "title" }));
+                var ask = MObj("name", "ask", "description", "Задать человеку вопрос с вариантами ответа на острове Kapsula и дождаться выбора (до двух минут).",
+                    "inputSchema", MObj("type", "object", "properties", MObj("question", MObj("type", "string"), "options", MObj("type", "array", "items", MObj("type", "string"), "description", "От двух до трёх вариантов")), "required", new object[] { "question", "options" }));
+                Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("tools", new object[] { notify, ask }))));
+                return;
+            }
+            if (method == "tools/call" && prm != null)
+            {
+                string name = Str(prm, "name");
+                object ao; var args = prm.TryGetValue("arguments", out ao) ? ao as Dictionary<string, object> : null;
+                if (args == null) args = new Dictionary<string, object>();
+                string agent = Clean(ctx.Request.Headers["X-Kapsula-Agent"] ?? "", 24);
+                if (agent.Length == 0) agent = "Агент";
+                if (name == "notify")
+                {
+                    var h = McpNotified;
+                    if (h != null) h(agent, Clean(Str(args, "title"), 80), Clean(Str(args, "message"), 160));
+                    Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("content", new object[] { MObj("type", "text", "text", "Показано на острове.") }))));
+                    return;
+                }
+                if (name == "ask")
+                {
+                    var q = new McpQuestion(ctx, id) { Agent = agent, Question = Clean(Str(args, "question"), 160) };
+                    object oo; var list = new List<string>();
+                    if (args.TryGetValue("options", out oo) && oo is object[]) foreach (object x in (object[])oo) { string t = Clean(Convert.ToString(x), 40); if (t.Length > 0 && list.Count < 3) list.Add(t); }
+                    q.Options = list.ToArray();
+                    var h = McpAsked;
+                    if (h == null || q.Options.Length == 0) { q.Answer(null); return; }
+                    h(q);
+                    return;
+                }
+            }
+            Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "error", MObj("code", -32601, "message", "Неизвестный метод"))));
+        }
+
+        // Строка для подключения: MCP-сервер Kapsula на этом компьютере
+        public static string McpUrl { get { return "http://127.0.0.1:" + Port + "/mcp"; } }
 
         static void Reply(System.Net.HttpListenerContext ctx, int code, string body)
         {

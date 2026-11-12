@@ -31,6 +31,7 @@ $refs = @(
     "$fw\System.Data.dll",
     "$fw\System.Security.dll",
     "$fw\System.Xml.dll",
+    "$fw\System.Management.dll",
     "$fw\System.Runtime.WindowsRuntime.dll",
     (Facade 'System.Runtime'),
     (Facade 'System.Runtime.InteropServices.WindowsRuntime'),
@@ -46,7 +47,7 @@ $refs = @(
     "$here\lib\webview2\Microsoft.Web.WebView2.Wpf.dll"
 )
 
-$args2 = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/utf8output', '/codepage:65001', "/out:$Out")
+$args2 = @('/nologo', '/target:winexe', '/platform:x64', '/unsafe', '/optimize+', '/utf8output', '/codepage:65001', "/out:$Out")
 $args2 += $refs | ForEach-Object { "/r:$_" }
 # Исходники лежат в папке src: по файлу на крупную часть приложения
 $args2 += (Get-ChildItem "$here\src\*.cs" | ForEach-Object { $_.FullName })
@@ -61,8 +62,20 @@ $args2 += "/resource:$here\integrations\millennium\kapsula\.millennium\Dist\inde
 # Встроенный браузер (Microsoft WebView2): библиотеки лежат внутри exe и достаются при первом открытии
 foreach ($n in "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Wpf.dll", "WebView2Loader.dll") { $args2 += "/resource:$here\lib\webview2\$n,Kapsula.webview2.$n" }
 
+# Драйвер камеры «Kapsula Camera» — отдельная библиотека для любых программ (64 и 32 бита); лежит внутри exe
+$camDir = Join-Path ([IO.Path]::GetTempPath()) "KapsulaCam_$PID"; New-Item -ItemType Directory -Force $camDir | Out-Null
+$camOut = Join-Path $camDir "KapsulaCam.dll"   # имя файла = имя сборки, иначе Windows не загрузит драйвер
+& $csc /nologo /target:library /platform:anycpu /unsafe /optimize+ /codepage:65001 /utf8output "/out:$camOut" "$here\cam\KapsulaCam.cs"
+if ($LASTEXITCODE -ne 0) { throw "Драйвер камеры не собрался" }
+$args2 += "/resource:$camOut,Kapsula.camera.KapsulaCam.dll"
+# версия драйвера — по его исходнику: сборщик каждый раз выдаёт немного другой файл, а переустанавливать драйвер зря не нужно
+$camVer = Join-Path $camDir "version.txt"
+(Get-FileHash "$here\cam\KapsulaCam.cs" -Algorithm SHA256).Hash.Substring(0, 8).ToLower() | Set-Content $camVer -NoNewline -Encoding ASCII
+$args2 += "/resource:$camVer,Kapsula.camera.version"
+
 & $csc $args2
 $code = $LASTEXITCODE
+Remove-Item $camDir -Recurse -ErrorAction SilentlyContinue
 Remove-Item $verFile -ErrorAction SilentlyContinue
 if ($code -ne 0) { throw "Сборка не удалась" }
 "OK: $Out (версия $Version)"

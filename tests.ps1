@@ -337,5 +337,35 @@ T 'claude: битый файл цел' ([IO.File]::ReadAllText($tmpSet)) '{ эт
 Remove-Item $tmpSet, "$tmpSet.kapsula-bak" -ErrorAction SilentlyContinue
 $cb.GetField('SettingsOverride').SetValue($null, $null)
 
+# --- QR-код для телефона: наш кодировщик → наш же декодер, для ссылок разной длины (версии 1–6)
+$qm = $asm.GetType('Kapsula.QrMake'); $qd = $asm.GetType('Kapsula.Qr')
+foreach ($s in @('hi', 'http://192.168.1.23:42073/?k=0123456789abcdef01234567', 'https://example.com/' + ('x' * 90))) {
+    $m = $qm.GetMethod('Encode').Invoke($null, @($s))
+    $n = $m.GetLength(0); $sc = 6
+    $bmp = [System.Drawing.Bitmap]::new(($n + 8) * $sc, ($n + 8) * $sc)
+    $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::White)
+    for ($y = 0; $y -lt $n; $y++) { for ($x = 0; $x -lt $n; $x++) { if ($m[$y, $x]) { $g.FillRectangle([System.Drawing.Brushes]::Black, ($x + 4) * $sc, ($y + 4) * $sc, $sc, $sc) } } }
+    $g.Dispose()
+    T "qr: туда и обратно ($($s.Length) симв.)" ($qd.GetMethod('Decode').Invoke($null, [object[]]@($bmp.PSObject.BaseObject))) $s
+    $bmp.Dispose()
+}
+
+# --- задачи на сегодня естественным языком
+$tp = $asm.GetType('Kapsula.Tasks').GetMethod('Parse')
+$today = [DateTime]::new(2026, 11, 12)
+$r = $tp.Invoke($null, @('купить хлеб, потом позвонить маме в 18:30', $today))
+T 'задачи: две из одной фразы' $r.Count 2
+T 'задачи: время у второй' ($r[1].Time) '18:30:00'
+$r = $tp.Invoke($null, @('завтра отправить отчёт', $today))
+T 'задачи: завтра' ($r[0].Day.ToString('yyyy-MM-dd')) '2026-11-13'
+
+# --- умный буфер: тип записи
+$ck = $asm.GetType('Kapsula.IslandWindow').GetMethod('ClipKind', [Reflection.BindingFlags]'NonPublic,Static')
+$ci = $asm.GetType('Kapsula.ClipItem')
+foreach ($c in @(@('https://kapsula.app/x', 2), @('#ff9f0a', 3), @('const x = () => { return 1; }', 4), @('просто текст', 1))) {
+    $it = [Activator]::CreateInstance($ci); $ci.GetField('Text').SetValue($it, $c[0])
+    T "буфер: тип «$($c[0])»" ($ck.Invoke($null, @($it))) $c[1]
+}
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

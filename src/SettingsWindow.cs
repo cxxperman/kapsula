@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: SettingsWindow.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: SettingsWindow.cs
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -24,6 +24,45 @@ namespace Kapsula
     class WelcomeWindow : Window
     {
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
+        static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
+        static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
+        static readonly Brush PaneBg = new SolidColorBrush(Color.FromArgb(0xD8, 0x15, 0x15, 0x18));       // правая часть поверх полупрозрачного окна
+
+        // ---- полупрозрачное окно (материал Mica в Windows 11): боковая панель просвечивает, как в современных системных окнах
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins m);
+        struct Margins { public int L, R, T, B; }
+        static readonly bool MicaOk = false;   // полупрозрачный материал Windows отключён: на некоторых системах окно рисовалось белым; фон — сплошной тёмный
+        static int WinBuild()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                { int b; return int.TryParse(k.GetValue("CurrentBuildNumber") as string, out b) ? b : 0; }
+            }
+            catch { return 0; }
+        }
+
+        void ApplyMaterial()
+        {
+            try
+            {
+                IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                // окно настроек простое и почти неподвижное — рисуем его процессором: так оно не остаётся белым после сбоя видеодрайвера
+                var hs = System.Windows.Interop.HwndSource.FromHwnd(h);
+                if (hs != null && hs.CompositionTarget != null) hs.CompositionTarget.RenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+                int dark = 1;
+                DwmSetWindowAttribute(h, 20, ref dark, 4);   // тёмный заголовок окна
+                if (!MicaOk) return;
+                var src = System.Windows.Interop.HwndSource.FromHwnd(h);
+                src.CompositionTarget.BackgroundColor = Colors.Transparent;
+                var m = new Margins { L = -1, R = -1, T = -1, B = -1 };
+                DwmExtendFrameIntoClientArea(h, ref m);
+                int mica = 2;
+                if (DwmSetWindowAttribute(h, 38, ref mica, 4) != 0) Background = Bg;
+            }
+            catch { Background = Bg; }
+        }
         static readonly Brush RowBg = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x23));
         static readonly Brush Txt = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
         static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
@@ -34,7 +73,8 @@ namespace Kapsula
             Title = "Kapsula";
             Icon = PetView.WindowIcon();
             Width = 520; SizeToContent = SizeToContent.Height;
-            Background = Bg;
+            Background = MicaOk ? Brushes.Transparent : Bg;
+            SourceInitialized += delegate { ApplyMaterial(); };
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI");
@@ -43,7 +83,7 @@ namespace Kapsula
             var sp = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
             var hello = new StackPanel { Orientation = Orientation.Horizontal };
             var greeter = new PetView(3.2, Bg);   // зверёк встречает нового человека
-            greeter.Mood("happy");
+            greeter.Mood("hello");
             greeter.Root.Margin = new Thickness(0, 0, 4, 0);
             hello.Children.Add(greeter.Root);
             hello.Children.Add(new TextBlock { Text = "Kapsula запущена", Foreground = Txt, FontSize = 21, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
@@ -57,17 +97,26 @@ namespace Kapsula
                 new string[] { "E722", "Снимки и запись экрана", "Плитки на главной вкладке: область, весь экран, запись, распознавание текста." },
                 new string[] { "E713", "Настройки", "Значок шестерёнки в панели или правый клик по значку Kapsula возле часов. Там же — выход." }
             };
+            // у каждой подсказки — белый значок на цветном скруглённом квадрате, как у разделов настроек
+            Color[] tipTints = { Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x63, 0x66, 0xF1) };
+            int tipN = 0;
             foreach (string[] t in tips)
             {
                 var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.Children.Add(new TextBlock { Text = ((char)Convert.ToInt32(t[0], 16)).ToString(), FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 17, Foreground = Txt, VerticalAlignment = VerticalAlignment.Center });
+                Color tint = tipTints[tipN++ % tipTints.Length];
+                row.Children.Add(new Border
+                {
+                    Width = 32, Height = 32, CornerRadius = new CornerRadius(9), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+                    Background = new LinearGradientBrush(Color.FromRgb((byte)Math.Min(255, tint.R + 22), (byte)Math.Min(255, tint.G + 22), (byte)Math.Min(255, tint.B + 22)), tint, 90),
+                    Child = new TextBlock { Text = ((char)Convert.ToInt32(t[0], 16)).ToString(), FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                });
                 var texts = new StackPanel();
                 texts.Children.Add(new TextBlock { Text = t[1], Foreground = Txt, FontSize = 13.5, FontWeight = FontWeights.SemiBold });
                 texts.Children.Add(new TextBlock { Text = t[2], Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
-                sp.Children.Add(new Border { Background = RowBg, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 11, 14, 12), Margin = new Thickness(0, 0, 0, 8), Child = row });
+                sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1F, 0x1F, 0x23)), BorderBrush = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 11, 14, 12), Margin = new Thickness(0, 0, 0, 8), Child = row });
             }
             sp.Children.Add(new TextBlock { Text = "Kapsula обновляется сама и ничего о вас не собирает. Это ранняя версия: что-то может работать не так.", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 4, 0, 14) });
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -79,8 +128,9 @@ namespace Kapsula
 
         static FrameworkElement Button(string text, bool main, Action click)
         {
-            var b = new Border { Background = main ? Txt : ChipBg, CornerRadius = new CornerRadius(15), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
-                Child = new TextBlock { Text = text, Foreground = main ? Bg : Txt, FontSize = 13, FontWeight = FontWeights.SemiBold } };
+            var b = new Border { Background = main ? Sel : ChipBg, CornerRadius = new CornerRadius(15), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = text, Foreground = main ? Brushes.White : Txt, FontSize = 13, FontWeight = FontWeights.SemiBold } };
+            Fx.Press(b, 0.95);
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             return b;
         }
@@ -91,12 +141,54 @@ namespace Kapsula
     {
         IslandWindow island;
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
+        static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
+        static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
+        static readonly Brush PaneBg = new SolidColorBrush(Color.FromArgb(0xD8, 0x15, 0x15, 0x18));       // правая часть поверх полупрозрачного окна
+
+        // ---- полупрозрачное окно (материал Mica в Windows 11): боковая панель просвечивает, как в современных системных окнах
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins m);
+        struct Margins { public int L, R, T, B; }
+        static readonly bool MicaOk = false;   // полупрозрачный материал Windows отключён: на некоторых системах окно рисовалось белым; фон — сплошной тёмный
+        static int WinBuild()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                { int b; return int.TryParse(k.GetValue("CurrentBuildNumber") as string, out b) ? b : 0; }
+            }
+            catch { return 0; }
+        }
+
+        void ApplyMaterial()
+        {
+            try
+            {
+                IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                // окно настроек простое и почти неподвижное — рисуем его процессором: так оно не остаётся белым после сбоя видеодрайвера
+                var hs = System.Windows.Interop.HwndSource.FromHwnd(h);
+                if (hs != null && hs.CompositionTarget != null) hs.CompositionTarget.RenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+                int dark = 1;
+                DwmSetWindowAttribute(h, 20, ref dark, 4);   // тёмный заголовок окна
+                if (!MicaOk) return;
+                var src = System.Windows.Interop.HwndSource.FromHwnd(h);
+                src.CompositionTarget.BackgroundColor = Colors.Transparent;
+                var m = new Margins { L = -1, R = -1, T = -1, B = -1 };
+                DwmExtendFrameIntoClientArea(h, ref m);
+                int mica = 2;
+                if (DwmSetWindowAttribute(h, 38, ref mica, 4) != 0) Background = Bg;
+            }
+            catch { Background = Bg; }
+        }
         static readonly Brush RowBg = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x23));
         static readonly Brush Txt = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
         static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
         static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
-        static readonly Brush OnBg = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
-        static readonly Brush OnTxt = new SolidColorBrush(Color.FromRgb(0x11, 0x11, 0x14));
+        static readonly Brush OnBg = new SolidColorBrush(Color.FromRgb(0x52, 0x52, 0x5C));    // включённые плашки и главные кнопки — светлее фона, без цвета
+        static readonly Brush OnTxt = Brushes.White;
+        static readonly Brush SegTrack = new SolidColorBrush(Color.FromArgb(0x66, 0x0A, 0x0A, 0x0C));   // дорожка переключателя вариантов
+        static readonly Brush SegThumb = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x52));          // «бегунок» под выбранным вариантом
+        static readonly Brush SegLine = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF));
         static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
         static readonly Color[] Palette =
         {
@@ -111,7 +203,8 @@ namespace Kapsula
             Title = "Kapsula — настройки";
             Icon = PetView.WindowIcon();
             Width = 840; Height = Math.Min(700, SystemParameters.WorkArea.Height - 16);   // на небольших экранах окно не должно уходить за край
-            Background = Bg;
+            Background = MicaOk ? Brushes.Transparent : Bg;
+            SourceInitialized += delegate { ApplyMaterial(); };
             ResizeMode = ResizeMode.CanMinimize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI");
@@ -157,73 +250,61 @@ namespace Kapsula
 
             sp = Sec("Внешний вид");
             sp.Children.Add(Row("Цвет острова", "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.", BuildSwatches(), true));
-            sp.Children.Add(Row("Как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false));
+            sp.Children.Add(Row("Тема как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной. Выбранный выше цвет при этом используется для тёмной темы.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false));
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             sp.Children.Add(Row("Размер", "Потяните — остров меняется сразу. Для больших мониторов удобнее покрупнее.", SliderCtl(0.8, 2, 0.05, island.Scale,
                 delegate(double v) { return Math.Round(v * 100) + "%"; },
                 delegate(double v) { island.PreviewScale(v.ToString("0.##", inv)); },
                 delegate(double v) { island.ApplyScale(v); }), true));
-            sp.Children.Add(Row("Матовое стекло", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
-            sp.Children.Add(Row("Прозрачность фона", "Фон острова становится полупрозрачным, текст и значки остаются плотными.", SliderCtl(0.5, 1, 0.05, island.IslandOpacity,
-                delegate(double v) { return v >= 0.995 ? "нет" : Math.Round((1 - v) * 100) + "%"; },
-                delegate(double v) { island.ApplyOpacity(v, false); },
-                delegate(double v) { island.ApplyOpacity(v, true); }), true));
-
-            sp.Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
-            sp.Children.Add(Row("Показывать в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
-            sp.Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так.", HideAppsEditor(), true));
+            sp.Children.Add(Row("Матовое стекло · бета", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными. Функция пробная: на некоторых компьютерах фон может обновляться с задержкой или нагружать систему — тогда выключите.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
+            Sec("Поведение").Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
+            Sec("Поведение").Children.Add(Row("Показывать в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
+            Sec("Поведение").Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так — если выше не включено «Показывать в играх».", HideAppsEditor(), true));
             sp.Children.Add(Row("Зверёк в капсуле", "Следит за курсором, задумывается, пока отвечает нейросеть, пугается таймера, радуется удаче и показывает, чем занят Claude Code. Если выключить, останутся только часы и погода.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
+            sp.Children.Add(Row("Сезонные наряды зверька", "Колпак под Новый год, шляпа в конце октября, шарф зимой. Меняется после перезапуска Kapsula.", Toggle(Store.Get("petSeason") != "0", delegate(bool v) { island.SetFlag("petSeason", v); }), false));
             if (island.MonitorCount > 1)
             {
                 var names = new string[island.MonitorCount];
                 for (int i = 0; i < names.Length; i++) names[i] = "Монитор " + (i + 1);
-                Sec("Общее").Children.Add(Row("Монитор", "На каком экране живёт остров.", Chips(names, Math.Max(0, Math.Min(names.Length - 1, island.MonitorIndex)), delegate(int i) { island.SetMonitor(i); }), true));
+                Sec("Поведение").Children.Add(Row("Монитор", "На каком экране живёт остров.", Chips(names, Math.Max(0, Math.Min(names.Length - 1, island.MonitorIndex)), delegate(int i) { island.SetMonitor(i); }), true));
             }
 
             sp = Sec("Главная");
-            sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Уберите то, чем не пользуетесь, — остров перестроится и станет меньше." });
-            sp.Children.Add(Row("Плеер", null, Toggle(Store.Get("homePlayer") != "0", delegate(bool v) { island.SetFlag("homePlayer", v); island.ApplyHomeLayout(); }), false));
-            var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-            var tilesOn = new bool[IslandWindow.HomeTileIds.Length];
-            for (int i = 0; i < tilesOn.Length; i++) tilesOn[i] = !tilesOff.Contains(IslandWindow.HomeTileIds[i]);
-            sp.Children.Add(Row("Быстрые действия", "Какие плитки показывать.", MultiChips(IslandWindow.HomeTileNames, tilesOn, delegate(int i, bool v)
-            {
-                if (v) tilesOff.Remove(IslandWindow.HomeTileIds[i]); else tilesOff.Add(IslandWindow.HomeTileIds[i]);
-                Store.Set("homeTilesOff", string.Join(",", new List<string>(tilesOff).ToArray()));
-                island.ApplyHomeLayout();
-            }), true));
-            sp.Children.Add(Row("Громкость", null, Toggle(Store.Get("homeVolume") != "0", delegate(bool v) { island.SetFlag("homeVolume", v); island.ApplyHomeLayout(); }), false));
-            sp.Children.Add(Row("Ряд программ", "Программы, закреплённые на панели задач.", Toggle(Store.Get("homeLauncher") != "0", delegate(bool v) { island.SetFlag("homeLauncher", v); island.ApplyHomeLayout(); }), false));
-            sp.Children.Add(Row("Недавно скопированное", "Три последние записи буфера обмена. Клик вставляет запись в активное окно.", Toggle(Store.Get("homeClips") == "1", delegate(bool v) { Store.Set("homeClips", v ? "1" : "0"); island.ApplyHomeLayout(); }), false));
+            sp.Children.Add(HomeEditor());
 
             sp = Sec("Музыка");
-            sp.Children.Add(Row("Смена трека поверх игр и видео", "В полноэкранной программе остров спрятан. С этой настройкой он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
             sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде. «Строка песни» работает, когда для трека нашёлся текст; иначе показывается название.", Chips(new string[] { "Часы и погода", "Название", "Строка песни", "Полоса трека" }, island.PillMode, delegate(int i) { island.SetPillMode(i); }), true));
-            sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
+            sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом. «Мягкое зеркало» — обложка по центру, а за ней она же, сильно размытая.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки", "Мягкое зеркало" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
             sp.Children.Add(Row("Мини-плеер при наведении", "Во время музыки сначала открывается мини-плеер, клик по нему — вся панель.", Toggle(island.HoverMini, delegate(bool v) { island.SetFlag("hoverMini", v); }), false));
+            sp.Children.Add(Row("Новый трек поверх игр и видео", "Когда остров спрятан от игры или видео на весь экран, он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
+            sp.Children.Add(Header("Жидкий край"));
             sp.Children.Add(Row("Жидкий край", "Нижний край пляшет под звук.", Toggle(island.LiquidOn, delegate(bool v) { island.SetFlag("liquid", v); }), false));
-            sp.Children.Add(Row("Ползунок громкости на «Главной»", "«Только плеер» меняет громкость одной программы, в которой играет музыка, — остальной звук не трогает. Переключается и кнопкой слева от ползунка.", Chips(new string[] { "Весь звук", "Только плеер" }, Store.Get("volPlayer") == "1" ? 1 : 0, delegate(int i) { Store.Set("volPlayer", i == 1 ? "1" : "0"); }), true));
-            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке острова покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
-            sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Край как эквалайзер", "Слева бас, справа высокие частоты. Выключено — край пляшет от общей громкости.", Toggle(Store.Get("liquidSpectrum") != "0", delegate(bool v) { Store.Set("liquidSpectrum", v ? "1" : "0"); }), false));
+            sp.Children.Add(Header("Тексты песен"));
             sp.Children.Add(Row("Тексты песен", "Загружаются с lrclib.net для играющего трека.", Toggle(island.LyricsEnabled, delegate(bool v) { island.SetFlag("lyrics", v); }), false));
 
             double[] offs = { -1, -0.5, 0, 0.5, 1 };
             int oi = 2;
             for (int i = 0; i < offs.Length; i++) if (Math.Abs(offs[i] - island.LyricOffset) < 0.01) oi = i;
             sp.Children.Add(Row("Сдвиг текста песни", "Если строки отстают от звука — сдвиньте вперёд, если спешат — назад.", Chips(new string[] { "−1 с", "−0,5 с", "Без сдвига", "+0,5 с", "+1 с" }, oi, delegate(int i) { island.SetLyricOffset(offs[i]); }), true));
+            sp.Children.Add(Header("Наушники"));
+            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке острова покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
+            sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
 
-            sp = Sec("Чат с Claude");
-            sp.Children.Add(Row("Кто отвечает в чате", "Duck.ai открывается прямо во вкладке «Чат»: без ключа и без входа, нейросеть выбирается на самой странице, переписка хранится в ней же. Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Duck.ai", "Claude", "Gemini" }, Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : "claude"); }), true));
+            sp = Sec("Нейросети");
+            sp.Children.Add(Row("Кто отвечает в чате", "«Сайты без ключа» — Duck.ai, DeepSeek или Gemini прямо во вкладке «Чат»: переключаются строкой над чатом, кнопка «В окне» открывает сайт отдельным окном. Duck.ai работает без входа; в DeepSeek и Gemini входите в свой аккаунт на самом сайте. Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Сайты без ключа", "Claude по ключу", "Gemini по ключу" }, Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : "claude"); }), true));
+            sp.Children.Add(Header("Gemini"));
             sp.Children.Add(Row("Ключ Gemini API", "Ключ создаётся в Google AI Studio под вашим аккаунтом Google; у Gemini есть бесплатный уровень с ограничением числа запросов. Ключ хранится только на этом компьютере, зашифрованный Windows, и отправляется только на generativelanguage.googleapis.com.", BuildGeminiKeyEditor(), true));
             sp.Children.Add(Row("Модель Gemini", "Flash-Lite — самая быстрая, на бесплатном уровне отвечает стабильнее всех. Flash умнее, но часто перегружена; если она занята, Kapsula сама попробует другую модель.", Chips(GeminiChat.ModelNames, Array.IndexOf(GeminiChat.Models, GeminiChat.Model()), delegate(int i) { Store.Set("geminiModel", GeminiChat.Models[i]); }), true));
+            sp.Children.Add(Header("Claude"));
             sp.Children.Add(Row("Ключ Claude API", "Нужен свой ключ: console.anthropic.com → API Keys. Он хранится только на этом компьютере, зашифрованный Windows, и отправляется только на api.anthropic.com.", BuildKeyEditor(), true));
-            sp.Children.Add(Row("Модель", "Opus 5.5 — умнее; Sonnet 5.5 — быстрее и дешевле.", Chips(new string[] { "Opus 5.5", "Sonnet 5.5" }, ClaudeChat.Model() == "claude-sonnet-5-5" ? 1 : 0, delegate(int i) { island.SetClaudeModel(i == 1 ? "claude-sonnet-5-5" : "claude-opus-5-5"); }), true));
+            sp.Children.Add(Row("Модель Claude", "Opus 5.5 — умнее; Sonnet 5.5 — быстрее и дешевле.", Chips(new string[] { "Opus 5.5", "Sonnet 5.5" }, ClaudeChat.Model() == "claude-sonnet-5-5" ? 1 : 0, delegate(int i) { island.SetClaudeModel(i == 1 ? "claude-sonnet-5-5" : "claude-opus-5-5"); }), true));
 
             if (ClaudeBridge.ClaudeCodeFound)
             {
-                var cLabel = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
-                var cBtn = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = cLabel };
+                Action<bool> cSet;
+                Action cClick = null;
+                var cBtn = ToggleSet(ClaudeBridge.Installed && ClaudeBridge.Enabled, delegate(bool v) { if (cClick != null) cClick(); }, out cSet);
                 var cRow = Row("Claude Code на острове", "—", cBtn, false);
                 var cText = ((StackPanel)((Grid)((Border)cRow).Child).Children[0]).Children[1] as TextBlock;
                 string cNote = "";
@@ -231,16 +312,15 @@ namespace Kapsula
                 {
                     bool have = ClaudeBridge.Installed && ClaudeBridge.Enabled;
                     bool old = have && !ClaudeBridge.UpToDate;
-                    cLabel.Text = old ? "Обновить" : have ? "Отключить" : "Подключить";
+                    cSet(have);
                     string st = !have ? "Kapsula допишет свои строки в настройки Claude Code (прежний файл сохранится рядом). В интернет ничего не уходит."
-                        : old ? "Подключение устарело: нажмите «Обновить», чтобы заработали новые возможности."
+                        : old ? "Подключение устарело: нажмите на переключатель — оно обновится и останется включённым."
                         : ClaudeBridge.Error != null ? "Не работает: " + ClaudeBridge.Error + "."
                         : "Подключено. Новые сессии Claude Code подхватят это сразу, уже открытые — после перезапуска.";
                     if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно из значка Kapsula у часов или командой «стоп claude». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
                 };
-                cBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                cClick = delegate
                 {
-                    e.Handled = true;
                     if (ClaudeBridge.Installed && ClaudeBridge.Enabled && !ClaudeBridge.UpToDate)
                     {
                         string err = ClaudeBridge.Install();
@@ -261,15 +341,17 @@ namespace Kapsula
                     cShow();
                 };
                 cShow();
+                sp.Children.Add(Header("Claude Code"));
                 sp.Children.Add(cRow);
                 sp.Children.Add(Row("Звук, когда Claude Code ждёт вас", "Системный звук вместе с карточкой разрешения или вопроса — чтобы не пропустить, если вы отвернулись от экрана.", Toggle(Store.Get("claudeSound") != "0", delegate(bool v) { Store.Set("claudeSound", v ? "1" : "0"); }), false));
+                sp.Children.Add(Row("Кнопка «Открыть в VS Code» · альфа", "Сырая функция, по умолчанию выключена. На карточке «Claude закончил» появляется кнопка, открывающая папку проекта в VS Code (без VS Code — в Проводнике), а в строке острова — команда «открыть проект в VS Code».", Toggle(Store.Get("vscodeButton") == "1", delegate(bool v) { Store.Set("vscodeButton", v ? "1" : "0"); }), false));
                 sp.Children.Add(Row("Показывать, что делает Claude Code", "Короткая надпись на острове: какую команду он выполняет или какой файл правит. Только пока вы в другой программе.", Toggle(Store.Get("claudeActivity") != "0", delegate(bool v) { Store.Set("claudeActivity", v ? "1" : "0"); }), false));
             }
 
             sp = Sec("Steam и Discord");
             if (DiscordBridge.VencordFound)
             {
-                var dRow = Row("Discord через Vencord", "—", Toggle(Store.Get("discordVencord") != "0", delegate(bool v) { island.SetFlag("discordVencord", v); if (v) DiscordBridge.Start(); else DiscordBridge.Stop(); }), false);
+                var dRow = Row("Discord через Vencord · бета", "—", Toggle(Store.Get("discordVencord") != "0", delegate(bool v) { island.SetFlag("discordVencord", v); if (v) DiscordBridge.Start(); else DiscordBridge.Stop(); }), false);
                 var dText = ((StackPanel)((Grid)((Border)dRow).Child).Children[0]).Children[1] as TextBlock;
                 Action dShow = delegate
                 {
@@ -288,33 +370,33 @@ namespace Kapsula
             }
             else
             {
-                sp.Children.Add(Row("Discord через Vencord", "Сообщения и звонки Discord на острове. Нужен Vencord — неофициальная модификация Discord; ставить её или нет, решаете вы.", LinkButton("Сайт Vencord", "https://vencord.dev/"), false));
+                sp.Children.Add(Row("Discord через Vencord · бета", "Сообщения и звонки Discord на острове. Нужен Vencord — неофициальная модификация Discord; ставить её или нет, решаете вы.", LinkButton("Сайт Vencord", "https://vencord.dev/"), false));
             }
             if (Steam.Found)
-                sp.Children.Add(Row("Steam", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
+                sp.Children.Add(Row("Steam · бета", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
 
             if (Steam.Found && !SteamBridge.MillenniumFound)
-                sp.Children.Add(Row("Уведомления Steam", "Сообщения друзей, «друг в игре» и другие уведомления Steam на острове. Нужен Millennium — неофициальная модификация клиента Steam; ставить её или нет, решаете вы.", LinkButton("Сайт Millennium", "https://steambrew.app/"), false));
+                sp.Children.Add(Row("Уведомления Steam · бета", "Сообщения друзей, «друг в игре» и другие уведомления Steam на острове. Нужен Millennium — неофициальная модификация клиента Steam; ставить её или нет, решаете вы.", LinkButton("Сайт Millennium", "https://steambrew.app/"), false));
             else if (Steam.Found)
             {
-                var sLabel = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
-                var sBtn = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = sLabel };
-                var sRow = Row("Уведомления Steam", "—", sBtn, false);
+                Action<bool> sSet;
+                Action sClick = null;
+                var sBtn = ToggleSet(SteamBridge.PluginInstalled, delegate(bool v) { if (sClick != null) sClick(); }, out sSet);
+                var sRow = Row("Уведомления Steam · бета", "—", sBtn, false);
                 var sText = ((StackPanel)((Grid)((Border)sRow).Child).Children[0]).Children[1] as TextBlock;
                 string sNote = "";
                 Action sShow = delegate
                 {
                     bool have = SteamBridge.PluginInstalled;
-                    sLabel.Text = have ? "Удалить" : "Подключить";
+                    sSet(have);
                     string st = !have ? "Kapsula положит свой плагин в папку Millennium. В интернет ничего не уходит."
                         : SteamBridge.Error != null ? "Не работает: " + SteamBridge.Error + "."
                         : SteamBridge.Clients > 0 ? "Подключено (плагин " + SteamBridge.InstalledVersion + ")."
                         : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите Kapsula и перезапустите Steam.";
                     if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. " + st + sNote;
                 };
-                sBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                sClick = delegate
                 {
-                    e.Handled = true;
                     if (SteamBridge.PluginInstalled) sNote = SteamBridge.RemovePlugin() ? " Плагин удалён; он выгрузится при следующем запуске Steam." : " Не удалось удалить папку плагина.";
                     else sNote = SteamBridge.InstallPlugin() ? "" : " Не удалось записать в папку Millennium.";
                     sShow();
@@ -325,45 +407,50 @@ namespace Kapsula
                 sTimer.Start();
                 Closed += delegate { sTimer.Stop(); };
                 sp.Children.Add(sRow);
-                sp.Children.Add(Row("Не дублировать уведомления Steam", "Когда уведомление показал остров, окошко Steam справа снизу не появляется (звук остаётся). В игре Steam показывает уведомления как обычно.", Toggle(Store.Get("steamHideToasts") != "0", delegate(bool v) { island.SetFlag("steamHideToasts", v); SteamBridge.SendConfig(); }), false));
+                sp.Children.Add(Row("Не дублировать уведомления Steam · бета", "Когда уведомление показал остров, окошко Steam справа снизу не появляется (звук остаётся). В игре Steam показывает уведомления как обычно.", Toggle(Store.Get("steamHideToasts") != "0", delegate(bool v) { island.SetFlag("steamHideToasts", v); SteamBridge.SendConfig(); }), false));
             }
 
-            Sec("Внешний вид").Children.Add(Row("Секунды в часах", null, Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
+            Sec("Внешний вид").Children.Add(Row("Секунды в часах", "В капсуле вместо 12:30 будет 12:30:45.", Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
             sp = Sec("Запись и снимки");
             string ra = Store.Get("recAudio");
             sp.Children.Add(Row("Звук в записи экрана", "Звук компьютера — то, что играет в колонках или наушниках: видео, игра, звонок. Микрофон добавляется поверх, если выбран третий вариант.", Chips(new string[] { "Без звука", "Звук компьютера", "Компьютер и микрофон" }, ra == "0" ? 0 : (ra == "2" ? 2 : 1), delegate(int i) { Store.Set("recAudio", i.ToString()); }), true));
             sp.Children.Add(Row("Показывать остров на скриншотах", "По умолчанию он скрыт от снимков, записи экрана и трансляций.", Toggle(island.ShowInCapture, delegate(bool v) { island.SetFlag("showInCapture", v); }), false));
             sp = Sec("Общее");
             sp.Children.Add(Row("Запускать вместе с Windows", null, Toggle(Autostart.IsOn(), delegate(bool v) { Autostart.Set(v); }), false));
-            sp.Children.Add(Row("Автообновление", "Kapsula сама скачивает новые версии с GitHub и сверяет контрольную сумму файла. Сейчас установлена версия " + Updater.CurrentText + ".", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
+            sp.Children.Add(Row("Автообновление", "Kapsula сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
 
             sp = Sec("Уведомления");
-            sp.Children.Add(Row("Показывать смену раскладки", "Короткая подсказка «Раскладка: RU» при переключении языка.", Toggle(island.ShowLayout, delegate(bool v) { island.SetFlag("layout", v); }), false));
+            sp.Children.Add(Row("Смена раскладки", "Короткая подсказка «Раскладка: RU» при переключении языка.", Toggle(island.ShowLayout, delegate(bool v) { island.SetFlag("layout", v); }), false));
             sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
             sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке острова.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
+
+            BuildExtrasSection(Sec("Дополнительно"));
 
             sp = Sec("Клавиши");
             sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Нажмите на сочетание и введите новое. Backspace отключает, правый клик возвращает исходное. Красным отмечены сочетания, занятые другой программой." });
             foreach (Hot hk in island.Hots) sp.Children.Add(Row(hk.Name, null, HotChip(hk), false));
             PreviewKeyDown += OnCaptureKey;
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
-            BuildLayout();
+            try { BuildLayout(); } catch (Exception ex) { Store.LogError("окно настроек", ex); Content = new TextBlock { Text = ex.ToString(), Foreground = Txt, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(16) }; }
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Главная", "Музыка", "Уведомления", "Steam и Discord", "Запись и снимки", "Чат с Claude", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "Уведомления", "Steam и Discord", "Запись и снимки", "Нейросети", "Телефон", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
             "Версия, обновления, запуск",
-            "Цвет, размер, персонаж",
+            "Цвет, размер, стекло, зверёк",
+            "Когда остров прячется и на каком экране живёт",
             "Что показывать на главной вкладке",
-            "Плеер, тексты песен, жидкий край",
+            "Плеер, жидкий край, тексты песен, наушники",
             "Что и когда показывает остров",
             "Игры, сообщения и уведомления",
             "Звук в записи, скрытие острова",
-            "Ключ и модель",
+            "Чат, ключи, Claude Code",
+            "Веб-камера из телефона и пульт",
+            "Звонки, дека, игры, виджет, агенты",
             "Сочетания клавиш"
         };
         Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
@@ -382,8 +469,8 @@ namespace Kapsula
         // Цвета значков разделов, в порядке SectionOrder
         static readonly Color[] SectionColors =
         {
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
-            Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x63, 0x63, 0x66)
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
+            Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
         static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x2A));
@@ -429,21 +516,23 @@ namespace Kapsula
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 // значок раздела — белый на цветном скруглённом квадрате, у каждого раздела свой цвет
                 Color tint = SectionColors[i % SectionColors.Length];
-                row.Children.Add(new Border
-                {
-                    Width = 26, Height = 26, CornerRadius = new CornerRadius(7.5), Margin = new Thickness(0, 0, 11, 0), VerticalAlignment = VerticalAlignment.Center,
-                    Background = new LinearGradientBrush(Color.FromRgb((byte)Math.Min(255, tint.R + 22), (byte)Math.Min(255, tint.G + 22), (byte)Math.Min(255, tint.B + 22)), tint, 90),
-                    Child = new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 13.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-                });
-                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 40, CornerRadius = new CornerRadius(11), Padding = new Thickness(9, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, Tag = name };
+                GC.KeepAlive(tint);
+                row.Children.Add(new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 14, Foreground = Sub, Width = 22, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+                var item = new Border { Height = 36, CornerRadius = new CornerRadius(11), Padding = new Thickness(9, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
-                item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = ChipBg; };
+                item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
+                Fx.Press(item, 0.97);
                 item.MouseLeave += delegate { if ((string)item.Tag != currentSection) item.Background = Brushes.Transparent; };
                 navItems.Add(item);
                 nav.Children.Add(item);
             }
-            root.Children.Add(new Border { Background = RowBg, Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = nav } });
+            var navDock = new DockPanel();
+            var saved = new TextBlock { Text = "Изменения сохраняются сразу", Foreground = Sub, FontSize = 11, Margin = new Thickness(24, 8, 12, 14) };
+            DockPanel.SetDock(saved, Dock.Bottom);
+            navDock.Children.Add(saved);
+            navDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = nav });
+            root.Children.Add(new Border { Background = MicaOk ? Brushes.Transparent : RowBg, Child = navDock });
 
             var pane = new DockPanel { Margin = new Thickness(28, 22, 10, 0) };
             var head = new StackPanel { Margin = new Thickness(4, 0, 0, 12) };
@@ -457,6 +546,10 @@ namespace Kapsula
             pane.Children.Add(pv);
             scroller =new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 16, 16) };
             pane.Children.Add(scroller);
+            // правая часть — плотнее боковой панели, с тонкой линией-разделителем слева
+            var paneBack = new Border { Background = MicaOk ? PaneBg : Bg, BorderBrush = Divider, BorderThickness = new Thickness(1, 0, 0, 0) };
+            Grid.SetColumn(paneBack, 1);
+            root.Children.Add(paneBack);
             Grid.SetColumn(pane, 1);
             root.Children.Add(pane);
             Content = root;
@@ -503,7 +596,7 @@ namespace Kapsula
             return pvBox;
         }
 
-        int hoverKind = -1;
+        int hoverKind = -1, hoverSeq;
 
         // Что показать в превью для строки настроек: 1 — главная панель, 2 — мини-плеер, 0 — сам остров, -1 — как у раздела
         static int PreviewKindFor(string title)
@@ -511,7 +604,7 @@ namespace Kapsula
             string t = title ?? "";
             if (t.Contains("Главн")) return 1;
             if (t.StartsWith("Мини-плеер") || t.Contains("екст")) return 2;
-            if (t.StartsWith("Капсула") || t.Contains("край") || t.Contains("Край") || t.StartsWith("Смена трека") || t.StartsWith("Зверёк") || t.StartsWith("Секунды")) return 0;
+            if (t.StartsWith("Капсула") || t.Contains("край") || t.Contains("Край") || t.StartsWith("Новый трек") || t.StartsWith("Зверёк") || t.StartsWith("Секунды")) return 0;
             return -1;
         }
 
@@ -524,7 +617,9 @@ namespace Kapsula
             pvHome.Visibility = kind == 1 ? Visibility.Visible : Visibility.Collapsed;
             pvMini.Visibility = kind == 2 ? Visibility.Visible : Visibility.Collapsed;
             if (kind == 1) { island.PreviewRefresh(); pvHomeBox.Height = island.PreviewHomeH; }
-            pvBox.Height = kind == 1 ? PvHomeH : PvH;
+            // Высота рамки зависит только от раздела: иначе при наведении на разные строки рамка прыгала, строки
+            // уезжали из-под курсора, и превью начинало мигать.
+            pvBox.Height = currentSection == "Главная" || currentSection == "Музыка" ? PvHomeH : PvH;
             pvCaption.Text = kind == 1 ? "Главная" : kind == 2 ? "Мини-плеер" : "Остров сейчас";
         }
 
@@ -538,7 +633,14 @@ namespace Kapsula
             paneHint.Text = idx >= 0 ? SectionHints[idx] : "";
             scroller.Content = sections[name];
             scroller.ScrollToTop();
-            foreach (Border b in navItems) b.Background = (string)b.Tag == name ? ChipBg : Brushes.Transparent;
+            foreach (Border b in navItems) b.Background = (string)b.Tag == name ? Sel : Brushes.Transparent;
+            // раздел появляется мягко: чуть всплывает и проявляется
+            StackPanel sec = sections[name];
+            var rise = sec.RenderTransform as TranslateTransform;
+            if (rise == null) { rise = new TranslateTransform(); sec.RenderTransform = rise; }
+            var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+            rise.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
+            sec.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
             Store.Set("settingsTab", name);
         }
 
@@ -558,7 +660,23 @@ namespace Kapsula
         FrameworkElement Row(string title, string desc, FrameworkElement control, bool below)
         {
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            texts.Children.Add(new TextBlock { Text = title, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold });
+            // «Название · бета» — оранжевая плашка «БЕТА»; «Название · альфа» — голубая «АЛЬФА»: совсем сырая функция, по умолчанию выключена
+            const string betaMark = " · бета", alphaMark = " · альфа";
+            bool alpha = title.EndsWith(alphaMark);
+            if (title.EndsWith(betaMark) || alpha)
+            {
+                string mark = alpha ? alphaMark : betaMark;
+                Color mc = alpha ? Color.FromRgb(0x40, 0xB4, 0xFF) : Color.FromRgb(0xFF, 0x9F, 0x0A);
+                var head = new StackPanel { Orientation = Orientation.Horizontal };
+                head.Children.Add(new TextBlock { Text = title.Substring(0, title.Length - mark.Length), Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+                head.Children.Add(new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(0x33, mc.R, mc.G, mc.B)), CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 1, 7, 2), Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = alpha ? "АЛЬФА" : "БЕТА", Foreground = new SolidColorBrush(mc), FontSize = 10.5, FontWeight = FontWeights.Bold }
+                });
+                texts.Children.Add(head);
+            }
+            else texts.Children.Add(new TextBlock { Text = title, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold });
             if (!string.IsNullOrEmpty(desc)) texts.Children.Add(new TextBlock { Text = desc, Foreground = Sub, FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
             FrameworkElement body;
             if (below)
@@ -589,10 +707,35 @@ namespace Kapsula
             int kind = PreviewKindFor(title);
             if (kind >= 0)
             {
-                rowBox.MouseEnter += delegate { hoverKind = kind; UpdatePreview(); };
-                rowBox.MouseLeave += delegate { if (hoverKind == kind) { hoverKind = -1; UpdatePreview(); } };
+                rowBox.MouseEnter += delegate { hoverSeq++; hoverKind = kind; UpdatePreview(); };
+                rowBox.MouseLeave += delegate
+                {
+                    // сбрасываем не сразу: при переходе на соседнюю строку превью не должно на миг возвращаться к общему виду
+                    int seq = ++hoverSeq;
+                    var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
+                    t.Tick += delegate { t.Stop(); if (seq == hoverSeq) { hoverKind = -1; UpdatePreview(); } };
+                    t.Start();
+                };
             }
             return rowBox;
+        }
+
+        // Переключатель, которым можно управлять снаружи: set ставит его в нужное положение без вызова changed.
+        // Нужен там, где действие может не получиться (подключение плагина) и переключатель должен вернуться назад.
+        FrameworkElement ToggleSet(bool on, Action<bool> changed, out Action<bool> set)
+        {
+            bool state = on;
+            var knob = new Ellipse { Width = 18, Height = 18, Fill = Brushes.White, Margin = new Thickness(3), HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left };
+            var b = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(12), Background = state ? Green : ChipBg, Child = knob, Cursor = Cursors.Hand };
+            Action<bool> show = delegate(bool v)
+            {
+                state = v;
+                knob.HorizontalAlignment = v ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+                b.Background = v ? Green : ChipBg;
+            };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; show(!state); changed(state); };
+            set = show;
+            return b;
         }
 
         FrameworkElement Toggle(bool on, Action<bool> changed)
@@ -645,30 +788,52 @@ namespace Kapsula
             return row;
         }
 
+        // Выбор одного варианта из нескольких: варианты лежат в общей дорожке, подсветка выбранного
+        // переезжает от одного к другому — так же, как вкладки на самом острове.
         FrameworkElement Chips(string[] labels, int selected, Action<int> pick)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var chips = new List<Border>();
-            Action<int> paint = delegate(int sel)
+            var items = new List<Border>();
+            var tx = new TranslateTransform();
+            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = SegThumb, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
+            int cur = selected;
+            var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+            Action<bool> move = delegate(bool animate)
             {
-                for (int i = 0; i < chips.Count; i++)
+                for (int i = 0; i < items.Count; i++) ((TextBlock)items[i].Child).Foreground = i == cur ? Txt : Sub;
+                if (cur < 0 || cur >= items.Count) { thumb.Opacity = 0; return; }
+                Border it = items[cur];
+                double w = it.ActualWidth;
+                if (w <= 0) return;
+                double x = it.TranslatePoint(new Point(0, 0), row).X;
+                thumb.Opacity = 1;
+                if (animate && thumb.ActualWidth > 0)
                 {
-                    chips[i].Background = i == sel ? OnBg : ChipBg;
-                    ((TextBlock)chips[i].Child).Foreground = i == sel ? OnTxt : Txt;
+                    var dur = TimeSpan.FromMilliseconds(260);
+                    tx.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(x, dur) { EasingFunction = ease });
+                    thumb.BeginAnimation(FrameworkElement.WidthProperty, new System.Windows.Media.Animation.DoubleAnimation(thumb.ActualWidth, w, dur) { EasingFunction = ease });
+                }
+                else
+                {
+                    tx.BeginAnimation(TranslateTransform.XProperty, null); thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
+                    tx.X = x; thumb.Width = w;
                 }
             };
             for (int i = 0; i < labels.Length; i++)
             {
                 int idx = i;
-                var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 0), Cursor = Cursors.Hand, Child = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
-                c.MouseLeftButtonDown += delegate { paint(idx); pick(idx); };
-                chips.Add(c);
+                var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 0, 14, 1), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+                c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (cur == idx) return; cur = idx; move(true); pick(idx); };
+                items.Add(c);
                 row.Children.Add(c);
             }
-            paint(selected);
-            return row;
+            var grid = new Grid();
+            grid.Children.Add(thumb); grid.Children.Add(row);
+            var track = new Border { Background = SegTrack, BorderBrush = SegLine, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
+            row.SizeChanged += delegate { move(false); };
+            track.Loaded += delegate { move(false); };
+            return track;
         }
-
         // Несколько переключателей в ряд(ы): каждый включается и выключается отдельно
         FrameworkElement MultiChips(string[] labels, bool[] on, Action<int, bool> changed)
         {
@@ -679,12 +844,80 @@ namespace Kapsula
                 bool state = on[i];
                 var tb = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
                 var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Child = tb };
-                Action paint = delegate { c.Background = state ? OnBg : ChipBg; tb.Foreground = state ? OnTxt : Txt; };
+                Action paint = delegate { c.Background = state ? OnBg : Brushes.Transparent; c.BorderBrush = state ? Brushes.Transparent : Divider; c.BorderThickness = new Thickness(1); tb.Foreground = state ? OnTxt : Sub; };
                 c.MouseLeftButtonDown += delegate { state = !state; paint(); changed(idx, state); };
                 paint();
                 wrap.Children.Add(c);
             }
             return wrap;
+        }
+
+        // «Что на «Главной»»: группы «Слева», «Плитки», «Снизу» и схема того, как ляжет панель
+        FrameworkElement HomeEditor()
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            var left = new StackPanel();
+            left.Children.Add(new TextBlock { Text = "Что на «Главной»", Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold });
+            left.Children.Add(new TextBlock { Text = "Оставьте только нужное — например, один плеер или плеер и снимок области. «Главная» перестроится сама. Без музыки на месте плеера — недавно скопированное.", Foreground = Sub, FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 12, 0) });
+            var schema = new Canvas { Width = 150, Height = 96, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 0, 0) };
+            Action draw = null;
+            Func<string, bool, bool> on = delegate(string key, bool def) { string v = Store.Get(key); return v == "" ? def : v != "0"; };
+            Action<string, string[], string[], bool[]> group = null;
+            group = delegate(string head, string[] keys, string[] labels, bool[] defs)
+            {
+                left.Children.Add(new TextBlock { Text = head, Foreground = Sub, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 7) });
+                var states = new bool[keys.Length];
+                for (int i = 0; i < keys.Length; i++) states[i] = on(keys[i], defs[i]);
+                left.Children.Add(MultiChips(labels, states, delegate(int i, bool v) { Store.Set(keys[i], v ? "1" : "0"); island.ApplyHomeLayout(); draw(); }));
+            };
+            group("СЛЕВА", new string[] { "homePlayer", "homeClips", "homeVolume" }, new string[] { "Плеер", "Недавно скопировано", "Громкость" }, new bool[] { true, true, true });
+            // плитки хранятся списком выключенных
+            left.Children.Add(new TextBlock { Text = "ПЛИТКИ", Foreground = Sub, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 7) });
+            var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            var tilesOn = new bool[IslandWindow.HomeTileIds.Length];
+            for (int i = 0; i < tilesOn.Length; i++) tilesOn[i] = !tilesOff.Contains(IslandWindow.HomeTileIds[i]);
+            left.Children.Add(MultiChips(IslandWindow.HomeTileNames, tilesOn, delegate(int i, bool v)
+            {
+                if (v) tilesOff.Remove(IslandWindow.HomeTileIds[i]); else tilesOff.Add(IslandWindow.HomeTileIds[i]);
+                Store.Set("homeTilesOff", string.Join(",", new List<string>(tilesOff).ToArray()));
+                island.ApplyHomeLayout(); draw();
+            }));
+            group("СНИЗУ", new string[] { "homeLauncher" }, new string[] { "Ярлыки программ" }, new bool[] { true });
+
+            // схема: прямоугольники на месте частей панели
+            Brush part = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x42)), hot = new SolidColorBrush(Color.FromRgb(0x5A, 0x5A, 0x66));
+            draw = delegate
+            {
+                schema.Children.Clear();
+                var frame = new Border { Width = 150, Height = 96, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0E, 0x11)), BorderBrush = Divider, BorderThickness = new Thickness(1) };
+                schema.Children.Add(frame);
+                bool pl = on("homePlayer", true) || on("homeClips", true), vol = on("homeVolume", true), lau = on("homeLauncher", true);
+                var off2 = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+                int n = 0; foreach (string id in IslandWindow.HomeTileIds) if (!off2.Contains(id)) n++;
+                double x = 8, y = 8, w = 134, bottom = lau ? 72 : 88;
+                double tilesW = n > 0 ? 50 : 0, leftW = w - (n > 0 ? tilesW + 5 : 0);
+                Action<double, double, double, double, Brush> rect = delegate(double rx, double ry, double rw, double rh, Brush b)
+                {
+                    var r = new Border { Width = Math.Max(2, rw), Height = Math.Max(2, rh), CornerRadius = new CornerRadius(4), Background = b };
+                    Canvas.SetLeft(r, rx); Canvas.SetTop(r, ry); schema.Children.Add(r);
+                };
+                double mainH = bottom - y - (vol ? 13 : 0);
+                if (pl) rect(x, y, leftW, mainH, hot);
+                if (vol) rect(x, pl ? y + mainH + 4 : y, leftW, 9, part);
+                if (n > 0)
+                {
+                    int rows = Math.Max(1, (n + 1) / 2);
+                    double th = (bottom - y - (rows - 1) * 3) / rows;
+                    for (int k = 0; k < n; k++) rect(x + leftW + 5 + (k % 2) * 26, y + (k / 2) * (th + 3), 24, th, part);
+                }
+                if (lau) rect(x, bottom + 4, w, 12, part);
+            };
+            draw();
+            Grid.SetColumn(schema, 1);
+            g.Children.Add(left); g.Children.Add(schema);
+            return new Border { Background = RowBg, CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 16, 18, 18), Margin = new Thickness(0, 0, 0, 16), Child = g };
         }
 
         // Список программ, в которых остров прячется: выбранные — плашками (клик убирает), «Добавить» — из открытых сейчас.
@@ -710,7 +943,7 @@ namespace Kapsula
                 {
                     e.Handled = true;
                     // Программы, у которых сейчас открыто окно. Названия окон никуда не сохраняются — только имя программы.
-                    var menu = new ContextMenu();
+                    var menu = new System.Windows.Forms.ContextMenuStrip();
                     var seen = new List<string>(IslandWindow.HideApps());
                     seen.Add("Kapsula");
                     try
@@ -721,17 +954,16 @@ namespace Kapsula
                             try { if (p.MainWindowHandle == IntPtr.Zero) continue; pn = p.ProcessName; title = p.MainWindowTitle ?? ""; } catch { continue; }
                             if (title.Length == 0 || seen.Exists(delegate(string x) { return string.Equals(x, pn, StringComparison.OrdinalIgnoreCase); })) continue;
                             seen.Add(pn);
-                            string shown = title.Length > 46 ? title.Substring(0, 45) + "…" : title;
-                            var mi = new MenuItem { Header = pn + "  —  " + shown };
-                            mi.Click += delegate { List<string> cur = IslandWindow.HideApps(); cur.Add(pn); IslandWindow.SetHideApps(cur); fill(); };
-                            menu.Items.Add(mi);
+                            string shown = title.Length > 40 ? title.Substring(0, 39) + "…" : title;
+                            string app = pn;
+                            menu.Items.Add(pn + "  —  " + shown, null, delegate { List<string> cur = IslandWindow.HideApps(); cur.Add(app); IslandWindow.SetHideApps(cur); fill(); });
                         }
                     }
                     catch { }
-                    if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { Header = "Нет открытых программ", IsEnabled = false });
-                    menu.PlacementTarget = add;
-                    menu.Placement = PlacementMode.Bottom;
-                    menu.IsOpen = true;
+                    if (menu.Items.Count == 0) menu.Items.Add("Нет открытых программ").Enabled = false;
+                    DarkMenuRenderer.Apply(menu, 420, false);
+                    Point at = add.PointToScreen(new Point(0, add.ActualHeight + 6));
+                    menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
                 };
                 wrap.Children.Add(add);
             };
@@ -740,6 +972,7 @@ namespace Kapsula
         }
 
         ScrollViewer scroller;
+        public void ScrollTo(double y) { if (scroller != null) scroller.ScrollToVerticalOffset(y); }
         public void ScrollToBottom() { Loaded += delegate { scroller.ScrollToEnd(); }; }
 
         // ---- редактор горячих клавиш
@@ -803,6 +1036,103 @@ namespace Kapsula
 
         // Поле для ключа: вводит его сам пользователь; обратно ключ никогда не показывается.
         // Поле для ключа Gemini: ключ вводит сам пользователь, хранится зашифрованным на этом компьютере
+        // ---- «Дополнительно»: звонки, дека, телефон, игры, Twitch, виджет, утро, MCP
+        void BuildExtrasSection(StackPanel sp)
+        {
+            sp.Children.Add(Header("Каждый день"));
+            sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: погода, первое событие, задачи и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. Kapsula сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Клавиши деки", "Ctrl+Alt+1…9 запускают места на вкладке «Дека» — программы и действия.", Toggle(Store.Get("deckHotkeys") != "0", delegate(bool v) { Store.Set("deckHotkeys", v ? "1" : "0"); island.ReloadDeckHotkeys(); }), false));
+
+            sp.Children.Add(Header("Поверх экрана"));
+            sp.Children.Add(Row("Нагрузка в играх · бета", "В игре на весь экран в левом верхнем углу — маленькая полоска: процессор, видеокарта, память и время. Мышь проходит сквозь неё.", Toggle(Store.Get("gameStrip") == "1", delegate(bool v) { Store.Set("gameStrip", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Виджет на рабочем столе", "Крупный день недели и дата в левом нижнем углу рабочего стола, под окнами; ниже — погода, ближайшее событие, таймер и задачи.", Toggle(Store.Get("deskWidget") == "1", delegate(bool v) { Store.Set("deskWidget", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Чат Twitch поверх игры · бета", "Сообщения чата выбранного канала справа поверх игры. Читаются анонимно — входить в Twitch не нужно, писать в чат отсюда нельзя. Чат YouTube так показать нельзя: YouTube требует ключ разработчика.", Toggle(Store.Get("twitchOverlay") == "1", delegate(bool v) { Store.Set("twitchOverlay", v ? "1" : "0"); island.TwitchSync(); }), false));
+            var chan = new TextBox { Width = 220, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13, Text = Store.Get("twitchChannel") };
+            chan.LostFocus += delegate { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); };
+            chan.KeyDown += delegate(object o, KeyEventArgs e) { if (e.Key == Key.Enter) { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); } };
+            sp.Children.Add(Row("Канал Twitch", "Имя канала из адреса: twitch.tv/имя.", chan, false));
+            sp.Children.Add(Row("Чат Twitch и вне игр", "Показывать окно чата всегда, а не только в играх на весь экран.", Toggle(Store.Get("twitchAlways") == "1", delegate(bool v) { Store.Set("twitchAlways", v ? "1" : "0"); }), false));
+
+            sp = Sec("Телефон");
+            sp.Children.Add(Header("Камера телефона"));
+            var camRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var camStatus = new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+            var camCol = new StackPanel();
+            camCol.Children.Add(camRow); camCol.Children.Add(camStatus);
+            Action camPaint = null;
+            camPaint = delegate
+            {
+                camRow.Children.Clear();
+                bool inst = PhoneCam.Installed, fresh = inst && PhoneCam.UpToDate;
+                if (!inst || !fresh)
+                    camRow.Children.Add(PillBtn(inst ? "Обновить драйвер" : "Установить камеру", true, delegate
+                    {
+                        bool ok = PhoneCam.Setup(true);
+                        if (ok) PhoneCam.Start(island);
+                        camStatus.Text = ok ? "Готово. В Discord, Zoom или браузере появилась камера «Kapsula Camera» — если программа была открыта, перезапустите её." : "Не установилось: Windows не дала прав администратора.";
+                        camPaint();
+                    }));
+                if (inst)
+                {
+                    var conn = PillBtn("Подключить телефон", fresh, delegate { PhoneCam.Start(island); PhoneCam.ShowQr(); });
+                    conn.Margin = new Thickness(inst && !fresh ? 8 : 0, 0, 0, 0);
+                    camRow.Children.Add(conn);
+                    var rm = PillBtn("Удалить", false, delegate
+                    {
+                        if (MessageBox.Show(this, "Удалить камеру «Kapsula Camera» из Windows? Понадобятся права администратора.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                        bool ok = PhoneCam.Setup(false);
+                        camStatus.Text = ok ? "Камера удалена." : "Не удалось удалить: Windows не дала прав администратора.";
+                        camPaint();
+                    });
+                    rm.Margin = new Thickness(8, 0, 0, 0);
+                    camRow.Children.Add(rm);
+                }
+                if (camStatus.Text.Length == 0)
+                    camStatus.Text = !inst ? "Windows спросит разрешение администратора: драйвер камеры ставится для всего компьютера. Сам драйвер — часть Kapsula, ничего не скачивается."
+                        : !fresh ? "Вышла новая версия драйвера — обновите, чтобы она заработала."
+                        : "Установлена. Камера в программах называется «Kapsula Camera».";
+            };
+            camPaint();
+            sp.Children.Add(Row("Телефон как веб-камера · бета", "Камера телефона становится обычной камерой Windows: её видят Discord, Zoom, Teams, браузеры и OBS. Телефон подключается по QR-коду через домашнюю сеть Wi-Fi.", camCol, true));
+            sp.Children.Add(Row("Качество камеры", "Что камера предлагает программам первым. С вариантами «· 60» программы и сайты получают только режимы на 60 кадров. Discord для камеры сам берёт не больше 30. Для 1080p · 60 и 4K нужны хороший телефон и быстрый Wi-Fi; если картинка дёргается — выберите ниже. Программу с открытой камерой после смены нужно переоткрыть.", Chips(PhoneCam.ModeNames, PhoneCam.Mode, delegate(int i) { PhoneCam.Mode = i; }), true));
+            sp.Children.Add(Header("Телефон"));
+            Action<bool> pSet;
+            var pBtn = ToggleSet(Store.Get("phoneRemote") == "1", delegate(bool v)
+            {
+                Store.Set("phoneRemote", v ? "1" : "0");
+                if (v) Phone.Start(island); else Phone.Stop();
+            }, out pSet);
+            sp.Children.Add(Row("Пульт с телефона · бета", "Телефон в той же сети Wi-Fi открывает страницу по QR-коду: музыка и громкость, курсор пальцем, ввод текста, слайды, программы из деки, файлы с полки, блокировка и сон. Работает только в домашней сети и только по секретной ссылке. Windows может спросить разрешение брандмауэра — разрешите для частных сетей.", pBtn, false));
+            var pRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var qr = PillBtn("Показать QR-код", true, delegate { Phone.ShowQr(island, null); pSet(Store.Get("phoneRemote") == "1"); });
+            pRow.Children.Add(qr);
+            var renew = PillBtn("Новая ссылка", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Покажите новый QR-код телефону.", "Kapsula"); });
+            renew.Margin = new Thickness(8, 0, 0, 0);
+            pRow.Children.Add(renew);
+            sp.Children.Add(Row("Подключить телефон", "Если ссылка попала не туда — сделайте новую, старая перестанет работать.", pRow, false));
+
+            sp = Sec("Дополнительно");
+            sp.Children.Add(Header("Другие ИИ-агенты (MCP)"));
+            var mRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var copy = PillBtn("Скопировать настройку", true, delegate
+            {
+                string tok = ClaudeBridge.Token();
+                if (tok.Length == 0) { MessageBox.Show(this, "Сначала включите «Claude Code на острове» в разделе «Нейросети» — MCP работает через то же подключение.", "Kapsula"); return; }
+                string json = "{\n  \"mcpServers\": {\n    \"kapsula\": {\n      \"type\": \"http\",\n      \"url\": \"" + ClaudeBridge.McpUrl + "\",\n      \"headers\": { \"X-Kapsula-Token\": \"" + tok + "\", \"X-Kapsula-Agent\": \"Мой агент\" }\n    }\n  }\n}";
+                try { Clipboard.SetText(json); } catch { }
+                MessageBox.Show(this, "Настройка скопирована. Вставьте её в файл MCP-серверов вашего агента (Cursor, Codex, Claude Desktop и т. п.) и поменяйте «Мой агент» на его имя.\n\nВ настройке есть секретный ключ — не публикуйте её.", "Kapsula");
+            });
+            mRow.Children.Add(copy);
+            sp.Children.Add(Row("Остров для любых агентов", "Агенты с поддержкой MCP могут показывать на острове уведомления (notify) и задавать вопросы с кнопками (ask). Сервер слушает только этот компьютер: " + ClaudeBridge.McpUrl + " и пускает только с ключом.", mRow, true));
+        }
+        Border PillBtn(string text, bool main, Action click)
+        {
+            var b = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Background = main ? OnBg : ChipBg, Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = text, Foreground = main ? OnTxt : Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; click(); };
+            return b;
+        }
         FrameworkElement BuildGeminiKeyEditor()
         {
             var col = new StackPanel();

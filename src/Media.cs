@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: Media.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: Media.cs
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -92,6 +92,7 @@ namespace Kapsula
         {
             GlobalSystemMediaTransportControlsSessionManager mgr = null;
             string lastKey = null; byte[] cover = null; int coverTries = 0;
+            int keyAt = 0; string staleSig = null, coverSig = null; bool onlineTried = false;
             string sentSig = null;
             while (!stop)
             {
@@ -135,8 +136,33 @@ namespace Kapsula
                             }
                             catch { }
                             string key = info.Title + "|" + info.Artist;
-                            if (key != lastKey) { lastKey = key; cover = null; coverTries = 0; }
-                            if (cover == null && coverTries < 6 && p.Thumbnail != null) { coverTries++; cover = ReadCover(p.Thumbnail); }
+                            int nowT = Environment.TickCount;
+                            if (key != lastKey)
+                            {
+                                // новый трек: обложку прошлого запоминаем, чтобы не принять её за новую
+                                staleSig = cover != null ? CoverSig(cover) : staleSig;
+                                lastKey = key; cover = null; coverSig = null; coverTries = 0; keyAt = nowT; onlineTried = false;
+                            }
+                            int age = unchecked(nowT - keyAt);
+                            // Плееры часто отдают обложку с опозданием или сначала старую: первые 10 секунд перечитываем её
+                            // каждую секунду, потом, пока её нет, — раз в 5 секунд ещё две минуты
+                            bool want = age < 10000 || (cover == null && age < 120000 && coverTries % 5 == 0);
+                            coverTries++;
+                            if (want && p.Thumbnail != null)
+                            {
+                                byte[] c = ReadCover(p.Thumbnail);
+                                string cs = c == null ? null : CoverSig(c);
+                                // та же картинка — оставляем прежний массив, чтобы остров не перерисовывал обложку зря
+                                if (c != null && !(age < 6000 && cs == staleSig) && cs != coverSig) { cover = c; coverSig = cs; }
+                            }
+                            // плеер так и не дал обложку — ищем её по названию и исполнителю
+                            if (cover == null && age > 4000 && !onlineTried && info.Artist.Length > 0)
+                            {
+                                onlineTried = true;
+                                string k2 = key, t2 = info.Title, a2 = info.Artist;
+                                ThreadPool.QueueUserWorkItem(delegate { byte[] oc = OnlineCover(t2, a2); if (oc != null) lock (onlineCovers) onlineCovers[k2] = oc; });
+                            }
+                            if (cover == null) lock (onlineCovers) onlineCovers.TryGetValue(key, out cover);
                             info.Cover = cover;
                         }
                     }
@@ -152,6 +178,39 @@ namespace Kapsula
                 }
                 Thread.Sleep(1000);
             }
+        }
+
+        static readonly Dictionary<string, byte[]> onlineCovers = new Dictionary<string, byte[]>();
+
+        static string CoverSig(byte[] b)
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create()) return Convert.ToBase64String(md5.ComputeHash(b));
+        }
+
+        // Обложка из открытого каталога iTunes (без ключа). Уходят только название и исполнитель трека.
+        static byte[] OnlineCover(string title, string artist)
+        {
+            try
+            {
+                string q = Uri.EscapeDataString(artist + " " + title);
+                using (var wc = new System.Net.WebClient { Encoding = System.Text.Encoding.UTF8 })
+                {
+                    wc.Headers["User-Agent"] = "Kapsula";
+                    string json = wc.DownloadString("https://itunes.apple.com/search?media=music&entity=song&limit=5&term=" + q);
+                    string want = artist.ToLowerInvariant();
+                    foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(json, "\"artistName\":\\s*\"([^\"]*)\".*?\"artworkUrl100\":\\s*\"([^\"]+)\"", System.Text.RegularExpressions.RegexOptions.Singleline))
+                    {
+                        string an = m.Groups[1].Value.ToLowerInvariant();
+                        // только если исполнитель совпадает — чужая обложка хуже никакой
+                        if (an.Length == 0 || !(an.Contains(want) || want.Contains(an))) continue;
+                        string url = m.Groups[2].Value.Replace("100x100bb", "600x600bb");
+                        byte[] img = wc.DownloadData(url);
+                        return img != null && img.Length > 500 ? img : null;
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         static byte[] ReadCover(Windows.Storage.Streams.IRandomAccessStreamReference r)

@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: Program.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: Program.cs
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -25,6 +25,23 @@ namespace Kapsula
         static void Main(string[] args)
         {
             WebFiles.Hook();   // библиотеки встроенного браузера лежат внутри exe
+            // установка и удаление драйвера камеры: этот процесс запущен с правами администратора
+            if (args.Length == 3 && args[0] == "--camsender")
+            {
+                Store.Load();
+                var sa = new Application();
+                sa.Startup += delegate { PhoneRtc.TestSender(int.Parse(args[1]), args[2]); };
+                sa.Run();
+                return;
+            }
+            if (args.Length == 2 && args[0] == "--camprobe")
+            {
+                var pa = new Application();
+                pa.Startup += delegate { PhoneCam.Probe(args[1]); };
+                pa.Run();
+                return;
+            }
+            if (args.Length == 2 && args[0] == "--camsetup") { Environment.Exit(PhoneCam.RunSetup(args[1] == "install")); return; }
             bool created;
             var mutex = new Mutex(true, "Kapsula_single_instance", out created);
             if (!created)
@@ -39,6 +56,8 @@ namespace Kapsula
             int hz = Native.RefreshRate();
             Timeline.DesiredFrameRateProperty.OverrideMetadata(typeof(Timeline), new FrameworkPropertyMetadata(hz));
 
+            // для проверочных снимков: рисовать без видеокарты (KAPSULA_SOFTWARE=1)
+            if (Environment.GetEnvironmentVariable("KAPSULA_SOFTWARE") == "1") System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
             Store.Load();
             var app = new Application();
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -47,6 +66,7 @@ namespace Kapsula
                 e.Handled = true;
                 try { System.IO.File.AppendAllText(System.IO.Path.Combine(Store.Dir, "error.log"), DateTime.Now + " " + e.Exception + "\r\n"); } catch { }
             };
+            for (int k = 0; k + 1 < args.Length; k++) { int sn; if (args[k] == "--season" && int.TryParse(args[k + 1], out sn)) PetView.TestSeason = sn; }   // до создания окна: зверьки одеваются при постройке
             var w = new IslandWindow();
             bool plain = true;   // обычный запуск, без проверочных ключей — только тогда ищем обновления
             bool updated = false; // нас только что перезапустило автообновление
@@ -70,6 +90,7 @@ namespace Kapsula
                 if (args[i] == "--notetest") w.TestNote = true;
                 if (args[i] == "--settings") w.TestSettings = true;
                 if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
+                if (args[i] == "--settingsscroll" && i + 1 < args.Length) double.TryParse(args[i + 1], out w.TestSettingsScroll);
                 if (args[i] == "--settingstab" && i + 1 < args.Length) { w.TestSettings = true; w.TestSettingsTab = args[i + 1]; }
                 if (args[i] == "--bt") w.TestBt = true;
                 if (args[i] == "--chattest") w.TestChat = true;
@@ -95,6 +116,14 @@ namespace Kapsula
                 if (args[i] == "--cmd" && i + 1 < args.Length) { w.TestCmd = args[i + 1]; w.ForceOpen = -3; }
                 if (args[i] == "--gamelite") w.TestGameLite = true;
                 if (args[i] == "--ducktest") Ai.ForceDuck = true;
+                if (args[i] == "--duckask" && i + 1 < args.Length) { Ai.ForceDuck = true; w.TestDuckAsk = args[i + 1]; w.ForceOpen = 4; }
+                if (args[i] == "--camtest") PhoneCam.TestPattern(w);
+                if (args[i] == "--camserve") PhoneCam.Start(w);
+                if (args[i] == "--qrtest") w.Loaded += delegate { w.Dispatcher.BeginInvoke(new Action(delegate { PhoneCam.Start(w); PhoneCam.ShowQr(); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); };
+                if (args[i] == "--timerdone") { w.TestTimerDone = true; w.ForceOpen = -3; }
+                if (args[i] == "--traymenu") { w.TestTray = true; w.ForceOpen = -3; }
+                if (args[i] == "--ducktoggle") { Ai.ForceDuck = true; w.TestDuckToggle = true; w.ForceOpen = 4; }
+                if (args[i] == "--season" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) PetView.TestSeason = n;
                 if (args[i] == "--pill") w.ForceOpen = -3;
                 if (args[i] == "--y" && i + 1 < args.Length && double.TryParse(args[i + 1], out y)) w.Top = y;
                 if (args[i] == "--open" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) w.ForceOpen = n;

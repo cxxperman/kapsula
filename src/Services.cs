@@ -69,11 +69,12 @@ namespace Kapsula
     {
         public string City = "", Error;
         public double Temp, Max, Min, Feels, Wind, WindDir, Humidity, Pressure, Uv, RainProb;
+        public double DewPoint, PressureTrend, UvTomorrow = -1, RainMm;   // точка росы, изменение давления за 3 часа (мм), УФ завтра
         public string Sunrise = "", Sunset = "";
         public bool IsDay = true;
         public int Code;
-        public List<string[]> Hours = new List<string[]>(); // время, значок, температура
-        public List<string[]> Days = new List<string[]>();  // день, значок, макс, мин
+        public List<string[]> Hours = new List<string[]>(); // время, значок, температура, код погоды, день (1/0)
+        public List<string[]> Days = new List<string[]>();  // день, значок, макс, мин, код погоды
     }
 
     static class Weather
@@ -174,7 +175,7 @@ namespace Kapsula
                 }
                 string f = Download("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
                     "&current=temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_direction_10m,relative_humidity_2m,surface_pressure" +
-                    "&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max" +
+                    "&hourly=temperature_2m,weather_code,surface_pressure,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum" +
                     "&wind_speed_unit=ms&timezone=auto&forecast_days=6");
                 var r = (Dictionary<string, object>)js.DeserializeObject(f);
                 var cur = (Dictionary<string, object>)r["current"];
@@ -193,10 +194,24 @@ namespace Kapsula
                 object[] ht = Arr(hourly["time"]), htemp = Arr(hourly["temperature_2m"]), hcode = Arr(hourly["weather_code"]);
                 int start = 0;
                 for (int i = 0; i < ht.Length; i++) if (string.CompareOrdinal(Convert.ToString(ht[i]), hourPrefix) >= 0) { start = i; break; }
-                for (int i = start + 1; i < ht.Length && w.Hours.Count < 8; i += 3)
+                object[] hpres = hourly.ContainsKey("surface_pressure") ? Arr(hourly["surface_pressure"]) : new object[0];
+                object[] hday = hourly.ContainsKey("is_day") ? Arr(hourly["is_day"]) : new object[0];
+                // первая колонка — текущий час, дальше через три часа
+                for (int i = start; i < ht.Length && w.Hours.Count < 8; i += 3)
                 {
                     string t = Convert.ToString(ht[i]);
-                    w.Hours.Add(new string[] { t.Length >= 16 ? t.Substring(11, 5) : t, Symbol(Convert.ToInt32(hcode[i], inv)), T(htemp[i]) });
+                    int hc = Convert.ToInt32(hcode[i], inv);
+                    string isDay = i < hday.Length && hday[i] != null && Convert.ToDouble(hday[i], inv) > 0.5 ? "1" : "0";
+                    w.Hours.Add(new string[] { t.Length >= 16 ? t.Substring(11, 5) : t, Symbol(hc), T(htemp[i]), hc.ToString(), isDay });
+                }
+                // давление растёт или падает: сравниваем с прогнозом через три часа
+                if (start + 3 < hpres.Length && hpres[start] != null && hpres[start + 3] != null)
+                    w.PressureTrend = (Convert.ToDouble(hpres[start + 3], inv) - Convert.ToDouble(hpres[start], inv)) * 0.750062;
+                // точка росы по формуле Магнуса — из температуры и влажности
+                if (w.Humidity > 0)
+                {
+                    double g = Math.Log(w.Humidity / 100.0) + 17.62 * w.Temp / (243.12 + w.Temp);
+                    w.DewPoint = 243.12 * g / (17.62 - g);
                 }
 
                 var daily = (Dictionary<string, object>)r["daily"];
@@ -210,8 +225,12 @@ namespace Kapsula
                         w.Max = Convert.ToDouble(dmax[i], inv); w.Min = Convert.ToDouble(dmin[i], inv);
                         w.Sunrise = Clock(daily, "sunrise"); w.Sunset = Clock(daily, "sunset");
                         w.Uv = First(daily, "uv_index_max"); w.RainProb = First(daily, "precipitation_probability_max");
+                        if (daily.ContainsKey("precipitation_sum")) w.RainMm = First(daily, "precipitation_sum");
                     }
-                    w.Days.Add(new string[] { i == 0 ? "Сегодня" : ru.DateTimeFormat.GetAbbreviatedDayName(d.DayOfWeek), Symbol(Convert.ToInt32(dcode[i], inv)), T(dmax[i]), T(dmin[i]) });
+                    if (i == 1) { object[] uvs = Arr(daily["uv_index_max"]); if (uvs.Length > 1 && uvs[1] != null) w.UvTomorrow = Convert.ToDouble(uvs[1], inv); }
+                    int dc = Convert.ToInt32(dcode[i], inv);
+                    string dn = ru.DateTimeFormat.GetAbbreviatedDayName(d.DayOfWeek);
+                    w.Days.Add(new string[] { i == 0 ? "Сегодня" : char.ToUpper(dn[0]) + dn.Substring(1), Symbol(dc), T(dmax[i]), T(dmin[i]), dc.ToString() });
                 }
             }
             catch (Exception ex) { w.Error = "Нет связи: " + ex.Message; }
@@ -234,6 +253,97 @@ namespace Kapsula
     // ================================================= Преобразования текста
     static class TextTools
     {
+        // «Как в предложении»: первая буква каждого предложения заглавная, остальное строчное
+        public static string Sentence(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.ToLower());
+            bool up = true;
+            for (int i = 0; i < sb.Length; i++)
+            {
+                char c = sb[i];
+                if (up && char.IsLetter(c)) { sb[i] = char.ToUpper(c); up = false; }
+                else if (c == '.' || c == '!' || c == '?' || c == '\n') up = true;
+            }
+            return sb.ToString();
+        }
+
+        // Переносы строк внутри абзацев — в пробелы (пустые строки между абзацами остаются)
+        public static string JoinLines(string s)
+        {
+            string t = s.Replace("\r\n", "\n");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"\n{2,}", "\u0001");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"[ \t]*\n[ \t]*", " ");
+            return t.Replace("\u0001", "\r\n\r\n").Trim();
+        }
+
+        // Двойные пробелы и пробелы по краям строк
+        public static string Spaces(string s)
+        {
+            string t = System.Text.RegularExpressions.Regex.Replace(s, @"[ \t ]{2,}", " ");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"[ \t]+(\r?\n)", "$1");
+            t = System.Text.RegularExpressions.Regex.Replace(t, @"(\r?\n)[ \t]+", "$1");
+            return t.Trim();
+        }
+
+        // JSON с отступами (indent) или в одну строку. Ничего не проверяет — только расставляет пробелы вне строк.
+        public static string Json(string s, bool indent)
+        {
+            var sb = new System.Text.StringBuilder();
+            int depth = 0; bool str = false, esc = false;
+            foreach (char c in s.Trim())
+            {
+                if (str)
+                {
+                    sb.Append(c);
+                    if (esc) esc = false; else if (c == '\\') esc = true; else if (c == '"') str = false;
+                    continue;
+                }
+                if (char.IsWhiteSpace(c)) continue;
+                switch (c)
+                {
+                    case '"': str = true; sb.Append(c); break;
+                    case '{': case '[':
+                        sb.Append(c); depth++;
+                        if (indent) { sb.Append("\r\n"); sb.Append(new string(' ', depth * 2)); }
+                        break;
+                    case '}': case ']':
+                        depth = Math.Max(0, depth - 1);
+                        if (indent) { while (sb.Length > 0 && (sb[sb.Length - 1] == ' ' || sb[sb.Length - 1] == '\n' || sb[sb.Length - 1] == '\r')) sb.Length--; char last = sb.Length > 0 ? sb[sb.Length - 1] : ' '; if (last != '{' && last != '[') { sb.Append("\r\n"); sb.Append(new string(' ', depth * 2)); } }
+                        sb.Append(c);
+                        break;
+                    case ',':
+                        sb.Append(c);
+                        if (indent) { sb.Append("\r\n"); sb.Append(new string(' ', depth * 2)); }
+                        break;
+                    case ':': sb.Append(indent ? ": " : ":"); break;
+                    default: sb.Append(c); break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        // «85 симв. · 75 без пробелов · 11 слов · 3 стр.»
+        public static string Stats(string s)
+        {
+            int chars = s.Length, noSp = 0, words = 0, lines = s.Length == 0 ? 0 : 1;
+            bool inWord = false;
+            foreach (char c in s)
+            {
+                if (!char.IsWhiteSpace(c)) noSp++;
+                if (c == '\n') lines++;
+                bool w = char.IsLetterOrDigit(c);
+                if (w && !inWord) words++;
+                inWord = w;
+            }
+            return chars + " симв. · " + noSp + " без пробелов · " + words + " " + Plural(words, "слово", "слова", "слов") + " · " + lines + " стр.";
+        }
+
+        static string Plural(int n, string one, string few, string many)
+        {
+            int m10 = n % 10, m100 = n % 100;
+            return m10 == 1 && m100 != 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+        }
+
         const string En = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?";
         const string Ru = "ёйцукенгшщзхъфывапролджэячсмитьбю.ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,";
 
@@ -281,7 +391,7 @@ namespace Kapsula
         public static string B64Dec(string s) { return Encoding.UTF8.GetString(Convert.FromBase64String(s.Trim())); }
     }
 
-    class ClipItem { public string Text; public bool Pinned; public BitmapSource Image; public byte[] Png; public uint Hash; }
+    class ClipItem { public string Text; public bool Pinned; public BitmapSource Image; public byte[] Png; public uint Hash; public string Source; public DateTime At; }
 
     class ChatMsg { public string Role, Text, ImageB64; }
 

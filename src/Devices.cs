@@ -186,5 +186,6 @@ namespace Kapsula
         public string NetName = "Сеть";
         public bool? WifiOn, BtOn, VpnOn;
         public List<BtDevice> Bt = new List<BtDevice>();
+        public Dictionary<string, int> BtBattery = new Dictionary<string, int>();   // заряд по имени устройства, если Windows его знает
     }
 }
