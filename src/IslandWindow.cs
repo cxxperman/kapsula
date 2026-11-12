@@ -24,7 +24,7 @@ namespace Kapsula
     {
         // Размеры (в независимых от DPI пикселях)
         const double CH = 34, CR = 15, Ear = 10;
-        const double MW = 440, MH = 138, MR = 28;
+        const double MW = 440, MH = 162, MR = 28;
         const double EW = 584, EH = 370, ER = 34;
         const double CardW = 390, CardH = 80, CmdW = 580;
         const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PDeck = 11;
@@ -543,6 +543,25 @@ namespace Kapsula
 
         // Состояние
         MediaInfo media = new MediaInfo();
+
+        // Пауза без скачков времени. Плееры на паузе часто отдают устаревшее время (откат назад), а угадывать
+        // момент паузы самим — значит иногда убегать вперёд. Поэтому на паузе время остаётся ровно тем, что остров
+        // показывал в этот момент; пока плеер не сообщит заметно другое время (перемотка) — держим его.
+        string holdKey; double holdPos; DateTime holdRawAt; bool holding;
+        void HoldPausePosition(MediaInfo m)
+        {
+            string key = m.Source + "|" + m.Title + "|" + m.Artist;
+            bool sameTrack = media != null && media.Has && m.Has && key == media.Source + "|" + media.Title + "|" + media.Artist;
+            if (!m.Has || m.Playing || !sameTrack) { holding = false; return; }
+            if (media.Playing)
+            {
+                double shown = media.Now();   // где была полоса в момент паузы
+                if (Math.Abs(m.Pos - shown) < 3) { holding = true; holdKey = key; holdPos = shown; holdRawAt = m.PosAt; }
+                else holding = false;          // большая разница — перемотка, верим плееру
+            }
+            else if (holding && (key != holdKey || m.PosAt != holdRawAt && Math.Abs(m.Pos - holdPos) >= 3)) holding = false;
+            if (holding) { m.Pos = holdPos; m.PosAt = DateTime.UtcNow; }
+        }
         MediaWatcher watcher = new MediaWatcher();
         byte[] shownCover;
         ImageBrush coverBrush;
@@ -599,7 +618,7 @@ namespace Kapsula
             slow.Tick += delegate { OnTick(); };
             slow.Start();
 
-            watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; media = m; RenderMedia(); })); };
+            watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; HoldPausePosition(m); media = m; RenderMedia(); })); };
             watcher.Preferred = Store.Get("player");
             watcher.Start();
             DiscordBridge.Notified += delegate(string t, string x, byte[] i) { Dispatcher.BeginInvoke(new Action(delegate { DiscordNotify(t, x, i); })); };
@@ -769,6 +788,29 @@ namespace Kapsula
                     }
                     break;
                 case "next": tri(new[] { new Point(3.2, 6.4), new Point(11.6, 12), new Point(3.2, 17.6) }); tri(new[] { new Point(12.4, 6.4), new Point(20.8, 12), new Point(12.4, 17.6) }); break;
+                case "star":
+                case "starfill":
+                {
+                    // пятиконечная звезда со скруглёнными углами: контурная или залитая
+                    var fig = new PathFigure { IsClosed = true };
+                    for (int i = 0; i < 10; i++)
+                    {
+                        double a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 == 0 ? 9.6 : 4.1;
+                        var pt = new Point(12 + Math.Cos(a) * r, 12.8 + Math.Sin(a) * r);
+                        if (i == 0) fig.StartPoint = pt; else fig.Segments.Add(new LineSegment(pt, true));
+                    }
+                    var sg = new PathGeometry(); sg.Figures.Add(fig);
+                    c.Children.Add(new Path { Data = sg, Fill = kind == "starfill" ? fill : Brushes.Transparent, Stroke = fill, StrokeThickness = 1.9, StrokeLineJoin = PenLineJoin.Round });
+                    break;
+                }
+                case "ban":
+                {
+                    // «не интересует»: перечёркнутый круг
+                    var circle = new Ellipse { Width = 17, Height = 17, Stroke = fill, StrokeThickness = 2 };
+                    Canvas.SetLeft(circle, 3.5); Canvas.SetTop(circle, 3.5); c.Children.Add(circle);
+                    c.Children.Add(new Line { X1 = 6.6, Y1 = 17.4, X2 = 17.4, Y2 = 6.6, Stroke = fill, StrokeThickness = 2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+                    break;
+                }
                 default: tri(new[] { new Point(20.8, 6.4), new Point(12.4, 12), new Point(20.8, 17.6) }); tri(new[] { new Point(11.6, 6.4), new Point(3.2, 12), new Point(11.6, 17.6) }); break;
             }
             return new Viewbox { Width = size, Height = size, Child = c, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -800,6 +842,8 @@ namespace Kapsula
 
         // Большая кнопка «играть/пауза». glyph — скрытая подпись: код по-прежнему пишет в неё знак паузы или игры,
         // а кнопка по нему показывает нужную фигуру
+        int playClickAt; bool playClickWant;
+
         Border RoundPlay(double size, out TextBlock glyph)
         {
             var tb = new TextBlock { Text = ((char)0xE768).ToString(), Visibility = Visibility.Collapsed };
@@ -815,7 +859,14 @@ namespace Kapsula
                 play.Visibility = playing ? Visibility.Collapsed : Visibility.Visible;
             });
             var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = g, Cursor = Cursors.Hand, Margin = new Thickness(12, 0, 12, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
-            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; watcher.Command(0xB3); };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+            {
+                e.Handled = true;
+                // значок меняем сразу, не дожидаясь ответа плеера; следующий опрос поправит, если плеер не послушался
+                tb.Text = tb.Text == ((char)0xE769).ToString() ? ((char)0xE768).ToString() : ((char)0xE769).ToString();
+                playClickWant = tb.Text == ((char)0xE769).ToString(); playClickAt = Environment.TickCount;
+                watcher.Command(0xB3);
+            };
             Fx.Press(b, 0.86);
             HoverFollows(b);
             glyph = tb;
@@ -849,6 +900,8 @@ namespace Kapsula
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(16) });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
 
             var top = new Grid();
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
@@ -881,11 +934,35 @@ namespace Kapsula
             g.Children.Add(pr);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            ctl.Children.Add(MediaBtn("prev", 36, delegate { watcher.Command(0xB1); }));
+            ctl.Children.Add(BanButton(32));
+            ctl.Children.Add(MediaBtn("prev", 36, delegate { trackDir = -1; trackDirAt = Environment.TickCount; watcher.Command(0xB1); }));
             ctl.Children.Add(RoundPlay(34, out nPlayGlyph));
-            ctl.Children.Add(MediaBtn("next", 36, delegate { watcher.Command(0xB0); }));
+            ctl.Children.Add(MediaBtn("next", 36, delegate { trackDir = 1; trackDirAt = Environment.TickCount; watcher.Command(0xB0); }));
+            ctl.Children.Add(FavButton(32));
             Grid.SetRow(ctl, 4);
             g.Children.Add(ctl);
+
+            // Громкость именно этого плеера (микшер Windows); если у плеера нет своего звука — общая
+            var vr = new Grid();
+            vr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+            vr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            vr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+            miniVolIcon = new TextBlock { FontFamily = Icons, FontSize = 12, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Text = ((char)0xE767).ToString() };
+            vr.Children.Add(miniVolIcon);
+            miniVolBar = new Bar(MW - 36 - 72, 4, Fg, 18);
+            miniVolBar.Root.Cursor = Cursors.Hand;
+            miniVolBar.Root.HorizontalAlignment = HorizontalAlignment.Left;
+            miniVolBar.Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; miniVolBar.Root.CaptureMouse(); SetMiniVolume(miniVolBar.ValueAt(e.GetPosition(miniVolBar.Root))); };
+            miniVolBar.Root.MouseMove += delegate(object s, MouseEventArgs e) { if (miniVolBar.Root.IsMouseCaptured) SetMiniVolume(miniVolBar.ValueAt(e.GetPosition(miniVolBar.Root))); };
+            miniVolBar.Root.MouseLeftButtonUp += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; miniVolBar.Root.ReleaseMouseCapture(); };
+            Grid.SetColumn(miniVolBar.Root, 1); vr.Children.Add(miniVolBar.Root);
+            miniVolText = new TextBlock { Foreground = Dim, FontSize = 11, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(miniVolText, 2); vr.Children.Add(miniVolText);
+            // клик по строке мимо ползунка не должен раскрывать панель
+            vr.Background = Brushes.Transparent;
+            vr.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; };
+            Grid.SetRow(vr, 6);
+            g.Children.Add(vr);
             miniHost.Children.Add(g);
         }
 
@@ -904,6 +981,10 @@ namespace Kapsula
             cardThumb = new Border { CornerRadius = new CornerRadius(10), Background = Chip };
             cardGlyph = new TextBlock { FontFamily = Icons, FontSize = 20, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             thumb.Children.Add(cardThumb); thumb.Children.Add(cardGlyph);
+            // Значок программы, приславшей уведомление, — по центру плитки вместо колокольчика
+            cardLogo = new Image { Width = 34, Height = 34, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            RenderOptions.SetBitmapScalingMode(cardLogo, BitmapScalingMode.HighQuality);
+            thumb.Children.Add(cardLogo);
             // Без рамки: у круглых значков (Steam) она выглядела как лишнее кольцо.
             cardBadge = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
             thumb.Children.Add(cardBadge);
@@ -1350,6 +1431,15 @@ namespace Kapsula
         }
 
         // Вызывается сразу после показа карточки: ставит в угол картинки значок источника.
+        Image cardLogo;
+        void SetCardLogo(ImageSource icon)
+        {
+            if (cardLogo == null || state != 3 || icon == null) return;
+            cardLogo.Source = icon;
+            cardLogo.Visibility = Visibility.Visible;
+            cardGlyph.Text = "";
+        }
+
         void SetCardBadge(ImageSource icon)
         {
             if (cardBadge == null || state != 3 || icon == null) return;
@@ -1392,6 +1482,7 @@ namespace Kapsula
                 cardGlyphScale.ScaleX = 1; cardGlyphScale.ScaleY = 1;
             }
             if (cardBadge != null) cardBadge.Visibility = Visibility.Collapsed;
+            if (cardLogo != null) { cardLogo.Visibility = Visibility.Collapsed; cardLogo.Source = null; }
             cardExtra = btnText != null ? 70 : 0;
             cardHost.Width = CardW + cardExtra;
             cardBtn.Visibility = Visibility.Visible;
@@ -1463,6 +1554,14 @@ namespace Kapsula
         }
 
         // Обложка для демо-режима: рисуем сами, чтобы в снимках не было чужих картинок.
+        static byte[] DemoCoverFlipped()
+        {
+            var src = new BitmapImage(); src.BeginInit(); src.StreamSource = new System.IO.MemoryStream(DemoCover()); src.CacheOption = BitmapCacheOption.OnLoad; src.EndInit();
+            var tb = new TransformedBitmap(src, new ScaleTransform(1, -1));
+            var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(tb));
+            var ms = new System.IO.MemoryStream(); enc.Save(ms); return ms.ToArray();
+        }
+
         static byte[] DemoCover()
         {
             using (var bmp = new System.Drawing.Bitmap(300, 300))
@@ -1708,6 +1807,7 @@ namespace Kapsula
             Grid.SetColumn(cmdBox, 1); top.Children.Add(cmdBox);
             // Зверёк справа в строке: ждёт, пока вы печатаете, радуется, когда нашлось, и огорчается, когда нет
             cmdPet = new PetView(1.6, Ink);
+            cmdPet.Context = "cmd";
             cmdPet.Root.HorizontalAlignment = HorizontalAlignment.Right;
             Grid.SetColumn(cmdPet.Root, 1); top.Children.Add(cmdPet.Root);
             g.Children.Add(top);
@@ -2081,21 +2181,72 @@ namespace Kapsula
             }
         }
 
-        double MiniW() { return lyrics != null ? MW + 212 : MW; }
+        double MiniW() { return lyrics != null || lyricsPending ? MW + 212 : MW; }
+        bool lyricsPending;   // трек сменился, текст нового ещё ищем — место под текст держим, чтобы плеер не прыгал
+        int lyricsHoldSeq;
+
+        static bool SameLyrics(List<LyricLine> a, List<LyricLine> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++) if (a[i].Text != b[i].Text || Math.Abs(a[i].T - b[i].T) > 0.05) return false;
+            return true;
+        }
+
+        static void FadeTo(UIElement e, double to, int ms, EventHandler done)
+        {
+            var a = new DoubleAnimation(to, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            if (done != null) a.Completed += done;
+            e.BeginAnimation(UIElement.OpacityProperty, a);
+        }
+
+        // Смена трека: старый текст плавно гаснет, а место под него остаётся до ответа поиска (не дольше 5 с)
+        void HoldLyrics()
+        {
+            if (!LyricsOn()) { SetLyrics(null); return; }
+            if (lyrics == null && !lyricsPending) return;   // текста и так не было — держать нечего
+            bool already = lyricsPending;   // название ещё уточняется (сначала трек, потом исполнитель) — продолжаем ждать
+            lyricsPending = true;
+            int seq = ++lyricsHoldSeq;
+            if (!already)
+            {
+                lyrics = null;
+                if (currentLyric != "") { currentLyric = ""; if (state == 0 && PillMode == 2) RenderCompact(); }
+                EventHandler clear = delegate { if (seq == lyricsHoldSeq && lyricsPending) { miniLyrics.SetLines(null); homeLyrics.SetLines(null); } };
+                FadeTo(miniLyrics.Root, 0, 160, clear);
+                FadeTo(homeLyrics.Root, 0, 160, null);
+            }
+            var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            tm.Tick += delegate { tm.Stop(); if (seq == lyricsHoldSeq && lyricsPending) SetLyrics(null); };
+            tm.Start();
+        }
 
         static bool LyricsOn() { return Store.Get("lyrics") != "off"; }
 
         void SetLyrics(List<LyricLine> list)
         {
+            bool wasPending = lyricsPending;
+            lyricsPending = false; lyricsHoldSeq++;
+            if (list != null && lyrics != null && SameLyrics(list, lyrics)) return;   // тот же текст (уточнилась длительность) — не перестраиваем
             lyrics = list;
             if (list == null && currentLyric != "") { currentLyric = ""; if (state == 0 && PillMode == 2) RenderCompact(); }
             miniLyrics.SetLines(list);
             homeLyrics.SetLines(list);
             miniLyrics.Root.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
             homeLyrics.Root.Visibility = list != null && homeLyricsShown ? Visibility.Visible : Visibility.Collapsed;
-            miniHost.Width = MiniW();
-            if (list != null) UpdateLyrics();
-            if (state == 1) SetTargets();
+            miniLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); homeLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null);
+            miniLyrics.Root.Opacity = homeLyrics.Root.Opacity = list != null ? 0 : 1;
+            double w = MiniW();
+            bool resized = Math.Abs(miniHost.Width - w) > 0.5;
+            miniHost.Width = w;
+            if (list != null)
+            {
+                // Сначала раскладываем строки и ставим ленту на текущую строку, и только потом проявляем —
+                // иначе первый кадр показывал начало песни, а через такт лента прыгала на нужное место
+                try { miniLyrics.Root.UpdateLayout(); homeLyrics.Root.UpdateLayout(); } catch { }
+                UpdateLyrics();
+                FadeTo(miniLyrics.Root, 1, 320, null); FadeTo(homeLyrics.Root, 1, 320, null);
+            }
+            if (state == 1 && (resized || !wasPending)) SetTargets();
         }
 
         void FetchLyrics(string key, string title, string artist, double dur)
@@ -2105,8 +2256,26 @@ namespace Kapsula
             {
                 List<LyricLine> l = Lyrics.Fetch(title, artist, dur);
                 // Применяем только ответ на самый свежий запрос — старый мог искать с неверной длительностью.
-                Dispatcher.BeginInvoke(new Action(delegate { if (req == lyricsReq && key == lyricsKey && media.Has) SetLyrics(l); }));
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (req != lyricsReq || key != lyricsKey || !media.Has) return;
+                    LyricsArrived(l);
+                }));
             });
+        }
+
+        void LyricsArrived(List<LyricLine> l)
+        {
+                    if (l == null && lyrics != null) return;   // повторный поиск не нашёл, а текст уже есть — оставляем
+                    if (l == null && lyricsPending)
+                    {
+                        // Не нашли — возможно, плеер ещё отдаёт длительность прошлого трека и поиск повторится.
+                        // Сужаемся, только если за 2,5 с так ничего и не нашлось.
+                        int s = lyricsHoldSeq;
+                        ClaudeAfter(2500, delegate { if (s == lyricsHoldSeq && lyricsPending) SetLyrics(null); });
+                        return;
+                    }
+                    SetLyrics(l);
         }
 
         void UpdateLyrics()
@@ -2810,11 +2979,11 @@ namespace Kapsula
             playerBody.Children.Add(progressRow);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            var prev = MediaBtn("prev", 38, delegate { watcher.Command(0xB1); });
+            var prev = MediaBtn("prev", 38, delegate { trackDir = -1; trackDirAt = Environment.TickCount; watcher.Command(0xB1); });
             var play = RoundPlay(42, out mPlayGlyph);
-            var next = MediaBtn("next", 38, delegate { watcher.Command(0xB0); });
+            var next = MediaBtn("next", 38, delegate { trackDir = 1; trackDirAt = Environment.TickCount; watcher.Command(0xB0); });
             prev.VerticalAlignment = VerticalAlignment.Center; next.VerticalAlignment = VerticalAlignment.Center;
-            ctl.Children.Add(prev); ctl.Children.Add(play); ctl.Children.Add(next);
+            ctl.Children.Add(BanButton(34)); ctl.Children.Add(prev); ctl.Children.Add(play); ctl.Children.Add(next); ctl.Children.Add(FavButton(34));
             Grid.SetRow(ctl, 2);
             playerBody.Children.Add(ctl);
             cardGrid.Children.Add(playerBody);
@@ -2836,15 +3005,14 @@ namespace Kapsula
 
             // Быстрые действия
             var tiles = homeTilesGrid = new UniformGrid { Rows = 4, Columns = 2, Margin = new Thickness(-3) };
-            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Compact();
-            recTile.Root.ToolTip = "Клик — весь экран, правый клик — выбрать область";
+            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Color.FromRgb(0xFF, 0x45, 0x3A), "Запись", "Запись экрана · правый клик — выбрать область");
             recTile.Root.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Recorder.Active) ToggleRecord(true); };
             Tile[] ts = {
-                new Tile("", "Область", delegate { StartSnip(false); }).Compact(),
-                new Tile("", "Весь экран", delegate { FullShot(); }).Compact(),
-                new Tile("", "Текст с экрана", delegate { StartOcr(); }).Compact(),
-                new Tile("", "QR-код", delegate { ScanQr(); }).Compact(),
-                new Tile("", "Пипетка", delegate { StartSnip(true); }).Compact(),
+                new Tile("", "Область", delegate { StartSnip(false); }).Shortcut(Color.FromRgb(0x0A, 0x84, 0xFF), "Область", "Снимок области экрана"),
+                new Tile("", "Весь экран", delegate { FullShot(); }).Shortcut(Color.FromRgb(0x5E, 0x5C, 0xE6), "Экран", "Снимок всего экрана"),
+                new Tile("", "Текст с экрана", delegate { StartOcr(); }).Shortcut(Color.FromRgb(0x30, 0xB0, 0x5A), "Текст", "Распознать текст с экрана"),
+                new Tile("", "QR-код", delegate { ScanQr(); }).Shortcut(Color.FromRgb(0xFF, 0x9F, 0x0A), "QR-код", "Прочитать QR-код с экрана"),
+                new Tile("", "Пипетка", delegate { StartSnip(true); }).Shortcut(Color.FromRgb(0xE0, 0x4E, 0x9A), "Пипетка", "Взять цвет с экрана"),
                 recTile
             };
             homeTileList = ts;
@@ -3036,7 +3204,7 @@ namespace Kapsula
             clipList.Children.Clear();
             if (clips.Count == 0)
             {
-                clipList.Children.Add(PetSpot("sleep", 58, 12));
+                clipList.Children.Add(PetSpot("sleep", 58, 12, "clips"));
                 clipList.Children.Add(new TextBlock { Text = "Скопируйте что-нибудь — появится здесь", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center });
                 return;
             }
@@ -3178,7 +3346,7 @@ namespace Kapsula
             chatTopRow = top;
             chatModelLabel =new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             top.Children.Add(chatModelLabel);
-            var fresh = Btn("Очистить", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); });
+            var fresh = Btn("Очистить", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); if (Ai.Local) QwenLocal.Forget(); });
             fresh.HorizontalAlignment = HorizontalAlignment.Right;
             top.Children.Add(fresh);
             DockPanel.SetDock(top, Dock.Top);
@@ -3236,10 +3404,13 @@ namespace Kapsula
         }
 
         // Зверёк для пустых мест интерфейса: стоит по центру над подписью, настроение — по ситуации
-        FrameworkElement PetSpot(string mood, double top, double bottom)
+        FrameworkElement PetSpot(string mood, double top, double bottom) { return PetSpot(mood, top, bottom, "spot"); }
+
+        FrameworkElement PetSpot(string mood, double top, double bottom, string context)
         {
             var pet = new PetView(2.6, Ink);
             pet.Mood(mood);
+            pet.Context = context;   // своё поведение и свои случайные сценки в каждом месте
             pet.Root.HorizontalAlignment = HorizontalAlignment.Center;
             pet.Root.Margin = new Thickness(pet.Root.Children.Count > 1 ? 14 : 0, top, 0, bottom);   // сдвиг вправо уравновешивает место под значок
             return pet.Root;
@@ -3527,6 +3698,7 @@ namespace Kapsula
             bool finished = false;
             // Зверёк сидит в сообщении и думает, пока нейросеть не начала отвечать
             var thinker = new PetView(1.5, Ink);
+            thinker.Context = "chat";
             thinker.Mood("think");
             thinker.Root.Margin = new Thickness(0, 0, 4, 0);
             var bubble = answer.Parent as Border;
@@ -3660,7 +3832,7 @@ namespace Kapsula
             var body = new Grid();
             shelfEmpty = new TextBlock { Text = "Перетащите файлы на остров — они лягут на полку", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 40, 0, 0) };
             // над подписью пустой полки — зверёк; виден вместе с ней
-            var shelfPet = PetSpot("idle", 0, 44);
+            var shelfPet = PetSpot("idle", 0, 44, "shelf");
             shelfPet.VerticalAlignment = VerticalAlignment.Center;
             shelfEmpty.IsVisibleChanged += delegate { shelfPet.Visibility = shelfEmpty.Visibility; };
             var zone = new Rectangle { Stroke = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x40)), StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection(new double[] { 5, 4 }), RadiusX = 18, RadiusY = 18, Fill = Brushes.Transparent };
@@ -4004,66 +4176,61 @@ namespace Kapsula
             left.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 12, 12, 8), Child = editor });
             g.Children.Add(left);
 
-            // ---- справа: кольцо таймера и напоминания
-            var right = new DockPanel();
-            var ringRow = new Grid { Height = 92 };
-            var ring = new Grid { Width = 92, Height = 92, HorizontalAlignment = HorizontalAlignment.Left };
+            // ---- справа: таймер одной карточкой — заголовок со зверьком, кольцо, минуты, «Старт», напоминание
+            var right = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 9, 12, 12) };
+            var col = new DockPanel();
+            right.Child = col;
+            var head = new Grid { Height = 20 };
+            head.Children.Add(new TextBlock { Text = "Таймер", Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) });
+            ringPet = new PetView(1.3, Ink);   // бежит, пока идёт таймер; на перерыве пьёт чай
+            ringPet.Context = "timer";
+            ringPet.Root.HorizontalAlignment = HorizontalAlignment.Right;
+            ringPet.Root.VerticalAlignment = VerticalAlignment.Center;
+            head.Children.Add(ringPet.Root);
+            DockPanel.SetDock(head, Dock.Top); col.Children.Add(head);
+
+            var ring = new Grid { Width = 84, Height = 84, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
             ring.Children.Add(new Ellipse { Stroke = Bar.TrackBrush, StrokeThickness = 6, Margin = new Thickness(3) });
             ringArc = new Path { Stroke = accent, StrokeThickness = 6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
             ring.Children.Add(ringArc);
-            ringText = new TextBlock { Foreground = Fg, FontSize = 17, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            ringText = new TextBlock { Foreground = Fg, FontSize = 18, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             ring.Children.Add(ringText);
-            ringRow.Children.Add(ring);
-            ringPet = new PetView(1.4, Ink);   // бежит, пока идёт таймер; на перерыве пьёт чай — живёт внутри кольца, под временем
-            ringPet.Root.HorizontalAlignment = HorizontalAlignment.Center;
-            ringPet.Root.VerticalAlignment = VerticalAlignment.Bottom;
-            ringPet.Root.Margin = new Thickness(0, 0, 0, 17);
-            ringText.Margin = new Thickness(0, 0, 0, 12);
-            ring.Children.Add(ringPet.Root);
-            var start = Btn("Старт", false, 88, 34, delegate
+            DockPanel.SetDock(ring, Dock.Top); col.Children.Add(ring);
+
+            var presets = new UniformGrid { Rows = 1, Columns = 5, Margin = new Thickness(-2, 9, -2, 0), Height = 24, ToolTip = "Сколько минут" };
+            int[] mins = { 1, 5, 10, 15, 25 };
+            presetChips = new Border[mins.Length];
+            for (int i = 0; i < mins.Length; i++)
+            {
+                int m = mins[i];
+                var pc = Btn(m.ToString(), false, double.NaN, 24, delegate { timerPreset = m; UpdateRing(); });
+                pc.Padding = new Thickness(0); pc.Margin = new Thickness(2, 0, 2, 0); pc.Tag = m;
+                presetChips[i] = pc;
+                presets.Children.Add(pc);
+            }
+            DockPanel.SetDock(presets, Dock.Top); col.Children.Add(presets);
+
+            var start = Btn("Старт", false, double.NaN, 30, delegate
             {
                 if (timerEnd > DateTime.Now) { timerEnd = DateTime.MinValue; timerRinging = false; }
                 else { timerRinging = false; timerTotal = TimeSpan.FromMinutes(timerPreset); timerEnd = DateTime.Now + timerTotal; }
                 RenderCompact(); UpdateRing(); SetTargets();
             });
             startLabel = (TextBlock)start.Child;
-            start.HorizontalAlignment = HorizontalAlignment.Right;
-            start.VerticalAlignment = VerticalAlignment.Center;
-            ringRow.Children.Add(start);
-            DockPanel.SetDock(ringRow, Dock.Top);
-            right.Children.Add(ringRow);
+            start.HorizontalAlignment = HorizontalAlignment.Stretch;
+            start.Margin = new Thickness(0, 8, 0, 0);
+            DockPanel.SetDock(start, Dock.Top); col.Children.Add(start);
 
-            // подпись над числами: без неё непонятно, что это минуты таймера
-            var presetsCaption = new TextBlock { Text = "Таймер, минут", Foreground = Faint, FontSize = 11, Margin = new Thickness(2, 8, 0, 0) };
-            DockPanel.SetDock(presetsCaption, Dock.Top);
-            right.Children.Add(presetsCaption);
-            var presets = new UniformGrid { Rows = 1, Columns = 5, Margin = new Thickness(-2, 4, -2, 0), Height = 26 };
-            int[] mins = { 1, 5, 10, 15, 25 };
-            presetChips = new Border[mins.Length];
-            for (int i = 0; i < mins.Length; i++)
-            {
-                int m = mins[i];
-                var pc = Btn(m.ToString(), false, double.NaN, 26, delegate { timerPreset = m; UpdateRing(); });
-                pc.Padding = new Thickness(0); pc.Margin = new Thickness(2, 0, 2, 0); pc.Tag = m;
-                presetChips[i] = pc;
-                presets.Children.Add(pc);
-            }
-            DockPanel.SetDock(presets, Dock.Top);
-            right.Children.Add(presets);
-
-            var remGrid = new Grid();
-            var remHint = new TextBlock { Text = "Напомнить: через 10 мин чай", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
+            var remGrid = new Grid();            var remHint = new TextBlock { Text = "Напомнить: «10 мин чай»", ToolTip = "Например: «через 10 мин чай», «в 18:30 позвонить»", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
             remBox = MakeTextBox(false);
             remBox.FontSize = 12;
             remBox.TextChanged += delegate { remHint.Visibility = remBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
             remBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { AddReminderPhrase(remBox.Text); e.Handled = true; } };
-            remGrid.Children.Add(remHint); remGrid.Children.Add(remBox);
-            var remCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(12, 0, 12, 0), Height = 30, Margin = new Thickness(0, 10, 0, 6), Child = remGrid, ToolTip = "Примеры: «через 10 мин чай», «в 18:30 созвон», «завтра в 9 позвонить», «каждый день в 23:00 таблетки»" };
-            DockPanel.SetDock(remCard, Dock.Top);
-            right.Children.Add(remCard);
+            remGrid.Children.Add(remHint); remGrid.Children.Add(remBox);            var remCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(12, 0, 12, 0), Height = 30, Margin = new Thickness(0, 8, 0, 0), Child = remGrid, ToolTip = "Примеры: «через 10 мин чай», «в 18:30 созвон», «завтра в 9 позвонить», «каждый день в 23:00 таблетки»" };
+            remCard.Background = Ink;   // поле внутри карточки — чуть темнее неё
+            DockPanel.SetDock(remCard, Dock.Top); col.Children.Add(remCard);
             remList = new StackPanel();
-            right.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList });
-            Grid.SetColumn(right, 2);
+            col.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList, Margin = new Thickness(0, 4, 0, 0) });            Grid.SetColumn(right, 2);
             g.Children.Add(right);
             return g;
         }
@@ -4445,6 +4612,7 @@ namespace Kapsula
             skyTop.Children.Add(wTemp); skyTop.Children.Add(wDesc); skyTop.Children.Add(wFeels); skyTop.Children.Add(wHiLo);
             sky.Children.Add(skyTop);
             wPet = new PetView(2.2, new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1E)));
+            wPet.Context = "weather";
             wPet.Root.HorizontalAlignment = HorizontalAlignment.Right; wPet.Root.VerticalAlignment = VerticalAlignment.Top;
             wPet.Root.Margin = new Thickness(0, 0, -2, 0);
             sky.Children.Add(wPet.Root);
@@ -5313,6 +5481,7 @@ namespace Kapsula
             Hots.Add(new Hot { Id = 10, Key = "chat", Name = "Чат с Claude", DefMods = CA, DefVk = 0x41, Run = OpenChat });
             Hots.Add(new Hot { Id = 9, Key = "dictate", Name = "Диктовка", DefMods = CA, DefVk = 0x44, Run = Dictate });
             Hots.Add(new Hot { Id = 6, Key = "theme", Name = "Светлая / тёмная тема", DefMods = CA, DefVk = 0x54, Run = ToggleLightDark });
+            Hots.Add(new Hot { Id = 12, Key = "game", Name = "Игровой режим", DefMods = CA, DefVk = 0x47, Run = ToggleGamerMode });
             foreach (Hot h in Hots)
             {
                 h.Mods = h.DefMods; h.Vk = h.DefVk;
@@ -5454,8 +5623,11 @@ namespace Kapsula
                             foreach (var n in list)
                             {
                                 if (!seen.Add(n.Id) || first) continue; // то, что уже висело при запуске, не показываем
-                                string app = "", title = "", body = "";
+                                string app = "", title = "", body = "", aumid = "";
                                 try { app = n.AppInfo.DisplayInfo.DisplayName; } catch { }
+                                try { aumid = n.AppInfo.AppUserModelId; } catch { }
+                                // «Только на острове»: уведомление Windows убираем сразу — остров покажет его сам
+                                if (Banners.On && !Banners.Skip(aumid)) try { listener.RemoveNotification(n.Id); } catch { }
                                 try
                                 {
                                     var b = n.Notification.Visual.GetBinding(Windows.UI.Notifications.KnownNotificationBindings.ToastGeneric);
@@ -5492,17 +5664,19 @@ namespace Kapsula
                                     }
                                 }
                                 catch { logo = null; }
+                                string aum = aumid;
                                 Dispatcher.BeginInvoke(new Action(delegate
                                 {
+                                    ImageSource logoImg = ImageFrom(logo) ?? Shell.IconForApp(aum);   // у обычных программ Windows значок не отдаёт — берём из ярлыка в «Пуске»
                                     if (Quiet(a.Length > 0 ? a : "Windows", a.Length > 0 ? a : "Уведомление", text)) return;
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", Store.Get("hideNotifText") == "1" ? "Новое уведомление" : text, delegate { }, null, null, false);
-                                    SetCardBadge(ImageFrom(logo));
+                                    SetCardLogo(logoImg);   // нет значка — остаётся колокольчик
                                     HideCardButton();
                                     cardUntil = Environment.TickCount + 5500;
                                 }));
                             }
                         first = false;
-                        for (int i = 0; i < 12 && !notifStop; i++) Thread.Sleep(100);
+                        Thread.Sleep(Banners.PollMs);
                     }
                 }
                 catch (Exception ex) { Store.LogError("уведомления Windows", ex); }
@@ -5735,6 +5909,11 @@ namespace Kapsula
         // Claude закончил: показываем начало ответа и кнопку «Ответить» — написать ему можно прямо отсюда.
         void ClaudeDone(ClaudeBridge.Finished f)
         {
+            // Короткие ответы (меньше 30 секунд и не больше двух шагов) не стоят карточки — зверёк просто доволен
+            ClaudeBridge.Session fs0 = ClaudeBridge.Sessions().Find(delegate(ClaudeBridge.Session x) { return x.Id == f.SessionId; });
+            if (fs0 != null && fs0.StartedAt != 0 && unchecked(Environment.TickCount - fs0.StartedAt) < 30000 && fs0.Steps <= 2 && TestClaude == null)
+            { f.Pass(); Happy(1500); return; }
+            claudeDoneShownAt = Environment.TickCount;
             ClaudeEnqueue(f, delegate
             {
                 Action reply = delegate
@@ -5766,7 +5945,7 @@ namespace Kapsula
         void ClaudeWorking(string tool, string detail, string project)
         {
             AgentLine(tool, detail, project);
-            if (Store.Get("claudeActivity") == "0" || QuietNow || !ClaudeAway() || state != 0 || claudeQueue.Count > 0) return;
+            if (Store.Get("claudeActivity") != "1" || QuietNow || !ClaudeAway() || state != 0 || claudeQueue.Count > 0) return;   // по умолчанию выключено: это шум
             int now = Environment.TickCount;
             if (claudeToastAt != 0 && unchecked(now - claudeToastAt) < 6000) return;
             claudeToastAt = now | 1;
@@ -5775,9 +5954,13 @@ namespace Kapsula
             Toast(ClaudeGlyph, (many && project.Length > 0 ? project : "Claude") + " · " + tool + (detail.Length > 0 ? ": " + detail : ""), null, -1, accent);
         }
 
+        int claudeDoneShownAt;
+
         void ClaudeWaiting(string project)
         {
+            // «ждёт ответа» — только если про это же не было карточки «закончил» за последние 5 минут
             if (!ClaudeAway() || state != 0) return;
+            if (claudeDoneShownAt != 0 && unchecked(Environment.TickCount - claudeDoneShownAt) < 5 * 60000) return;
             bool many = ClaudeBridge.Sessions().Count > 1;
             Toast(ClaudeGlyph, (many && project.Length > 0 ? "Claude · " + project : "Claude Code") + " ждёт ответа", null, -1, accent);
         }
@@ -5794,49 +5977,150 @@ namespace Kapsula
         TextBlock claudeUsage;
         Border claudeStopAll;
 
+        // ---- вкладка «Claude Code»: понятная статистика, живые сессии и новая задача в один шаг
+        TextBlock claudeStepsVal, claudeOutVal, claudeWeekVal;
+        StackPanel claudeWeekBars;
+        Border claudeStatsRow;
+        TextBlock claudeProjLabel, claudeTaskHint;
+        TextBox claudeTaskBox;
+        string claudeTaskDir;
+
+        Border StatTile(string caption, out TextBlock value, FrameworkElement extra)
+        {
+            var g = new Grid { Margin = new Thickness(12, 8, 12, 8) };
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock { Text = caption, Foreground = Faint, FontSize = 10.5, FontWeight = FontWeights.SemiBold });
+            value = new TextBlock { Foreground = Fg, FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            sp.Children.Add(value);
+            g.Children.Add(sp);
+            if (extra != null) g.Children.Add(extra);
+            return new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Child = g };
+        }
+
         FrameworkElement BuildClaudePage()
         {
             var dock = new DockPanel();
-            var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 8) };
-            claudeUsage = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 138, 0), TextTrimming = TextTrimming.CharacterEllipsis };   // справа место под кнопку
-            top.Children.Add(claudeUsage);
-            var stopAll = claudeStopAll = Btn("Остановить все", false, 0, 28, delegate { ClaudeStop(null, null); });
-            stopAll.HorizontalAlignment = HorizontalAlignment.Right;
-            stopAll.Visibility = Visibility.Collapsed;   // кнопка есть, только когда есть что останавливать
-            top.Children.Add(stopAll);
-            DockPanel.SetDock(top, Dock.Top);
-            dock.Children.Add(top);
+            // ---- статистика
+            var stats = new Grid { Height = 58, Margin = new Thickness(0, 0, 0, 8) };
+            for (int i = 0; i < 5; i++) stats.ColumnDefinitions.Add(new ColumnDefinition { Width = i % 2 == 1 ? new GridLength(8) : new GridLength(i == 4 ? 1.3 : 1, GridUnitType.Star) });
+            var t1 = StatTile("ШАГОВ СЕГОДНЯ", out claudeStepsVal, null);
+            var t2 = StatTile("НАПИСАЛ СЕГОДНЯ", out claudeOutVal, null);
+            claudeWeekBars = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Height = 30 };
+            var t3 = StatTile("ЗА 7 ДНЕЙ", out claudeWeekVal, claudeWeekBars);
+            Grid.SetColumn(t2, 2); Grid.SetColumn(t3, 4);
+            stats.Children.Add(t1); stats.Children.Add(t2); stats.Children.Add(t3);
+            claudeStatsRow = new Border { Child = stats };
+            DockPanel.SetDock(claudeStatsRow, Dock.Top); dock.Children.Add(claudeStatsRow);
+
+            // ---- новая задача внизу: проект и что сделать
+            var task = new Grid { Height = 36, Margin = new Thickness(0, 8, 0, 0) };
+            task.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            task.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            task.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            claudeProjLabel = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis };
+            var projRow = new StackPanel { Orientation = Orientation.Horizontal };
+            projRow.Children.Add(new TextBlock { Text = ((char)0xE8B7).ToString(), FontFamily = Icons, FontSize = 12, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            projRow.Children.Add(claudeProjLabel);
+            projRow.Children.Add(new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) });
+            var proj = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 0), Child = projRow, Cursor = Cursors.Hand, ToolTip = "В какой папке работать" };
+            proj.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ClaudeProjectMenu(proj); };
+            task.Children.Add(proj);
+            var field = new Grid();
+            claudeTaskHint = new TextBlock { Text = "Попросить Claude Code… (Enter — запустить в терминале)", Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis };
+            claudeTaskBox = MakeTextBox(false);
+            claudeTaskBox.TextChanged += delegate { claudeTaskHint.Visibility = claudeTaskBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
+            claudeTaskBox.KeyDown += delegate(object o, KeyEventArgs e)
+            {
+                if (e.Key != Key.Enter || claudeTaskBox.Text.Trim().Length == 0) return;
+                e.Handled = true;
+                RunClaude(claudeTaskBox.Text.Trim(), ClaudeTaskDir());
+                claudeTaskBox.Text = "";
+            };
+            field.Children.Add(claudeTaskHint); field.Children.Add(claudeTaskBox);
+            var fieldCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 0, 14, 0), Child = field };
+            Grid.SetColumn(fieldCard, 2); task.Children.Add(fieldCard);
+            DockPanel.SetDock(task, Dock.Bottom); dock.Children.Add(task);
+
+            // ---- сессии
             claudeList = new StackPanel();
             dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList });
+            claudeUsage = new TextBlock();   // подсказка с подробностями висит на плитках
+            claudeStopAll = Btn("Остановить все", false, 0, 26, delegate { ClaudeStop(null, null); });
             ClaudeUsage.Updated += delegate { Dispatcher.BeginInvoke(new Action(delegate { if (expanded && page == PClaude) RenderClaudeUsage(); })); };
             return dock;
         }
 
-        void RenderClaudeUsage()
+        // Недавние папки, где работал Claude Code
+        List<string> ClaudeProjects()
         {
-            if (!ClaudeUsage.Ready) { claudeUsage.Text = "Считаю расход за сегодня…"; return; }
-            if (ClaudeUsage.Replies == 0) { claudeUsage.Text = "Сегодня Claude Code ещё не отвечал"; return; }
-            // коротко и по делу; подробности (ввод, кэш, по дням и проектам) — в подсказке при наведении
-            claudeUsage.Text = "Сегодня: " + ClaudeUsage.Replies + " ответов · " + ClaudeUsage.Short(ClaudeUsage.Out) + " токенов";
-            var tip = new StringBuilder();
-            try
-            {
-                Dictionary<DateTime, long> byDay;
-                lock (ClaudeUsage.Days) byDay = new Dictionary<DateTime, long>(ClaudeUsage.Days);
-                var days = new List<DateTime>(byDay.Keys);
-                days.Sort();
-                tip.Append("\n\nНаписано по дням:");
-                foreach (DateTime d in days) tip.Append("\n" + d.ToString("ddd d MMM") + " — " + ClaudeUsage.Short(byDay[d]));
-                var projects = new List<KeyValuePair<string, long>>(ClaudeUsage.Projects);
-                projects.Sort(delegate(KeyValuePair<string, long> a, KeyValuePair<string, long> b) { return b.Value.CompareTo(a.Value); });
-                if (projects.Count > 0) tip.Append("\n\nСегодня по проектам:");
-                for (int i = 0; i < projects.Count && i < 6; i++) tip.Append("\n" + (projects[i].Key.Length > 34 ? projects[i].Key.Substring(0, 33) + "…" : projects[i].Key) + " — " + ClaudeUsage.Short(projects[i].Value));
-                claudeUsage.Text += " · неделя: " + ClaudeUsage.Short(ClaudeUsage.Week);
-            }
-            catch { }
-            claudeUsage.ToolTip = tip.Insert(0, ClaudeUsageTip()).ToString();
+            var l = new List<string>();
+            foreach (string p in Store.Get("claudeProjects").Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries)) if (System.IO.Directory.Exists(p) && !l.Contains(p)) l.Add(p);
+            return l;
         }
 
+        void RememberClaudeProject(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !System.IO.Directory.Exists(dir)) return;
+            var l = ClaudeProjects();
+            l.Remove(dir); l.Insert(0, dir);
+            if (l.Count > 8) l.RemoveRange(8, l.Count - 8);
+            Store.Set("claudeProjects", string.Join("|", l.ToArray()));
+        }
+
+        string ClaudeTaskDir()
+        {
+            if (claudeTaskDir != null && System.IO.Directory.Exists(claudeTaskDir)) return claudeTaskDir;
+            var l = ClaudeProjects();
+            if (l.Count > 0) return l[0];
+            return ClaudeBridge.LastProject;
+        }
+
+        void ClaudeProjectMenu(FrameworkElement anchor)
+        {
+            var menu = new WF.ContextMenuStrip();
+            string cur = ClaudeTaskDir();
+            foreach (string d in ClaudeProjects())
+            {
+                string dir = d;
+                var it = new WF.ToolStripMenuItem(ProjectName(dir)) { Checked = string.Equals(dir, cur, StringComparison.OrdinalIgnoreCase), ToolTipText = dir };
+                it.Click += delegate { claudeTaskDir = dir; RenderClaudePage(); };
+                menu.Items.Add(it);
+            }
+            if (menu.Items.Count > 0) menu.Items.Add(new WF.ToolStripSeparator());
+            menu.Items.Add("Выбрать папку…", null, delegate
+            {
+                using (var fb = new WF.FolderBrowserDialog { Description = "В какой папке работать Claude Code" })
+                    if (fb.ShowDialog() == WF.DialogResult.OK) { claudeTaskDir = fb.SelectedPath; RememberClaudeProject(fb.SelectedPath); RenderClaudePage(); }
+            });
+            DarkMenuRenderer.Apply(menu, 260, true);
+            Point at = anchor.PointToScreen(new Point(0, -menu.PreferredSize.Height - 6));
+            menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
+        }
+
+        void RenderClaudeUsage()
+        {
+            if (claudeStepsVal == null) return;
+            string tip = ClaudeUsageTip();
+            claudeStatsRow.ToolTip = tip;
+            if (!ClaudeUsage.Ready) { claudeStepsVal.Text = "…"; claudeOutVal.Text = "…"; claudeWeekVal.Text = "…"; return; }
+            claudeStepsVal.Text = ClaudeUsage.Replies.ToString("N0");
+            claudeOutVal.Text = ClaudeUsage.Short(ClaudeUsage.Out) + " ток.";
+            claudeWeekVal.Text = ClaudeUsage.Short(ClaudeUsage.Week);
+            // мини-график по дням: сегодня — ярче
+            claudeWeekBars.Children.Clear();
+            Dictionary<DateTime, long> byDay;
+            lock (ClaudeUsage.Days) byDay = new Dictionary<DateTime, long>(ClaudeUsage.Days);
+            long max = 1;
+            for (int i = 6; i >= 0; i--) { long v; if (byDay.TryGetValue(DateTime.Today.AddDays(-i), out v)) max = Math.Max(max, v); }
+            for (int i = 6; i >= 0; i--)
+            {
+                DateTime d = DateTime.Today.AddDays(-i);
+                long v; byDay.TryGetValue(d, out v);
+                double h = Math.Max(2, 26.0 * v / max);
+                claudeWeekBars.Children.Add(new Border { Width = 5, Height = h, CornerRadius = new CornerRadius(2), Margin = new Thickness(1.5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom,
+                    Background = i == 0 ? (Brush)accent : Faint, ToolTip = d.ToString("ddd d MMM") + " — " + ClaudeUsage.Short(v) + " токенов" });
+            }
+        }
         static string ClaudeUsageTip()
         {
             return "Токены за сегодня по журналам Claude Code на этом компьютере.\nНаписал (выход): " + ClaudeUsage.Out.ToString("N0") + "\nНовый ввод: " + ClaudeUsage.In.ToString("N0") + "\nЗаписано в кэш: " + ClaudeUsage.CacheWrite.ToString("N0") + "\nПрочитано из кэша: " + ClaudeUsage.CacheRead.ToString("N0");
@@ -5846,16 +6130,41 @@ namespace Kapsula
         {
             if (claudeList == null) return;
             RenderClaudeUsage();
-            bool busy = ClaudeBridge.Busy;
-            claudeStopAll.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-            claudeUsage.Margin = new Thickness(4, 0, busy ? 138 : 0, 0);
-            claudeList.Children.Clear();
             List<ClaudeBridge.Session> list = ClaudeBridge.Sessions();
+            foreach (ClaudeBridge.Session s0 in list) if (!string.IsNullOrEmpty(s0.Cwd)) RememberClaudeProject(s0.Cwd);
+            if (ClaudeProjects().Count == 0 && !string.IsNullOrEmpty(ClaudeBridge.LastProject)) RememberClaudeProject(ClaudeBridge.LastProject);
+            string dir = ClaudeTaskDir();
+            claudeProjLabel.Text = string.IsNullOrEmpty(dir) ? "Папка…" : ProjectName(dir);
+            claudeList.Children.Clear();
+
+            if (!ClaudeBridge.Enabled)
+            {
+                // не подключён — объясняем и даём подключить, а не показываем пустоту
+                var box = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) };
+                box.Children.Add(new TextBlock { Text = "Claude Code не подключён к острову", Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+                box.Children.Add(new TextBlock { Text = "Тогда здесь будут его сессии, а запросы разрешений и вопросы — карточками на острове.", Foreground = Dim, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 10), TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 420 });
+                var b = Btn("Подключить в настройках", false, 0, 30, delegate { OpenSettings(); });
+                b.HorizontalAlignment = HorizontalAlignment.Center;
+                box.Children.Add(b);
+                claudeList.Children.Add(box);
+                return;
+            }
+
+            // заголовок списка: сколько работает и «Остановить все»
+            int busyN = 0;
+            foreach (ClaudeBridge.Session s1 in list) if (s1.State == "работает" && unchecked(Environment.TickCount - s1.At) < 60000) busyN++;
+            var head = new Grid { Height = 24, Margin = new Thickness(2, 0, 0, 4) };
+            head.Children.Add(new TextBlock { Text = list.Count == 0 ? "СЕССИИ" : "СЕССИИ · " + list.Count + (busyN > 0 ? " · работает " + busyN : ""), Foreground = Faint, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            if (busyN > 0) { claudeStopAll.HorizontalAlignment = HorizontalAlignment.Right; if (claudeStopAll.Parent != null) ((Panel)claudeStopAll.Parent).Children.Remove(claudeStopAll); head.Children.Add(claudeStopAll); }
+            claudeList.Children.Add(head);
+
             if (list.Count == 0)
             {
-                claudeList.Children.Add(PetSpot("sleep", 48, 12));
-                claudeList.Children.Add(new TextBlock { Text = "Claude Code пока не давал о себе знать", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center });
-                claudeList.Children.Add(new TextBlock { Text = "Сессии появятся здесь, как только начнут работать. Уже открытые нужно перезапустить.", Foreground = Faint, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
+                var empty = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) };
+                var pet = new PetView(1.8, Ink); pet.Mood("sleep"); pet.Context = "claude";
+                empty.Children.Add(pet.Root);
+                empty.Children.Add(new TextBlock { Text = "Сейчас ничего не запущено — дайте задачу строкой ниже", Foreground = Dim, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
+                claudeList.Children.Add(empty);
                 return;
             }
             foreach (ClaudeBridge.Session s in list)
@@ -5863,36 +6172,41 @@ namespace Kapsula
                 ClaudeBridge.Session ses = s;
                 bool working = ses.State == "работает" && unchecked(Environment.TickCount - ses.At) < 60000;
                 bool needs = ses.State == "ждёт разрешения" || ses.State == "спрашивает" || ses.State == "ждёт ответа";
-                string sub = ses.Detail.Length > 0 ? ses.Detail : (ses.State == "закончил" && ses.Last.Length > 0 ? ses.Last : Ago(ses.At));
+                string state = needs ? "ждёт вас" : working ? "работает" : ses.State == "закончил" ? "закончил" : ses.State == "остановлен" ? "остановлен" : "без дела";
+                string sub = working && ses.Detail.Length > 0 ? ses.Detail : ses.Last.Length > 0 ? ses.Last : ses.Detail.Length > 0 ? ses.Detail : Ago(ses.At);
                 var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = needs ? ClaudeOrange : working ? (Brush)accent : Faint, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = needs ? ClaudeOrange : working ? (Brush)accent : ses.State == "закончил" ? ClaudeGreen : Faint, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(2, 6, 0, 0) });
                 var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                var head = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-                head.Inlines.Add(new System.Windows.Documents.Run(ses.Name) { Foreground = Fg });
-                head.Inlines.Add(new System.Windows.Documents.Run("  " + (needs ? "ждёт вас" : working ? "работает" + (ses.Steps > 0 ? " · " + Plural(ses.Steps, "шаг", "шага", "шагов") : "") : ses.State)) { Foreground = needs ? ClaudeOrange : working ? (Brush)accent : Dim, FontWeight = FontWeights.Normal, FontSize = 11.5 });
-                texts.Children.Add(head);
+                var headL = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+                headL.Inlines.Add(new System.Windows.Documents.Run(ses.Name) { Foreground = Fg });
+                string extra = (ses.Steps > 0 ? " · " + Plural(ses.Steps, "шаг", "шага", "шагов") : "") + (working && ses.StartedAt != 0 ? " · " + Math.Max(1, unchecked(Environment.TickCount - ses.StartedAt) / 60000) + " мин" : "");
+                headL.Inlines.Add(new System.Windows.Documents.Run("  " + state + extra) { Foreground = needs ? ClaudeOrange : working ? (Brush)accent : Dim, FontWeight = FontWeights.Normal, FontSize = 11.5 });
+                texts.Children.Add(headL);
                 texts.Children.Add(new TextBlock { Text = sub, Foreground = Dim, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
                 FrameworkElement ctxBar = ContextBar(ses);
                 if (ctxBar != null) texts.Children.Add(ctxBar);
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
+                var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
                 if (working)
-                {
-                    var stop = Btn("Стоп", false, 0, 28, delegate { ClaudeStop(ses.Id, ses.Name); RenderClaudePage(); });
-                    stop.Margin = new Thickness(10, 0, 0, 0); stop.VerticalAlignment = VerticalAlignment.Center;
-                    Grid.SetColumn(stop, 2); row.Children.Add(stop);
-                }
+                    right.Children.Add(Btn("Стоп", false, 0, 28, delegate { ClaudeStop(ses.Id, ses.Name); RenderClaudePage(); }));
                 else
                 {
-                    var ago = new TextBlock { Text = Ago(ses.At), Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
-                    Grid.SetColumn(ago, 2); row.Children.Add(ago);
+                    right.Children.Add(new TextBlock { Text = Ago(ses.At), Foreground = Faint, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+                    if (!string.IsNullOrEmpty(ses.Cwd))
+                    {
+                        // продолжить в той же папке: подставляем её в строку новой задачи
+                        var cont = IconBtn(((char)0xE70F).ToString(), 28, delegate { claudeTaskDir = ses.Cwd; RenderClaudePage(); claudeTaskBox.Focus(); });
+                        cont.ToolTip = "Новая задача в этой папке";
+                        right.Children.Add(cont);
+                    }
                 }
-                claudeList.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 9, 14, 10), Margin = new Thickness(0, 0, 0, 6), Child = row });
+                Grid.SetColumn(right, 2); row.Children.Add(right);
+                claudeList.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 9, 10, 9), Margin = new Thickness(0, 0, 0, 6), Child = row });
             }
         }
-
         static readonly Brush ClaudeGreen = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
         static readonly Brush ClaudeOrange =new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A));
 
@@ -6203,7 +6517,8 @@ namespace Kapsula
                 int hour = DateTime.Now.Hour;
                 bool night = hour < 5 || act == "night";
                 if (night && unchecked(petBlinkUntil - now) > 100 && unchecked(petBlinkUntil - now) <= 140) petBlinkUntil = now + 900;   // ночью клюёт носом: глаза закрываются надолго
-                if (unchecked(now - petBlinkUntil) < 0) { PetFace(4, night ? "z" : wm, night ? Faint : Dim); if (night) petShift.Y = 1; return; }
+                bool emoting = TestEmote != null || petEmote != "" && unchecked(now - petEmoteUntil) < 0;   // во время эмоции не моргает
+                if (unchecked(now - petBlinkUntil) < 0 && !emoting) { PetFace(4, night ? "z" : wm, night ? Faint : Dim); if (night) petShift.Y = 1; return; }
                 // сделано три круга помодоро и больше — время от времени довольно подпрыгивает
                 if (chr && DoneToday() >= 3)
                 {
@@ -6211,27 +6526,118 @@ namespace Kapsula
                     int ca = unchecked(now - petCheerAt);
                     if (ca < 900) { PetFace(3, wm, Dim); petShift.Y = Math.Round(Math.Abs(Math.Sin(ca / 900.0 * Math.PI * 2)) * -2 * 2) / 2; return; }
                 }
-                PetFace(0, wm, Dim);
                 Native.POINT pt;
                 int sx = 0, sy = 0;
+                double dist = 9999, speed = 0;
                 if (Native.GetCursorPos(out pt))
                 {
                     double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 12) * Scale, ey = Top + CH / 2 * Scale;
                     double dx = pt.X / dpi - ex, dy = pt.Y / dpi - ey;
+                    dist = Math.Sqrt(dx * dx + dy * dy);
                     sx = dx > 70 ? 1 : dx < -70 ? -1 : 0;
                     sy = dy > 120 ? 1 : 0;
+                    // скорость курсора — для «укачало»
+                    if (petLastCursorAt != 0)
+                    {
+                        double dt = Math.Max(1, unchecked(now - petLastCursorAt));
+                        double mv = Math.Sqrt(Math.Pow(pt.X - petLastCursor.X, 2) + Math.Pow(pt.Y - petLastCursor.Y, 2)) / dpi;
+                        speed = mv / dt * 1000;
+                        petSpeedAvg = petSpeedAvg * 0.85 + speed * 0.15;
+                        if (mv > 2) petCursorStillSince = now;
+                    }
+                    petLastCursor = pt; petLastCursorAt = now;
                     // микрофон занят — зверёк поворачивается к оранжевой точке и «слушает»: иногда вздрагивает
                     if (micInUse || act == "mic") { sx = -1; sy = 0; if ((now / 1700) % 2 == 0 && now % 1700 < 160) petShift.Y = -1; }
                 }
-                foreach (Rectangle r in petEyes[0])
+                string emote = PetEmote(now, dist);
+                int eyeSet = 0;
+                double wink = 0, narrow = 0;
+                switch (emote)
                 {
-                    double[] home = (double[])r.Tag;
-                    Canvas.SetLeft(r, home[0] + sx * PetPx);
-                    Canvas.SetTop(r, home[1] + sy * PetPx);
+                    case "surprised": eyeSet = 2; PetFace(2, "!", accent); petShift.Y = PetHop(now, 420, 2.4); break;
+                    case "happy": eyeSet = 3; PetFace(3, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 8)) * -1.6 * 2) / 2; break;
+                    case "wink": PetFace(0, "", null); wink = 1; break;
+                    case "love": eyeSet = 3; PetFace(3, "♥", PetLove); petMark.Opacity = 0.55 + 0.45 * Math.Abs(Math.Sin(t * 5)); petShift.Y = Math.Round(Math.Sin(t * 4) * -0.8 * 2) / 2; break;
+                    case "confused": eyeSet = 2; PetFace(2, "?", Dim); petShift.X = Math.Round(Math.Sin(t * 6) * 1.2 * 2) / 2; break;
+                    case "suspicious": PetFace(0, "…", Dim); narrow = 1; break;
+                    case "yawn": eyeSet = 4; PetFace(4, "o", Dim); petShift.Y = Math.Round(Math.Sin(Math.Min(1, (now - petEmoteAt) / 900.0) * Math.PI) * -1.2 * 2) / 2; break;
+                    case "proud": eyeSet = 3; PetFace(3, "✦", Amber); petMark.Opacity = 0.5 + 0.5 * Math.Abs(Math.Sin(t * 3)); break;
+                    case "dizzy": PetFace(2, "@", Dim); petShift.X = Math.Round(Math.Sin(t * 22) * 1.4 * 2) / 2; petShift.Y = Math.Round(Math.Cos(t * 17) * 0.8 * 2) / 2; sx = (now / 110) % 2 == 0 ? 1 : -1; eyeSet = 2; break;
+                    case "shy": eyeSet = 3; PetFace(3, "♥", PetLove); petShift.Y = 0.5; break;
+                    case "bored": PetFace(0, "", null); sx = Math.Sin(t * 2.2) > 0 ? 1 : -1; break;
+                    default: PetFace(0, wm, Dim); break;
+                }
+                // глаза смотрят на курсор в любом настроении; подмигивание и прищур — у обычных глаз
+                for (int set = 0; set < petEyes.Length; set++)
+                {
+                    int k = 0;
+                    foreach (Rectangle r in petEyes[set])
+                    {
+                        double[] home = (double[])r.Tag;
+                        bool follow = set == eyeSet && set != 4;
+                        Canvas.SetLeft(r, home[0] + (follow ? sx * PetPx : 0));
+                        double top = home[1] + (follow ? sy * PetPx : 0);
+                        if (set == 0)
+                        {
+                            bool right = k % 2 == 1;
+                            double h = 2 * PetPx + 0.3;
+                            if (wink > 0 && right) { r.Height = PetPx * 0.5; top += PetPx; }
+                            else if (narrow > 0) { r.Height = PetPx * 0.9; top += PetPx * 0.6; }
+                            else r.Height = h;
+                        }
+                        Canvas.SetTop(r, top);
+                        k++;
+                    }
                 }
             }
         }
 
+        // ---- случайные эмоции и реакции на курсор, пока зверёк просто следит за мышью
+        Native.POINT petLastCursor;
+        int petLastCursorAt, petCursorStillSince, petEmoteAt, petEmoteUntil, petEmoteNext, petNearSince, petDizzyAt, petApproachAt;
+        double petSpeedAvg, petLastDist = 9999;
+        string petEmote = "", petLastEmote = "";
+        static readonly Brush PetLove = new SolidColorBrush(Color.FromRgb(0xFF, 0x5C, 0x8A));
+        static readonly string[] PetRandomEmotes = { "surprised", "happy", "wink", "love", "confused", "suspicious", "yawn", "proud" };
+
+        double PetHop(int now, int ms, double height)
+        {
+            double p = Math.Min(1, unchecked(now - petEmoteAt) / (double)ms);
+            return Math.Round(Math.Sin(p * Math.PI) * -height * 2) / 2;
+        }
+
+        public string TestEmote;   // ключ --emote имя: показывать эту эмоцию постоянно (для проверки)
+
+        string PetEmote(int now, double dist)
+        {
+            if (TestEmote != null) { if (petEmote != TestEmote || unchecked(now - petEmoteUntil) >= 0) StartEmote(TestEmote, 1200, now); return petEmote; }
+            bool active = petEmote != "" && unchecked(now - petEmoteUntil) < 0;
+            // реакции на курсор важнее случайных
+            if (petSpeedAvg > 2600 && petEmote != "dizzy" && (petDizzyAt == 0 || unchecked(now - petDizzyAt) > 20000)) { petDizzyAt = now; StartEmote("dizzy", 1300, now); return petEmote; }   // курсор носится — укачало (не чаще раза в 20 с)
+            if (dist < 32) { if (petNearSince == 0) petNearSince = now; } else petNearSince = 0;
+            if (petNearSince != 0 && unchecked(now - petNearSince) > 600 && petEmote != "shy" && !active) { StartEmote("shy", 1500, now); return petEmote; }   // курсор прямо над ним — смущается
+            if (petLastDist > 260 && dist < 110 && !active && (petApproachAt == 0 || unchecked(now - petApproachAt) > 45000) && rnd.Next(3) == 0)
+            { petApproachAt = now; StartEmote("surprised", 800, now); petLastDist = dist; return petEmote; }   // курсор подлетел издалека — иногда удивляется
+            petLastDist = dist;
+            if (!active && petCursorStillSince != 0 && unchecked(now - petCursorStillSince) > 25000 && Native.IdleMs() < 5000 && unchecked(now - petEmoteAt) > 20000)
+            { StartEmote("bored", 2600, now); return petEmote; }                                                                          // вы печатаете, курсор забыт — скучает
+            if (active) return petEmote;
+            if (petEmote != "") { petEmote = ""; petEmoteNext = now + 7000 + rnd.Next(11000); }
+            if (petEmoteNext == 0) petEmoteNext = now + 6000 + rnd.Next(8000);
+            if (unchecked(now - petEmoteNext) >= 0)
+            {
+                string e;
+                do e = PetRandomEmotes[rnd.Next(PetRandomEmotes.Length)]; while (e == petLastEmote);
+                StartEmote(e, e == "yawn" ? 1400 : 1000 + rnd.Next(600), now);
+            }
+            return petEmote;
+        }
+
+        void StartEmote(string e, int ms, int now)
+        {
+            petEmote = e; petLastEmote = e; petEmoteAt = now; petEmoteUntil = now + ms;
+            petEmoteNext = now + ms + 7000 + rnd.Next(11000);
+        }
         int ClaudeStateNow()
         {
             if (!ClaudeBridge.Enabled) return 0;
@@ -6255,6 +6661,42 @@ namespace Kapsula
         DateTime quietUntil = DateTime.MinValue;
 
         public bool QuietNow { get { return quietUntil > DateTime.Now; } }
+
+        // ---- Игровой режим (Ctrl+Alt+G): остров уезжает за край и не выезжает и не раскрывается от наведения мыши — в игре
+        // курсор часто у верхней кромки. Достать его — двойной щелчок у верхней кромки над островом. Уведомления и карточки по-прежнему появляются (в том числе поверх игры на весь экран),
+        // Qwen выгружается из видеопамяти, остров тратит минимум ресурсов. Повторное нажатие — всё как было.
+        // После перезапуска Kapsula режим выключен.
+        public bool GamerMode, TestGamer;
+        public void ToggleGamerMode()
+        {
+            GamerMode = !GamerMode;
+            if (GamerMode)
+            {
+                if (state == 2 || state == 4) SetState(0);
+                try { QwenLocal.Stop(); } catch { }
+                Toast(((char)0xE7FC).ToString(), "Игровой режим включён", null, -1, accent);
+            }
+            else
+            {
+                Toast(((char)0xE7FC).ToString(), "Игровой режим выключен", null, -1, null);
+            }
+            RenderCompact();
+        }
+
+        string HotText(string key)
+        {
+            foreach (Hot h in Hots)
+                if (h.Key == key && h.Vk != 0)
+                {
+                    string s = "";
+                    if ((h.Mods & 0x2) != 0) s += "Ctrl+";
+                    if ((h.Mods & 0x1) != 0) s += "Alt+";
+                    if ((h.Mods & 0x4) != 0) s += "Shift+";
+                    if ((h.Mods & 0x8) != 0) s += "Win+";
+                    return s + ((char)h.Vk).ToString();
+                }
+            return "сочетание клавиш";
+        }
 
         // Запоминает уведомление в истории. true — сейчас «Не беспокоить», показывать карточку не нужно.
         bool Quiet(string source, string title, string text)
@@ -6784,23 +7226,48 @@ namespace Kapsula
 
         // ---- зверёк-курьер для загрузок Steam
         // Смысл: пустая часть полосы — то, что ещё качается. Зверёк стоит на переднем крае скачанного, отбегает вправо
-        // за коробкой, приседает, поднимает её, несёт к краю и кладёт — полоса подрастает. Полосу двигают именно доставки:
-        // каждая догоняет настоящий процент наполовину, поэтому край не прыгает, пока зверёк в пути.
-        // Кадры считаются на каждое обновление экрана (CompositionTarget.Rendering), а не по таймеру опроса.
+        // за коробкой, поднимает её, несёт к краю и кладёт — полоса подрастает (каждая доставка догоняет настоящий процент
+        // наполовину). Иногда вместо обычного рейса случается сценка: споткнулся, бросок как в баскетболе, коробка на голову,
+        // пинок, сальто, чих. Кадры считаются на каждое обновление экрана (CompositionTarget.Rendering).
         Canvas dlLane, courier;
         Rectangle courierBox, groundBox, dropBox;
         Rectangle[] courierEyes;
+        Ellipse[] dust = new Ellipse[4], stars = new Ellipse[3];
         TranslateTransform courierPos = new TranslateTransform();
         ScaleTransform courierSquash = new ScaleTransform(1, 1);
+        RotateTransform courierRot = new RotateTransform(0);
+        RotateTransform dropSpin = new RotateTransform(0);
         const double CourierPx = 1.2, CourierFloor = 23.5, LaneW = 130, BoxW = 6.5, BoxH = 5.5;
         readonly System.Diagnostics.Stopwatch courierClock = new System.Diagnostics.Stopwatch();
-        double courierEdge = -1;       // докуда полоса показана заполненной (в точках)
-        double courierCycleAt;         // начало текущего рейса, мс
-        double courierTrip;            // длина текущего рейса
-        double courierBase;            // где стоял в начале рейса
+        readonly Random courierRnd = new Random();
+        double courierEdge = -1, courierCycleAt, courierTrip, courierBase;
         bool courierDropped, courierOn;
-        // длительности фаз рейса, с: туда, подъём, обратно, сброс, передышка
-        const double CwOut = 0.46, CwPick = 0.26, CwBack = 0.6, CwDrop = 0.3, CwRest = 0.2;
+        string courierApp;
+        int courierEpisode, courierLastEpisode = -1;
+
+        // Сценки: имена отрезков и их длительность в секундах
+        static readonly string[][] EpisodeSegs =
+        {
+            new[] { "out", "pick", "back", "drop", "rest" },                                                   // 0 обычный рейс
+            new[] { "out", "pick", "backA", "fall", "lie", "getup", "dust", "backB", "rest" },                 // 1 споткнулся
+            new[] { "out", "pick", "windup", "throw", "cheer", "home", "rest" },                               // 2 бросок
+            new[] { "out", "bonk", "faint", "getup", "dust", "pick", "back", "drop", "rest" },                 // 3 коробка на голову
+            new[] { "out", "kickwind", "kick", "home", "rest" },                                               // 4 пинок
+            new[] { "out", "pick", "back", "drop", "flip", "rest" },                                           // 5 сальто
+            new[] { "out", "pick", "sniff", "sneeze", "back", "drop", "rest" }                                 // 6 чих
+        };
+        static double SegDur(string s)
+        {
+            switch (s)
+            {
+                case "out": return 0.46; case "pick": return 0.26; case "back": return 0.6; case "drop": return 0.3; case "rest": return 0.22;
+                case "backA": return 0.3; case "fall": return 0.22; case "lie": return 0.5; case "getup": return 0.32; case "dust": return 0.42; case "backB": return 0.34;
+                case "windup": return 0.2; case "throw": return 0.52; case "cheer": return 0.34; case "home": return 0.5;
+                case "bonk": return 0.34; case "faint": return 1.0; case "kickwind": return 0.18; case "kick": return 0.6;
+                case "flip": return 0.5; case "sniff": return 0.3; case "sneeze": return 0.32;
+            }
+            return 0.3;
+        }
 
         static Rectangle Parcel()
         {
@@ -6811,7 +7278,7 @@ namespace Kapsula
         {
             double pw = 11 * CourierPx, ph = 9 * CourierPx;
             courier = new Canvas { Width = pw, Height = ph, RenderTransformOrigin = new Point(0.5, 1) };
-            var tg = new TransformGroup(); tg.Children.Add(courierSquash); tg.Children.Add(courierPos);
+            var tg = new TransformGroup(); tg.Children.Add(courierSquash); tg.Children.Add(courierRot); tg.Children.Add(courierPos);
             courier.RenderTransform = tg;
             for (int y = 0; y < PetShape.Length; y++)
             {
@@ -6833,20 +7300,20 @@ namespace Kapsula
                 Canvas.SetTop(courierEyes[i], 4 * CourierPx);
                 courier.Children.Add(courierEyes[i]);
             }
-            // коробка на голове
             courierBox = Parcel();
             Canvas.SetLeft(courierBox, pw / 2 - BoxW / 2); Canvas.SetTop(courierBox, -BoxH + 0.4);
             courier.Children.Add(courierBox);
             Canvas.SetTop(courier, CourierFloor - ph);
-            // коробка, которая ждёт справа, и коробка, которая ложится на полосу
-            groundBox = Parcel(); Canvas.SetTop(groundBox, CourierFloor - BoxH); groundBox.Visibility = Visibility.Collapsed;
-            dropBox = Parcel(); dropBox.Visibility = Visibility.Collapsed;
+            groundBox = Parcel(); groundBox.Visibility = Visibility.Collapsed;
+            dropBox = Parcel(); dropBox.Visibility = Visibility.Collapsed; dropBox.RenderTransformOrigin = new Point(0.5, 0.5); dropBox.RenderTransform = dropSpin;
             dlLane.Children.Add(groundBox);
             dlLane.Children.Add(dropBox);
             dlLane.Children.Add(courier);
+            var dustBrush = new SolidColorBrush(Color.FromRgb(0xB4, 0xB4, 0xBC));
+            for (int i = 0; i < dust.Length; i++) { dust[i] = new Ellipse { Width = 2.4, Height = 2.4, Fill = dustBrush, Visibility = Visibility.Collapsed, IsHitTestVisible = false }; dlLane.Children.Add(dust[i]); }
+            var starBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xD6, 0x4A));
+            for (int i = 0; i < stars.Length; i++) { stars[i] = new Ellipse { Width = 2.2, Height = 2.2, Fill = starBrush, Visibility = Visibility.Collapsed, IsHitTestVisible = false }; dlLane.Children.Add(stars[i]); }
         }
-
-        string courierApp;
 
         // Перерисовка капсулы вызывает это при каждом сообщении Steam — рейс не начинается заново, пока качается та же игра
         void CourierStart()
@@ -6855,7 +7322,7 @@ namespace Kapsula
             {
                 courierApp = steamDlApp;
                 courierEdge = -1;
-                courierClock.Restart(); courierCycleAt = 0; courierTrip = 0; courierDropped = false;
+                courierClock.Restart(); courierCycleAt = 0; courierTrip = 0; courierDropped = false; courierEpisode = 0;
             }
             if (courierOn) return;
             courierOn = true;
@@ -6872,131 +7339,273 @@ namespace Kapsula
 
         static double Smooth(double v) { v = Math.Max(0, Math.Min(1, v)); return v * v * (3 - 2 * v); }
 
+        // Доставка: полоса догоняет настоящий процент наполовину
+        void CourierDeliver(double real)
+        {
+            if (courierDropped) return;
+            courierDropped = true;
+            double gap = real - courierEdge;
+            courierEdge = gap > 2 ? courierEdge + gap * 0.55 : Math.Max(courierEdge, real);
+            cBar.Glide(courierEdge / LaneW, 260);
+        }
+
+        int PickEpisode(double trip)
+        {
+            if (trip < 12) return 0;   // у самого конца полосы не до сценок
+            int forced;   // для проверки: KAPSULA_COURIER=номер сценки
+            if (int.TryParse(Environment.GetEnvironmentVariable("KAPSULA_COURIER") ?? "", out forced) && forced >= 0 && forced < EpisodeSegs.Length) return forced;
+            int ep;
+            double r = courierRnd.NextDouble();
+            ep = r < 0.5 ? 0 : r < 0.59 ? 1 : r < 0.68 ? 2 : r < 0.76 ? 3 : r < 0.84 ? 4 : r < 0.92 ? 5 : 6;
+            if (ep != 0 && ep == courierLastEpisode) ep = 0;   // одна и та же сценка дважды подряд — скучно
+            if (ep != 0) courierLastEpisode = ep;
+            return ep;
+        }
+
         void CourierFrame(object sender, EventArgs e)
         {
             if (dlLane == null || dlLane.Visibility != Visibility.Visible) { CourierStop(); courierApp = null; return; }
             if (state != 0) return;
-            double pw = 11 * CourierPx;
+            double pw = 11 * CourierPx, ph = 9 * CourierPx;
             double real = Math.Max(0, Math.Min(1, steamDlPct / 100.0)) * LaneW;
             if (courierEdge < 0) { courierEdge = real; cBar.Set(courierEdge / LaneW); }   // загрузка уже шла — начинаем с её места
             double now = courierClock.Elapsed.TotalMilliseconds;
             double t = (now - courierCycleAt) / 1000.0;
-            double eyeDir = 0, hop = 0, squash = 1, x;
+            foreach (Ellipse d in dust) d.Visibility = Visibility.Collapsed;
+            foreach (Ellipse s in stars) s.Visibility = Visibility.Collapsed;
+            courierRot.Angle = 0; dropSpin.Angle = 0; dropBox.Opacity = 1;
+            double eyeH = 2;
 
             if (steamDlDone)
             {
-                // всё скачано: полоса до конца, зверёк прыгает у финиша, коробок больше нет
+                // всё скачано: полоса до конца, зверёк прыгает у финиша
                 if (courierEdge < LaneW) { courierEdge = LaneW; cBar.Glide(1, 380); }
-                x = LaneW - pw; hop = Math.Abs(Math.Sin(t * 6.5)) * 3.2; squash = 1 - Math.Max(0, Math.Cos(t * 13)) * 0.06;
                 courierBox.Visibility = Visibility.Collapsed; groundBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed;
-                ApplyCourier(x, hop, squash, 0);
+                ApplyCourier(LaneW - pw, Math.Abs(Math.Sin(t * 6.5)) * 3.2, 1 - Math.Max(0, Math.Cos(t * 13)) * 0.06, 0, 2);
                 return;
             }
-
-            double baseX = Math.Max(0, Math.Min(LaneW - pw, courierEdge - pw / 2));   // стоит на переднем крае скачанного
+            double baseNow = Math.Max(0, Math.Min(LaneW - pw, courierEdge - pw / 2));   // передний край скачанного
             if (steamDlPaused)
             {
-                // пауза: сидит на краю с коробкой и дремлет
                 courierBox.Visibility = Visibility.Visible; groundBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed;
-                ApplyCourier(baseX, 0, 0.9 + Math.Sin(t * 2) * 0.015, 0);
-                courierEyes[0].Height = courierEyes[1].Height = CourierPx * 0.6;
+                ApplyCourier(baseNow, 0, 0.9 + Math.Sin(t * 2) * 0.015, 0, 0.6);   // пауза: сидит с коробкой и дремлет
                 courierCycleAt = now;
                 return;
             }
-            courierEyes[0].Height = courierEyes[1].Height = 2 * CourierPx;
 
-            // новый рейс: длина — до 22 точек вправо, но не дальше конца полосы
-            double cycle = CwOut + CwPick + CwBack + CwDrop + CwRest;
-            if (t >= cycle || courierTrip <= 0)
+            // длина сценки
+            string[] segs = EpisodeSegs[courierEpisode];
+            double total = 0; foreach (string sg in segs) total += SegDur(sg);
+            if (t >= total || courierTrip <= 0)
             {
                 courierCycleAt = now; t = 0; courierDropped = false;
-                courierBase = baseX;
-                courierTrip = Math.Max(0, Math.Min(22, LaneW - pw - baseX));
+                courierBase = baseNow;
+                courierTrip = Math.Max(0, Math.Min(22, LaneW - pw - baseNow));
+                courierEpisode = PickEpisode(courierTrip);
+                segs = EpisodeSegs[courierEpisode];
             }
-            double trip = courierTrip;
-            double newBase = baseX;   // край мог сдвинуться после сброса — догоняем его в передышке, а не прыжком
-            baseX = courierBase;
-            double boxGroundX = baseX + trip + pw / 2 - BoxW / 2 + 3.5;
+            double baseX = courierBase, trip = courierTrip, far = baseX + trip;
+            double boxGroundX = far + pw / 2 - BoxW / 2 + 3.5;
+            double headX = pw / 2 - BoxW / 2;   // коробка на голове относительно зверька
+            double edgeX = courierEdge - BoxW / 2 + 2;
 
-            if (t < CwOut)
+            // текущий отрезок и доля пройденного в нём
+            string seg = segs[segs.Length - 1]; double p = 1, acc = 0;
+            for (int i = 0; i < segs.Length; i++)
             {
-                // налегке вправо, за коробкой: шаги лёгкие и частые
-                double p = t / CwOut;
-                x = baseX + trip * Smooth(p);
-                hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.4;
-                eyeDir = 1;
-                courierBox.Visibility = Visibility.Collapsed;
-                groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH);
+                double d = SegDur(segs[i]);
+                if (t < acc + d) { seg = segs[i]; p = (t - acc) / d; break; }
+                acc += d;
             }
-            else if (t < CwOut + CwPick)
+
+            double x = baseX, hop = 0, squash = 1, eyeDir = 0;
+            courierBox.Visibility = Visibility.Collapsed; groundBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed;
+            switch (seg)
             {
-                // присел и поднял: коробка с земли переезжает на голову
-                double p = (t - CwOut) / CwPick;
-                x = baseX + trip;
-                squash = 1 - Math.Sin(p * Math.PI) * 0.16;
-                eyeDir = 1;
-                double lift = Smooth(p);
-                double headX = x + pw / 2 - BoxW / 2, headY = CourierFloor - 9 * CourierPx * squash - BoxH + 0.4;
-                groundBox.Visibility = Visibility.Visible;
-                Canvas.SetLeft(groundBox, boxGroundX + (headX - boxGroundX) * lift);
-                Canvas.SetTop(groundBox, (CourierFloor - BoxH) + (headY - (CourierFloor - BoxH)) * lift);
-                courierBox.Visibility = Visibility.Collapsed;
-            }
-            else if (t < CwOut + CwPick + CwBack)
-            {
-                // с коробкой назад к краю: шаги тяжелее и реже, коробка чуть пружинит
-                double p = (t - CwOut - CwPick) / CwBack;
-                x = baseX + trip * (1 - Smooth(p));
-                hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.9;
-                squash = 1 - Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.04;
-                eyeDir = -1;
-                groundBox.Visibility = Visibility.Collapsed;
-                courierBox.Visibility = Visibility.Visible;
-            }
-            else if (t < CwOut + CwPick + CwBack + CwDrop)
-            {
-                // сбросил коробку на край полосы: она съезжает вперёд и «вливается», полоса подрастает, зверёк подпрыгивает
-                double p = (t - CwOut - CwPick - CwBack) / CwDrop;
-                x = baseX;
-                courierBox.Visibility = Visibility.Collapsed;
-                double fromX = baseX + pw / 2 - BoxW / 2, fromY = CourierFloor - 9 * CourierPx - BoxH + 0.4;
-                double toX = courierEdge - BoxW / 2 + 2, toY = CourierFloor + 0.5;
-                double q = Smooth(Math.Min(1, p * 1.6));
-                dropBox.Visibility = p < 0.7 ? Visibility.Visible : Visibility.Collapsed;
-                Canvas.SetLeft(dropBox, fromX + (toX - fromX) * q);
-                Canvas.SetTop(dropBox, fromY + (toY - fromY) * q - Math.Sin(q * Math.PI) * 3);
-                dropBox.Opacity = 1 - Math.Max(0, p - 0.45) * 3;
-                if (!courierDropped && p >= 0.55)
+                case "out":   // налегке за коробкой
+                    x = baseX + trip * Smooth(p); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.4; eyeDir = 1;
+                    if (courierEpisode != 3) { groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH); }
+                    break;
+                case "pick":  // присел и поднял коробку на голову
                 {
-                    courierDropped = true;
-                    double gap = real - courierEdge;
-                    courierEdge = gap > 2 ? courierEdge + gap * 0.55 : Math.Max(courierEdge, real);
-                    cBar.Glide(courierEdge / LaneW, 260);
+                    x = far; squash = 1 - Math.Sin(p * Math.PI) * 0.16; eyeDir = 1;
+                    double lift = Smooth(p), hx = x + headX, hy = CourierFloor - ph * squash - BoxH + 0.4;
+                    groundBox.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(groundBox, boxGroundX + (hx - boxGroundX) * lift);
+                    Canvas.SetTop(groundBox, (CourierFloor - BoxH) + (hy - (CourierFloor - BoxH)) * lift);
+                    break;
                 }
-                hop = p > 0.55 ? Math.Sin((p - 0.55) / 0.45 * Math.PI) * 2.2 : 0;
-                eyeDir = -1;
+                case "back":  // с коробкой к краю — шаги тяжелее
+                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.9; squash = 1 - Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.04; eyeDir = -1;
+                    courierBox.Visibility = Visibility.Visible;
+                    break;
+                case "drop":  // кладёт коробку на край — она «вливается» в полосу
+                {
+                    x = baseX; eyeDir = -1;
+                    double fx = baseX + headX, fy = CourierFloor - ph - BoxH + 0.4, q = Smooth(Math.Min(1, p * 1.6));
+                    if (p < 0.7) { dropBox.Visibility = Visibility.Visible; Canvas.SetLeft(dropBox, fx + (edgeX - fx) * q); Canvas.SetTop(dropBox, fy + (CourierFloor + 0.5 - fy) * q - Math.Sin(q * Math.PI) * 3); dropBox.Opacity = 1 - Math.Max(0, p - 0.45) * 3; }
+                    if (p >= 0.55) CourierDeliver(real);
+                    hop = p > 0.55 ? Math.Sin((p - 0.55) / 0.45 * Math.PI) * 2.2 : 0;
+                    break;
+                }
+                case "backA": // несёт, на полпути…
+                    x = baseX + trip * (1 - 0.5 * Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 1.5)) * 0.9; eyeDir = -1;
+                    courierBox.Visibility = Visibility.Visible;
+                    break;
+                case "fall":  // …спотыкается и падает вперёд, коробка вылетает к краю
+                {
+                    x = baseX + trip * 0.5; courierRot.Angle = -82 * Smooth(p); eyeH = 2 - p * 1.4; eyeDir = -1;
+                    FlyBox(baseX + trip * 0.5 + headX, CourierFloor - ph - BoxH, edgeX, CourierFloor + 0.5, Math.Min(1, p * 0.45), 10, -540);
+                    break;
+                }
+                case "lie":   // лежит; коробка долетает и засчитывается
+                {
+                    x = baseX + trip * 0.5; courierRot.Angle = -82; eyeH = 0.5;
+                    double q = 0.1 + p * 0.9;
+                    if (q < 1) FlyBox(baseX + trip * 0.5 + headX, CourierFloor - ph - BoxH, edgeX, CourierFloor + 0.5, q * 0.99, 10, -540);
+                    if (q >= 0.95) CourierDeliver(real);
+                    break;
+                }
+                case "getup": // встаёт
+                    x = courierEpisode == 3 ? far : baseX + trip * 0.5; courierRot.Angle = (courierEpisode == 3 ? 84 : -82) * (1 - Smooth(p)); hop = Math.Sin(p * Math.PI) * 1.5; eyeH = 0.5 + p * 1.5;
+                    if (courierEpisode == 3) { groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH); }
+                    break;
+                case "dust":  // отряхивается: дрожит, вокруг ног пылинки
+                {
+                    x = (courierEpisode == 3 ? far : baseX + trip * 0.5) + Math.Sin(p * Math.PI * 8) * 0.8 * (1 - p);
+                    for (int i = 0; i < dust.Length; i++)
+                    {
+                        double a = i * Math.PI / 2 + p * 2, r = 2 + p * 7;
+                        dust[i].Visibility = Visibility.Visible; dust[i].Opacity = 1 - p;
+                        Canvas.SetLeft(dust[i], x + pw / 2 + Math.Cos(a) * r - 1.2); Canvas.SetTop(dust[i], CourierFloor - 3 - Math.Abs(Math.Sin(a)) * r * 0.5);
+                    }
+                    if (courierEpisode == 3) { groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH); }
+                    break;
+                }
+                case "backB": // дальше налегке, коробка уже на месте
+                    x = baseX + trip * 0.5 * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 2)) * 1.2; eyeDir = -1;
+                    break;
+                case "windup":   // бросок: присел с коробкой
+                    x = far; squash = 1 - Smooth(p) * 0.18; eyeDir = -1;
+                    courierBox.Visibility = Visibility.Visible;
+                    break;
+                case "throw":    // запуск дугой — как в баскетболе
+                {
+                    x = far; eyeDir = -1;
+                    hop = p < 0.45 ? Math.Sin(p / 0.45 * Math.PI) * 3.5 : 0; squash = p < 0.12 ? 0.82 + p * 1.5 : 1;
+                    if (p < 1) FlyBox(far + headX, CourierFloor - ph - BoxH - hop, edgeX, CourierFloor + 0.5, p, 15, -360);
+                    if (p >= 0.97) CourierDeliver(real);
+                    break;
+                }
+                case "cheer":    // попал!
+                    x = far; hop = Math.Abs(Math.Sin(p * Math.PI * 2)) * 2.6; eyeH = 0.8; eyeDir = -1;
+                    break;
+                case "home":     // налегке к краю
+                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.3; eyeDir = -1;
+                    break;
+                case "bonk":     // коробка падает сверху на голову
+                {
+                    x = far; eyeDir = 1;
+                    double fallP = Math.Min(1, p / 0.55);
+                    double topY = -BoxH - 4, headY = CourierFloor - ph - BoxH + 0.4;
+                    if (p < 0.55) { dropBox.Visibility = Visibility.Visible; Canvas.SetLeft(dropBox, far + headX); Canvas.SetTop(dropBox, topY + (headY - topY) * fallP * fallP); }
+                    else
+                    {
+                        // удар: сплющился, коробка отскочила на землю рядом
+                        double q = (p - 0.55) / 0.45;
+                        squash = 0.72 + q * 0.2; eyeH = 0.4;
+                        dropBox.Visibility = Visibility.Visible;
+                        Canvas.SetLeft(dropBox, far + headX + (boxGroundX - far - headX) * Smooth(q));
+                        Canvas.SetTop(dropBox, headY + ((CourierFloor - BoxH) - headY) * Smooth(q) - Math.Sin(q * Math.PI) * 4);
+                        dropSpin.Angle = q * 90;
+                    }
+                    break;
+                }
+                case "faint":    // в обмороке, над ним кружат звёздочки
+                {
+                    x = far; courierRot.Angle = 84 * Smooth(Math.Min(1, p * 4)); eyeH = 0.35;
+                    groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH);
+                    double cx = x + pw / 2 + 5, cy = CourierFloor - 8;
+                    for (int i = 0; i < stars.Length; i++)
+                    {
+                        double a = p * Math.PI * 4 + i * Math.PI * 2 / stars.Length;
+                        stars[i].Visibility = p > 0.2 ? Visibility.Visible : Visibility.Collapsed;
+                        Canvas.SetLeft(stars[i], cx + Math.Cos(a) * 5 - 1.1); Canvas.SetTop(stars[i], cy + Math.Sin(a) * 1.8 - 1.1);
+                    }
+                    break;
+                }
+                case "kickwind": // разворот и замах ногой
+                    x = far - 2 * Smooth(p); squash = 1 - Math.Sin(p * Math.PI) * 0.1; eyeDir = -1;
+                    groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH);
+                    courierRot.Angle = -12 * Math.Sin(p * Math.PI);
+                    break;
+                case "kick":     // пнул: коробка катится к краю с подскоками и кувырками
+                {
+                    x = far + 1.5 * Math.Sin(Math.Min(1, p * 4) * Math.PI); hop = p < 0.2 ? Math.Sin(p / 0.2 * Math.PI) * 1.5 : 0; eyeDir = -1;
+                    double q = Smooth(p);
+                    dropBox.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(dropBox, boxGroundX + (edgeX - boxGroundX) * q);
+                    Canvas.SetTop(dropBox, CourierFloor - BoxH - Math.Abs(Math.Sin(p * Math.PI * 3)) * 5 * (1 - p));
+                    dropSpin.Angle = -p * 540;
+                    if (p >= 0.97) CourierDeliver(real);
+                    break;
+                }
+                case "flip":     // на радостях — сальто назад
+                    x = baseX; hop = Math.Sin(p * Math.PI) * 7; courierRot.Angle = 360 * Smooth(p); eyeH = 1.2;
+                    break;
+                case "sniff":    // из коробки пыль — сейчас чихнёт…
+                    x = far; eyeH = 2 - Smooth(p) * 1.5; squash = 1 + Smooth(p) * 0.08; eyeDir = 1;
+                    courierBox.Visibility = Visibility.Visible;
+                    break;
+                case "sneeze":   // апчхи! подпрыгнул, вылетела пыль
+                {
+                    x = far - Math.Sin(p * Math.PI) * 1.5; hop = Math.Sin(p * Math.PI) * 3; squash = p < 0.15 ? 0.86 : 1; eyeH = 0.5; eyeDir = 1;
+                    courierBox.Visibility = Visibility.Visible;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        dust[i].Visibility = Visibility.Visible; dust[i].Opacity = 1 - p;
+                        Canvas.SetLeft(dust[i], x + pw + 1 + p * (6 + i * 3)); Canvas.SetTop(dust[i], CourierFloor - ph * 0.55 + (i - 1) * p * 3 - hop);
+                    }
+                    break;
+                }
+                default:         // передышка: пара шагов к новому краю полосы, моргает
+                {
+                    x = baseX + (baseNow - baseX) * Smooth(p);
+                    hop = Math.Abs(baseNow - baseX) > 0.5 ? Math.Abs(Math.Sin(p * Math.PI * 2)) * 0.9 : 0;
+                    eyeDir = baseNow > baseX + 0.5 ? 1 : 0;
+                    eyeH = p > 0.4 && p < 0.7 ? 0.5 : 2;
+                    break;
+                }
             }
-            else
-            {
-                // передышка: пара шагов к новому краю полосы, потом моргает
-                double pr = (t - CwOut - CwPick - CwBack - CwDrop) / CwRest;
-                x = baseX + (newBase - baseX) * Smooth(pr);
-                hop = Math.Abs(newBase - baseX) > 0.5 ? Math.Abs(Math.Sin(pr * Math.PI * 2)) * 0.9 : 0;
-                eyeDir = newBase > baseX + 0.5 ? 1 : 0;
-                courierBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed; groundBox.Visibility = Visibility.Collapsed;
-                double p = (t - CwOut - CwPick - CwBack - CwDrop) / CwRest;
-                courierEyes[0].Height = courierEyes[1].Height = (p > 0.4 && p < 0.7 ? 0.5 : 2) * CourierPx;
-            }
-            ApplyCourier(x, hop, squash, eyeDir);
+            ApplyCourier(x, hop, squash, eyeDir, eyeH);
         }
 
-        void ApplyCourier(double x, double hop, double squash, double eyeDir)
+        // Коробка летит дугой из (x0,y0) в (x1,y1); arc — высота дуги, spin — сколько градусов успевает повернуться
+        void FlyBox(double x0, double y0, double x1, double y1, double p, double arc, double spin)
         {
-            courierPos.X = x; courierPos.Y = -hop;
+            p = Math.Max(0, Math.Min(1, p));
+            dropBox.Visibility = Visibility.Visible;
+            Canvas.SetLeft(dropBox, x0 + (x1 - x0) * p);
+            Canvas.SetTop(dropBox, y0 + (y1 - y0) * p - Math.Sin(p * Math.PI) * arc);
+            dropSpin.Angle = spin * p;
+            dropBox.Opacity = p > 0.9 ? 1 - (p - 0.9) * 8 : 1;
+        }
+
+        void ApplyCourier(double x, double hop, double squash, double eyeDir, double eyeH)
+        {
+            // повёрнутый (упал, сальто) — опираем на полосу самой нижней точкой, чтобы не проваливался под неё
+            double rad = courierRot.Angle * Math.PI / 180, cw = 11 * CourierPx, chh = 9 * CourierPx, low = 0;
+            foreach (double[] c in new double[][] { new[] { -cw / 2, 0.0 }, new[] { cw / 2, 0.0 }, new[] { -cw / 2, -chh }, new[] { cw / 2, -chh } })
+                low = Math.Max(low, c[0] * Math.Sin(rad) + c[1] * Math.Cos(rad));
+            courierPos.X = x; courierPos.Y = -hop - low;
             courierSquash.ScaleY = squash; courierSquash.ScaleX = 1 + (1 - squash) * 0.5;
-            // глаза смотрят туда, куда он идёт
-            Canvas.SetLeft(courierEyes[0], (2 + eyeDir * 0.7) * CourierPx);
-            Canvas.SetLeft(courierEyes[1], (8 + eyeDir * 0.7) * CourierPx);
+            // глаза смотрят туда, куда он идёт; закрываются и «сплющиваются» по настроению
+            for (int i = 0; i < 2; i++)
+            {
+                Canvas.SetLeft(courierEyes[i], ((i == 0 ? 2 : 8) + eyeDir * 0.7) * CourierPx);
+                courierEyes[i].Height = Math.Max(0.3, eyeH) * CourierPx;
+                Canvas.SetTop(courierEyes[i], (4 + (2 - Math.Max(0.3, eyeH)) * 0.5) * CourierPx);
+            }
         }
         public void SteamDownload(string appid, string name, double percent, double rate, bool paused, byte[] icon)
         {
@@ -7223,6 +7832,7 @@ namespace Kapsula
                 tg.Tick += delegate { SetState(state == 2 ? 0 : 2); };
                 tg.Start();
             }
+            if (TestGamer) { ClaudeAfter(3000, ToggleGamerMode); ClaudeAfter(9000, ToggleGamerMode); }   // проверка игрового режима без нажатий
             if (TestSlide) { ClaudeAfter(3000, delegate { ShowPage(PText); }); ClaudeAfter(5200, delegate { ShowPage(PSystem); }); }   // проверочный режим: смена вкладки без нажатий
             if (Demo)
             {
@@ -7230,6 +7840,20 @@ namespace Kapsula
                 media = new MediaInfo { Has = true, Playing = true, Title = "Ночной маршрут", Artist = "Kapsula Demo", Cover = DemoCover(), Pos = 47, Dur = 204, PosAt = DateTime.UtcNow };
                 RenderMedia();
                 LoadLauncher();
+                if (Environment.GetEnvironmentVariable("KAPSULA_TRACKTEST") == "1")
+                {
+                    // проверка перехода: каждые 2,5 с другой трек (обложка — перевёрнутая, чтобы было видно её смену)
+                    int n = 0;
+                    byte[] a = DemoCover(), b = DemoCoverFlipped();
+                    var sw2 = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
+                    sw2.Tick += delegate { n++; media = new MediaInfo { Has = true, Playing = true, Title = n % 2 == 1 ? "Утренний перегон" : "Ночной маршрут", Artist = n % 2 == 1 ? "Другой исполнитель" : "Kapsula Demo", Cover = n % 2 == 1 ? b : a, Pos = 0, Dur = 204, PosAt = DateTime.UtcNow }; RenderMedia();
+                        // текст «находится» через 0,8 с, как из сети
+                        int nn = n;
+                        ClaudeAfter(300, delegate { if (n == nn) LyricsArrived(null); });
+                        ClaudeAfter(1100, delegate { if (n != nn) return; var l = new List<LyricLine>(); for (int i = 0; i < 40; i++) l.Add(new LyricLine { T = i * 1.2 - 12, Text = (nn % 2 == 1 ? "Утро строка " : "Ночь строка ") + (i + 1) }); LyricsArrived(l); });
+                    };
+                    sw2.Start();
+                }
                 if (TestFs)
                 {
                     var next = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(4000) };
@@ -7332,7 +7956,11 @@ namespace Kapsula
             var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
             quiet.Click += delegate { SetQuiet(QuietNow ? 0 : 60); };
             menu.Items.Add(quiet);
-            menu.Opening += delegate { quiet.Text = QuietNow ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
+            menu.Opening += delegate { quiet.Text = QuietNow && !GamerMode ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
+            var gamer = new WF.ToolStripMenuItem("Игровой режим");
+            gamer.Click += delegate { ToggleGamerMode(); };
+            menu.Items.Add(gamer);
+            menu.Opening += delegate { gamer.Checked = GamerMode; gamer.ShortcutKeyDisplayString = HotText("game"); };
             var games = new WF.ToolStripMenuItem("Показывать в играх и на весь экран");
             games.Click += delegate
             {
@@ -7427,6 +8055,9 @@ namespace Kapsula
         }
 
         // Жидкий край: каждая «капля» тянется вниз в такт реальной громкости звука.
+        // Жидкий край слушает только медиаплеер, а не весь звук системы
+        bool SpectrumFromPlayer() { Spectrum.Player = media.Has ? PlayerKey() : ""; return Spectrum.Player.Length > 0; }
+
         bool StepLiquid(double dt)
         {
             bool playingNow = media.Has && media.Playing && !hiddenFs && !gameLite;
@@ -7436,7 +8067,7 @@ namespace Kapsula
             if (alarm) spikes = true; else if (level < 0.05) spikes = false;
             // Край как эквалайзер: слева низкие частоты, справа высокие. Не вышло снять звук — пляшет от общей громкости.
             if (specBands == null) specBands = new double[24];
-            bool spec = on && !alarm && Store.Get("liquidSpectrum") != "0" && Spectrum.Read(specBands);
+            bool spec = on && !alarm && Store.Get("liquidSpectrum") != "0" && SpectrumFromPlayer() && Spectrum.Read(specBands);
             double peak = alarm ? 1 : (on ? Audio.Peak() : 0);
             gainMax = Math.Max(peak, gainMax - dt * 0.04);
             if (gainMax < 0.02) gainMax = 0.02;
@@ -7691,6 +8322,7 @@ namespace Kapsula
         void SetState(int s)
         {
             if (state == s) return;
+            if (s == 1) RenderMiniVolume();   // ползунок громкости — сразу с текущим значением
             bool wasFull = state == 2 || state == 4;
             bool wasCmd = state == 4;
             state = s;
@@ -7754,6 +8386,26 @@ namespace Kapsula
 
         bool Typing() { return IsActive && Keyboard.FocusedElement is TextBoxBase || duck != null && duck.Active; }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetDoubleClickTime();
+        bool gamerBtnDown;
+        int gamerClickAt;
+
+        // Двойной щелчок левой кнопкой у верхней кромки экрана в районе острова. Нажатия видим опросом кнопки
+        // (каждые 33 мс) — без перехвата мыши, игре щелчок тоже достаётся как обычно.
+        bool GamerDoubleClick(double x, double y, double cx, int now)
+        {
+            bool down = (GetAsyncKeyState(0x01) & 0x8000) != 0;
+            bool pressed = down && !gamerBtnDown;
+            gamerBtnDown = down;
+            if (!pressed) return false;
+            bool zone = y <= 8 && Math.Abs(x - cx) <= Math.Max(sw.X / 2 + 24, 160);
+            if (!zone) { gamerClickAt = 0; return false; }
+            if (gamerClickAt != 0 && unchecked(now - gamerClickAt) <= (int)GetDoubleClickTime() + 60) { gamerClickAt = 0; return true; }
+            gamerClickAt = now;
+            return false;
+        }
+
         void UpdateHover()
         {
             if (ForceOpen != -1 || snipActive) return;
@@ -7761,19 +8413,27 @@ namespace Kapsula
             if (!Native.GetCursorPos(out pt)) return;
             double x = (pt.X / dpi - Left) / Scale, y = (pt.Y / dpi - Top) / Scale, cx = BaseW / 2;
             int now = Environment.TickCount;
-            if (AutoHide || appHide)
+            if (AutoHide || appHide || GamerMode)
             {
                 // Автоскрытие (всегда или только в выбранных программах): остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать.
-                bool nearTop = y <= 3 && Math.Abs(x - cx) <= 320;
-                bool overPill = !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 8 && y <= sh.X + 8;
+                // В игровом режиме курсор остров не достаёт — только уведомления, таймер, запись и загрузки.
+                bool nearTop = !GamerMode && y <= 3 && Math.Abs(x - cx) <= 320;
+                bool overPill = !GamerMode && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 8 && y <= sh.X + 8;
                 if (nearTop || overPill || state != 0 || toastOn || timerRinging || Recorder.Active || dlActive != null) revealUntil = now + 1800;
                 bool hide = unchecked(now - revealUntil) > 0;
                 if (hide != autoHidden) { autoHidden = hide; SetTargets(); }
             }
             else if (autoHidden) { autoHidden = false; SetTargets(); }
+            if (GamerMode && state == 0 && GamerDoubleClick(x, y, cx, now))
+            {
+                // двойной щелчок у верхней кромки над островом — единственный способ достать его в игровом режиме
+                revealUntil = now + 1800; autoHidden = false;
+                SetState(media.Has && media.Playing && HoverMini ? 1 : 2);
+                return;
+            }
             if (state == 0)
             {
-                bool inside = !hiddenFs && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 2 && y >= -1 && y <= sh.X + 1;
+                bool inside = !GamerMode && !hiddenFs && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 2 && y >= -1 && y <= sh.X + 1;
                 if (Recorder.Active) { enterAt = 0; return; }   // во время записи капсула — кнопка «Стоп», а не вход в панель
                 // Только что нажали кнопку на карточке — курсор ещё над островом, но раскрывать панель не нужно.
                 if (hoverBlock) { if (!inside && Math.Abs(x - cx) > (CardW + cardExtra) / 2 + 12 || y > CardH + 16) hoverBlock = false; enterAt = 0; return; }
@@ -7795,7 +8455,7 @@ namespace Kapsula
                 bool inside = Math.Abs(x - cx) <= tw / 2 + 14 && y <= th + 20;
                 if (pinned && state == 2) { leaveAt = 0; return; }   // закреплённая панель не закрывается сама
                 if (inside) holdOpenUntil = 0;   // курсор пришёл на остров — дальше обычные правила
-                if (inside || Typing() || volBar.Root.IsMouseCaptured || holdOpenUntil != 0 && unchecked(Environment.TickCount - holdOpenUntil) < 0) { leaveAt = 0; return; }
+                if (inside || Typing() || volBar.Root.IsMouseCaptured || miniVolBar != null && miniVolBar.Root.IsMouseCaptured || holdOpenUntil != 0 && unchecked(Environment.TickCount - holdOpenUntil) < 0) { leaveAt = 0; return; }
                 if (leaveAt == 0) leaveAt = now;
                 else if (unchecked(now - leaveAt) >= 260) { leaveAt = 0; SetState(0); }
             }
@@ -7993,9 +8653,52 @@ namespace Kapsula
             catch { return DefaultAccent; }
         }
 
+        // ---- плавная смена трека: текст уезжает и выезжает с другой стороны, обложка перетекает в новую
+        int trackDir = 1, trackDirAt;
+
+        void SwapTrackText(TextBlock tb, string text)
+        {
+            if ((tb.Tag as string ?? tb.Text) == text) return;
+            tb.Tag = text;
+            if (!tb.IsVisible || tb.Text.Trim().Length == 0) { tb.BeginAnimation(UIElement.OpacityProperty, null); tb.Opacity = 1; tb.Text = text; return; }
+            var tt = tb.RenderTransform as TranslateTransform;
+            if (tt == null) { tt = new TranslateTransform(); tb.RenderTransform = tt; }
+            double d = (unchecked(Environment.TickCount - trackDirAt) < 4000 ? trackDir : 1) * 12;
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
+            fadeOut.Completed += delegate
+            {
+                tb.Text = tb.Tag as string ?? text;
+                tb.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
+                tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(d, 0, TimeSpan.FromMilliseconds(300)) { EasingFunction = ease });
+            };
+            tb.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+            tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-d, TimeSpan.FromMilliseconds(120)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+        }
+
+        void SwapCover(Border b, Brush brush)
+        {
+            if (b == null) return;
+            if (!b.IsVisible || b.Background == null || b.Background == Chip) { b.Background = brush; return; }
+            var st = b.RenderTransform as ScaleTransform;
+            if (st == null) { st = new ScaleTransform(1, 1); b.RenderTransform = st; b.RenderTransformOrigin = new Point(0.5, 0.5); }
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var dim = new DoubleAnimation(0.15, TimeSpan.FromMilliseconds(110));
+            dim.Completed += delegate
+            {
+                b.Background = brush;
+                b.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
+                var pop = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(320)) { EasingFunction = new BackEase { Amplitude = 0.3, EasingMode = EasingMode.EaseOut } };
+                st.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+                st.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
+            };
+            b.BeginAnimation(UIElement.OpacityProperty, dim);
+        }
+
         void RenderMedia()
         {
             playerBody.Visibility = media.Has ? Visibility.Visible : Visibility.Collapsed;
+            UpdateRateButtons();
             playerEmpty.Visibility = media.Has ? Visibility.Collapsed : Visibility.Visible;
             if (media.Has != homeHadMedia) { homeHadMedia = media.Has; ApplyHomeLayout(); }
             if (srcBtn != null)
@@ -8006,19 +8709,21 @@ namespace Kapsula
             }
             if (media.Has)
             {
-                mTitle.Text = media.Title;
-                mArtist.Text = string.IsNullOrEmpty(media.Artist) ? " " : media.Artist;
-                mPlayGlyph.Text = media.Playing ? "" : "";
+                SwapTrackText(mTitle, media.Title);
+                SwapTrackText(mArtist, string.IsNullOrEmpty(media.Artist) ? " " : media.Artist);
+                // после нажатия значок уже переключён — 1,2 с не откатываем его назад, пока плеер выполняет команду
+                bool showPlaying = unchecked(Environment.TickCount - playClickAt) < 1200 ? playClickWant : media.Playing;
+                mPlayGlyph.Text = showPlaying ? "" : "";
                 nPlayGlyph.Text = mPlayGlyph.Text;
-                nTitle.Text = media.Title;
-                nArtist.Text = mArtist.Text;
+                SwapTrackText(nTitle, media.Title);
+                SwapTrackText(nArtist, string.IsNullOrEmpty(media.Artist) ? " " : media.Artist);
                 string lk = media.Title + "|" + media.Artist;
                 if (lk != lyricsKey)
                 {
                     bool changed = lyricsKey != null;
                     lyricsKey = lk;
                     lyricsDur = media.Dur;
-                    SetLyrics(null);
+                    HoldLyrics();
                     // В игре или в видео на весь экран остров спрятан — на смену трека выглядываем с названием.
                     if (changed && hiddenFs && state == 0 && media.Playing && Store.Get("fsTrack") != "0")
                     {
@@ -8060,16 +8765,16 @@ namespace Kapsula
                         catch { coverBrush = null; }
                     }
                     UpdateAccent(ac);
-                    mCover.Background = coverBrush != null ? (Brush)coverBrush : Chip;
-                    cCover.Background = coverBrush != null ? (Brush)coverBrush : Chip;
-                    nCover.Background = coverBrush != null ? (Brush)coverBrush : Chip;
+                    SwapCover(mCover, coverBrush != null ? (Brush)coverBrush : Chip);
+                    SwapCover(cCover, coverBrush != null ? (Brush)coverBrush : Chip);
+                    SwapCover(nCover, coverBrush != null ? (Brush)coverBrush : Chip);
                     coverGlow.Visibility = coverBrush != null ? Visibility.Visible : Visibility.Collapsed;
                     if (PlayerStyle == 3) ApplyPlayerStyle();
                 }
             }
             else
             {
-                if (lyricsKey != null) { lyricsKey = null; SetLyrics(null); }
+                if (lyricsKey != null) { lyricsKey = null; HoldLyrics(); }   // плеер мог пропасть на миг между треками — не сужаемся сразу
                 if (state == 1 && ForceOpen == -1) SetState(0);
             }
             double[] ms = { 420, 300, 520, 360 };
@@ -8167,14 +8872,65 @@ namespace Kapsula
             volText.Text = Math.Round(v * 100) + "%";
         }
 
+        // ---- громкость в мини-плеере: только этот плеер
+        Bar miniVolBar;
+        TextBlock miniVolIcon, miniVolText;
+
+        // Громкость источника: своя у плеера (микшер Windows) или, если её нет, общая. player — нашлась ли своя.
+        double MiniVolume(out bool player)
+        {
+            double v = media.Has ? AppVolume.Get(PlayerKey()) : -1;
+            player = v >= 0;
+            return player ? v : Audio.GetVolume();
+        }
+
+        void SetMiniVolume(double v)
+        {
+            v = Math.Max(0, Math.Min(1, v));
+            bool player; MiniVolume(out player);
+            if (player) AppVolume.Set(PlayerKey(), v);
+            else { Audio.SetVolume(v); lastVol = v; }
+            PaintMiniVolume(v, player);
+        }
+
+        void PaintMiniVolume(double v, bool player)
+        {
+            if (miniVolBar == null) return;
+            if (v < 0) { miniVolText.Text = "—"; return; }
+            miniVolBar.Set(v);
+            miniVolText.Text = Math.Round(v * 100) + "%";
+            miniVolIcon.Text = ((char)(v <= 0.001 ? 0xE74F : v < 0.34 ? 0xE993 : v < 0.67 ? 0xE994 : 0xE995)).ToString();
+            miniVolIcon.Foreground = player ? (Brush)accent : Dim;
+            string tip = player ? "Громкость: " + PlayerKey() : "Громкость всей системы (у плеера нет своего звука)";
+            miniVolIcon.ToolTip = tip; miniVolBar.Root.ToolTip = tip;
+        }
+
+        void RenderMiniVolume()
+        {
+            if (miniVolBar == null || miniVolBar.Root.IsMouseCaptured) return;
+            bool player; double v = MiniVolume(out player);
+            PaintMiniVolume(v, player);
+        }
+
         void OnWheel(object sender, MouseWheelEventArgs e)
         {
+            if (state == 1 && media.Has)
+            {
+                // в мини-плеере колёсико крутит громкость этого плеера
+                bool pl; double cur = MiniVolume(out pl);
+                if (cur < 0) return;
+                SetMiniVolume(cur + (e.Delta > 0 ? 0.02 : -0.02));
+                e.Handled = true;
+                return;
+            }
             if (!expanded || page != 0) return;
-            double v = Audio.GetVolume();
+            // колёсико крутит то, что выбрано на «Главной»: громкость плеера или общую
+            bool player = volPlayer && AppVolume.Get(PlayerKey()) >= 0;
+            double v = player ? AppVolume.Get(PlayerKey()) : Audio.GetVolume();
             if (v < 0) return;
             v = Math.Max(0, Math.Min(1, v + (e.Delta > 0 ? 0.02 : -0.02)));
-            Audio.SetVolume(v);
-            lastVol = v;
+            if (player) AppVolume.Set(PlayerKey(), v);
+            else { Audio.SetVolume(v); lastVol = v; }
             RenderHomeLive();
             e.Handled = true;
         }
@@ -8649,6 +9405,7 @@ namespace Kapsula
             DuckTick();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
             if ((expanded && page == 0 || state == 1 || state == 0 && PillMode == 2) && pollN % 2 == 0) UpdateLyrics();
+            if (state == 1 && pollN % 4 == 0) RenderMiniVolume();
             if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
             if (expanded && page == PWeather && weatherAnimAt != 0) AnimateWeather();
             if (expanded && page == PNote && pollN % 4 == 0) UpdateRing();
@@ -8660,8 +9417,8 @@ namespace Kapsula
             // «Показывать в играх» — остров остаётся на месте, но в облегчённом виде: без пляшущего края, без стекла,
             // зверёк двигается реже. Каждая перерисовка окна поверх игры отнимает у неё кадры.
             bool fsRaw = FullscreenAppInFront(), showGames = Store.Get("showInGames") == "1";
-            bool fs = fsRaw && !showGames;
-            bool lite = TestGameLite || fsRaw && showGames;
+            bool fs = fsRaw && !showGames && !GamerMode;   // в игровом режиме остров и так спрятан, а уведомления должны доходить
+            bool lite = TestGameLite || fsRaw && showGames || GamerMode;
             if (lite != gameLite)
             {
                 gameLite = lite;

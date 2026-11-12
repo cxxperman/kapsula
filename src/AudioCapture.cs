@@ -31,10 +31,66 @@ namespace Kapsula
         [PreserveSig] int GetNextPacketSize(out uint frames);
     }
 
-    // Спектр того, что сейчас играет: нужен только жидкому краю острова, чтобы он плясал как эквалайзер
-    // (слева низкие частоты, справа высокие). Звук разбирается в памяти и никуда не сохраняется и не передаётся.
+    // Захват звука одного процесса (и его дочерних) — Windows 10 2004 и новее. Так жидкий край слышит только плеер,
+    // а не игру, Discord и системные звуки.
+    [ComImport, Guid("41D949AB-9862-444A-80F6-C261334DA5EB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IActivateAudioInterfaceCompletionHandler { void ActivateCompleted(IActivateAudioInterfaceAsyncOperation op); }
+    [ComImport, Guid("72A22D78-CDE4-431D-B8CC-843A71199B6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IActivateAudioInterfaceAsyncOperation { void GetActivateResult(out int hr, [MarshalAs(UnmanagedType.IUnknown)] out object iface); }
+    [ComImport, Guid("94ea2b94-e9cc-49e0-c0ff-ee64ca8f5b90"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAgileObject { }
+
+    static class ProcessLoopback
+    {
+        [DllImport("Mmdevapi.dll", ExactSpelling = true, PreserveSig = false)]
+        static extern void ActivateAudioInterfaceAsync([MarshalAs(UnmanagedType.LPWStr)] string path, ref Guid riid, IntPtr activationParams, IActivateAudioInterfaceCompletionHandler handler, out IActivateAudioInterfaceAsyncOperation op);
+
+        class Done : IActivateAudioInterfaceCompletionHandler, IAgileObject
+        {
+            public readonly ManualResetEvent Ev = new ManualResetEvent(false);
+            public object Client; public int Hr = -1;
+            public void ActivateCompleted(IActivateAudioInterfaceAsyncOperation op)
+            {
+                try { int hr; object o; op.GetActivateResult(out hr, out o); Hr = hr; Client = o; } catch { }
+                Ev.Set();
+            }
+        }
+
+        // IAudioClient, который слышит только процесс pid и его дочерние; null — не вышло (старая Windows и т. п.)
+        public static IAudioClient Activate(uint pid)
+        {
+            IntPtr pv = IntPtr.Zero, prm = IntPtr.Zero;
+            try
+            {
+                prm = Marshal.AllocHGlobal(12);
+                Marshal.WriteInt32(prm, 0, 1);              // AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK
+                Marshal.WriteInt32(prm, 4, (int)pid);       // TargetProcessId
+                Marshal.WriteInt32(prm, 8, 0);              // PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
+                pv = Marshal.AllocHGlobal(24);
+                for (int i = 0; i < 24; i += 4) Marshal.WriteInt32(pv, i, 0);
+                Marshal.WriteInt16(pv, 0, 65);              // VT_BLOB
+                Marshal.WriteInt32(pv, 8, 12);              // cbSize
+                Marshal.WriteIntPtr(pv, 8 + IntPtr.Size, prm);
+                var done = new Done();
+                Guid iid = typeof(IAudioClient).GUID;
+                IActivateAudioInterfaceAsyncOperation op;
+                ActivateAudioInterfaceAsync("VAD\\Process_Loopback", ref iid, pv, done, out op);
+                if (!done.Ev.WaitOne(3000) || done.Hr != 0) return null;
+                return done.Client as IAudioClient;
+            }
+            catch (Exception ex) { Store.LogError("звук плеера", ex); return null; }
+            finally { if (pv != IntPtr.Zero) Marshal.FreeHGlobal(pv); if (prm != IntPtr.Zero) Marshal.FreeHGlobal(prm); }
+        }
+    }
+
+    // Спектр того, что играет в медиаплеере: нужен только жидкому краю острова, чтобы он плясал как эквалайзер
+    // (слева низкие частоты, справа высокие). Слушается только процесс плеера, а не весь звук системы.
+    // Звук разбирается в памяти и никуда не сохраняется и не передаётся.
     static class Spectrum
     {
+        // Какой плеер слушать (название, как в микшере громкости). Пусто — ничего не слушаем.
+        public static volatile string Player = "";
+        static volatile string runningFor;
         const int N = 1024;
         static readonly float[] ring = new float[N];
         static int ringPos, rate = 48000, lastPacketAt, lastUseAt, retryAt;
@@ -51,7 +107,9 @@ namespace Kapsula
         {
             lastUseAt = Environment.TickCount;
             // Не вышло снять звук (нет устройства вывода) — пробуем снова не чаще раза в две секунды.
+            if (string.IsNullOrEmpty(Player)) return false;
             if (!running) { if (unchecked(Environment.TickCount - retryAt) >= 0) Start(); return false; }
+            if (runningFor != Player) return false;   // плеер сменился — поток сам закроется и откроется заново
             if (unchecked(Environment.TickCount - lastPacketAt) > 250) return false;   // давно ничего не играло
             lock (gate) { for (int i = 0; i < N; i++) { re[i] = ring[(ringPos + i) % N] * window[i]; im[i] = 0; } }
             Fft(re, im);
@@ -106,6 +164,7 @@ namespace Kapsula
         {
             if (running) return;
             running = true;
+            runningFor = Player;
             thread = new Thread(Run);
             thread.IsBackground = true;
             thread.Start();
@@ -118,31 +177,41 @@ namespace Kapsula
         {
             IAudioClient client = null;
             IntPtr fmt = IntPtr.Zero;
+            var ev = new AutoResetEvent(false);
+            string player = runningFor;
             try
             {
-                var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
-                IMMDevice dev;
-                if (en.GetDefaultAudioEndpoint(0, 1, out dev) != 0 || dev == null) return;
-                Guid iid = typeof(IAudioClient).GUID;
-                object o;
-                if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0 || o == null) return;
-                client = (IAudioClient)o;
-                if (client.GetMixFormat(out fmt) != 0 || fmt == IntPtr.Zero) return;
-                int tag = (ushort)Marshal.ReadInt16(fmt, 0), channels = Marshal.ReadInt16(fmt, 2), align = Marshal.ReadInt16(fmt, 12), bits = Marshal.ReadInt16(fmt, 14);
-                rate = Marshal.ReadInt32(fmt, 4);
-                if (tag == 0xFFFE) tag = Marshal.ReadInt32(fmt, 24) & 0xFFFF;
-                bool isFloat = tag == 3 && bits == 32, isShort = tag == 1 && bits == 16;
-                if ((!isFloat && !isShort) || channels < 1 || channels > 8) return;
-                if (client.Initialize(0, 0x00020000u, 2000000, 0, fmt, IntPtr.Zero) != 0) return;
+                uint pid = AppVolume.SessionPid(player);
+                if (pid == 0) return;   // у плеера сейчас нет звука в микшере — пробуем позже
+                client = ProcessLoopback.Activate(pid);
+                if (client == null) return;
+                // Формат задаём сами: у такого захвата нет «родного» формата; Windows переведёт звук в 16 бит, 48 кГц, стерео
+                const int channels = 2, align = 4;
+                rate = 48000;
+                fmt = Marshal.AllocHGlobal(18);
+                Marshal.WriteInt16(fmt, 0, 1); Marshal.WriteInt16(fmt, 2, channels); Marshal.WriteInt32(fmt, 4, rate);
+                Marshal.WriteInt32(fmt, 8, rate * align); Marshal.WriteInt16(fmt, 12, align); Marshal.WriteInt16(fmt, 14, 16); Marshal.WriteInt16(fmt, 16, 0);
+                // петля + сигнал о новых данных + перевод формата
+                if (client.Initialize(0, 0x00020000u | 0x00040000u | 0x80000000u | 0x08000000u, 2000000, 0, fmt, IntPtr.Zero) != 0) return;
+                client.SetEventHandle(ev.SafeWaitHandle.DangerousGetHandle());
                 Guid capIid = typeof(IAudioCaptureClient).GUID;
                 object co;
                 if (client.GetService(ref capIid, out co) != 0 || co == null) return;
                 var capture = (IAudioCaptureClient)co;
                 if (client.Start() != 0) return;
                 var buf = new byte[align * 4096];
-                // Работаем, пока спектр кому-то нужен; через три секунды без запросов останавливаемся.
-                while (unchecked(Environment.TickCount - lastUseAt) < 3000)
+                int checkAt = Environment.TickCount + 4000;
+                // Работаем, пока спектр кому-то нужен и плеер тот же; через три секунды без запросов останавливаемся.
+                while (unchecked(Environment.TickCount - lastUseAt) < 3000 && runningFor == Player)
                 {
+                    ev.WaitOne(40);
+                    // плеер мог перезапустить свой звуковой процесс (браузеры так делают) — тогда переподключаемся
+                    if (unchecked(Environment.TickCount - checkAt) >= 0)
+                    {
+                        checkAt = Environment.TickCount + 4000;
+                        uint now = AppVolume.SessionPid(player);
+                        if (now != 0 && now != pid) break;
+                    }
                     uint n;
                     if (capture.GetNextPacketSize(out n) != 0) break;
                     while (n > 0)
@@ -155,39 +224,33 @@ namespace Kapsula
                         capture.ReleaseBuffer(frames);
                         if (bytes <= buf.Length)
                         {
+                            bool loud = false;
                             lock (gate)
                             {
                                 for (int f = 0; f < (int)frames; f++)
                                 {
                                     float s = 0;
-                                    if (!silent)
-                                    {
-                                        int at = f * align;
-                                        if (isFloat) { s = BitConverter.ToSingle(buf, at); if (channels > 1) s = (s + BitConverter.ToSingle(buf, at + 4)) * 0.5f; }
-                                        else { s = BitConverter.ToInt16(buf, at) / 32768f; if (channels > 1) s = (s + BitConverter.ToInt16(buf, at + 2) / 32768f) * 0.5f; }
-                                    }
+                                    if (!silent) { int at = f * align; s = (BitConverter.ToInt16(buf, at) + BitConverter.ToInt16(buf, at + 2)) / 65536f; if (s != 0) loud = true; }
                                     ring[ringPos] = s;
                                     ringPos = (ringPos + 1) % N;
                                 }
                             }
-                            if (!silent) lastPacketAt = Environment.TickCount;
+                            if (loud) lastPacketAt = Environment.TickCount;
                         }
                         if (capture.GetNextPacketSize(out n) != 0) n = 0;
                     }
-                    Thread.Sleep(8);
                 }
             }
             catch (Exception ex) { Store.LogError("спектр звука", ex); }
             finally
             {
                 try { if (client != null) client.Stop(); } catch { }
-                if (fmt != IntPtr.Zero) CoTaskMemFree(fmt);
-                retryAt = Environment.TickCount + 2000;
+                if (fmt != IntPtr.Zero) Marshal.FreeHGlobal(fmt);
+                retryAt = Environment.TickCount + (runningFor == Player ? 2000 : 0);
                 running = false;
             }
         }
     }
-
     // Снимает то, что играет на устройстве вывода по умолчанию («петля» WASAPI), и отдаёт сырой звук в именованный канал.
     // ffmpeg читает этот канал как второй вход, поэтому звук и видео сводятся в один файл прямо во время записи.
     // Звук никуда, кроме этого канала, не уходит и отдельно не сохраняется.

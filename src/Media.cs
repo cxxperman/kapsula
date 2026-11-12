@@ -61,9 +61,55 @@ namespace Kapsula
         }
 
         // Кнопки плеера: команда уходит выбранному плееру. Если плеер не выбран — обычная мультимедийная клавиша.
+        readonly AutoResetEvent kick = new AutoResetEvent(false);
+        volatile int fastUntil;
+
+        // разбудить опрос немедленно и следующие 3 секунды опрашивать часто
+        void Hurry() { fastUntil = Environment.TickCount + 3000; kick.Set(); }
+
+        int lastPrevAt;
+
+        // Где сейчас трек, секунды (с поправкой на время, прошедшее с последнего отчёта плеера)
+        static double PositionOf(GlobalSystemMediaTransportControlsSession s)
+        {
+            try
+            {
+                var tl = s.GetTimelineProperties();
+                double pos = (tl.Position - tl.StartTime).TotalSeconds;
+                var pb = s.GetPlaybackInfo();
+                if (pb != null && pb.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing && tl.LastUpdatedTime.Year > 2000)
+                    pos += Math.Max(0, (DateTimeOffset.Now - tl.LastUpdatedTime).TotalSeconds);
+                return pos;
+            }
+            catch { return 0; }
+        }
+
         public void Command(int key)
         {
+            Hurry();
             var s = chosen;
+            // «Назад» как на Mac и iPhone: трек играет дольше 3 секунд — сначала в начало; повторное нажатие в течение 2,5 с — предыдущий
+            if (key == 0xB1 && s != null)
+            {
+                int now = Environment.TickCount;
+                bool restart = unchecked(now - lastPrevAt) > 2500 && PositionOf(s) > 3;
+                lastPrevAt = now;
+                if (restart)
+                {
+                    var ses = s;
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        try
+                        {
+                            var tl = ses.GetTimelineProperties();
+                            if (!Wait(ses.TryChangePlaybackPositionAsync(tl.StartTime.Ticks))) Wait(ses.TrySkipPreviousAsync());   // плеер не умеет перематывать — сразу предыдущий
+                        }
+                        catch { Native.MediaKey(0xB1); }
+                        Hurry();
+                    });
+                    return;
+                }
+            }
             if (s == null || Preferred == "") { Native.MediaKey((byte)key); return; }
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -72,6 +118,7 @@ namespace Kapsula
                     if (key == 0xB3) Wait(s.TryTogglePlayPauseAsync());
                     else if (key == 0xB0) Wait(s.TrySkipNextAsync());
                     else if (key == 0xB1) Wait(s.TrySkipPreviousAsync());
+                    Hurry();
                 }
                 catch { Native.MediaKey((byte)key); }
             });
@@ -178,7 +225,8 @@ namespace Kapsula
                     var h = Updated;
                     if (h != null) h(info);
                 }
-                Thread.Sleep(1000);
+                // обычно раз в секунду; сразу после нажатия кнопки — часто, чтобы трек, обложка и время подтянулись без задержки
+                kick.WaitOne(unchecked(Environment.TickCount - fastUntil) < 0 ? 120 : 1000);
             }
         }
 

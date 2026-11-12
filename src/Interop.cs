@@ -385,6 +385,49 @@ namespace Kapsula
             catch { }
             return best;
         }
+        // Процесс, который выводит звук плеера (у браузеров и WebView2 — их звуковой дочерний процесс); 0 — не нашли.
+        // Активный поток предпочтительнее: у браузера бывает несколько сессий, звучит обычно одна.
+        public static uint SessionPid(string app)
+        {
+            uint found = 0;
+            Dictionary<uint, KeyValuePair<uint, string>> procs = null;
+            try
+            {
+                var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
+                IMMDevice dev;
+                if (en.GetDefaultAudioEndpoint(0, 1, out dev) != 0 || dev == null) return 0;
+                Guid iid = typeof(IAudioSessionManager2).GUID;
+                object o;
+                if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0 || o == null) return 0;
+                IAudioSessionEnumerator sessions; int n;
+                if (((IAudioSessionManager2)o).GetSessionEnumerator(out sessions) != 0 || sessions == null || sessions.GetCount(out n) != 0) return 0;
+                for (int i = 0; i < n; i++)
+                {
+                    object s;
+                    if (sessions.GetSession(i, out s) != 0 || s == null) continue;
+                    var c2 = s as IAudioSessionControl2;
+                    int st; uint pid;
+                    if (c2 == null || c2.GetState(out st) != 0 || c2.GetProcessId(out pid) != 0 || pid == 0) continue;
+                    if (procs == null) procs = Snapshot();
+                    uint cur = pid;
+                    for (int depth = 0; depth < 5 && cur != 0; depth++)
+                    {
+                        KeyValuePair<uint, string> info;
+                        if (!procs.TryGetValue(cur, out info)) break;
+                        if (Matches(info.Value, app))
+                        {
+                            if (st == 1) return pid;   // звучит прямо сейчас
+                            if (found == 0) found = pid;
+                            break;
+                        }
+                        cur = info.Key;
+                    }
+                }
+            }
+            catch { }
+            return found;
+        }
+
         // Громкость плеера от 0 до 1; -1 — у этого плеера нет своего звука в микшере
         public static double Get(string player)
         {

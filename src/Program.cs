@@ -34,6 +34,27 @@ namespace Kapsula
                 sa.Run();
                 return;
             }
+            if (args.Length == 2 && args[0] == "--qwenengines") { var o = new System.Text.StringBuilder(); o.AppendLine("wanted " + QwenLocal.WantedEngine()); foreach (string k in new string[] { "vulkan", "cuda-12", "cuda-13" }) { string u, r; try { System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072; QwenLocal.FindEngine(k, out u, out r); o.AppendLine(k + ": " + u + " | " + r); } catch (Exception ex) { o.AppendLine(k + ": " + ex.Message); } } System.IO.File.WriteAllText(args[1], o.ToString()); return; }
+            if (args.Length == 3 && args[0] == "--spectest")
+            {
+                // проверка: слушаем только указанный плеер 6 секунд и пишем, что услышали
+                var o = new System.Text.StringBuilder();
+                o.AppendLine("pid " + AppVolume.SessionPid(args[1]) + ", пик плеера " + AppVolume.SessionPeak(args[1], 0).ToString("0.00"));
+                Spectrum.Player = args[1];
+                var bands = new double[24]; int ok = 0, total = 0; double sum = 0;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < 6000) { total++; if (Spectrum.Read(bands)) { ok++; foreach (double v in bands) sum += v; } System.Threading.Thread.Sleep(100); }
+                o.AppendLine("спектр получен " + ok + " из " + total + ", средняя высота " + (ok > 0 ? (sum / ok / bands.Length).ToString("0.00") : "-"));
+                System.IO.File.WriteAllText(args[2], o.ToString()); return;
+            }
+            if (args.Length == 3 && args[0] == "--qwentest") { Store.Load(); Environment.Exit(QwenLocal.Test(args[1], args[2])); return; }
+            if (args.Length >= 3 && args[0] == "--uiaprobe")
+            {
+                var ua = new Application();
+                ua.Startup += delegate { UiaRate.Probe(args[1], args[2], args.Length > 3 ? int.Parse(args[3]) : 8, args.Length > 4 && args[4] == "press"); };
+                ua.Run();
+                return;
+            }
             if (args.Length == 2 && args[0] == "--camprobe")
             {
                 var pa = new Application();
@@ -90,6 +111,7 @@ namespace Kapsula
                 if (args[i] == "--fstest") { w.Demo = true; w.TestFs = true; }
                 if (args[i] == "--lyrictest") w.TestLyrics = true;
                 if (args[i] == "--notetest") w.TestNote = true;
+                if (args[i] == "--gamertest") w.TestGamer = true;
                 if (args[i] == "--settings") w.TestSettings = true;
                 if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
                 if (args[i] == "--settingsscroll" && i + 1 < args.Length) double.TryParse(args[i + 1], out w.TestSettingsScroll);
@@ -121,6 +143,7 @@ namespace Kapsula
                 if (args[i] == "--duckask" && i + 1 < args.Length) { Ai.ForceDuck = true; w.TestDuckAsk = args[i + 1]; w.ForceOpen = 4; }
                 if (args[i] == "--camtest") PhoneCam.TestPattern(w);
                 if (args[i] == "--camserve") PhoneCam.Start(w);
+                if (args[i] == "--emote" && i + 1 < args.Length) w.TestEmote = args[i + 1];
                 if (args[i] == "--steamdltest") w.Loaded += delegate
                 {
                     double pct = 5; var st = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };

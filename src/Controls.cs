@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: Controls.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: Controls.cs
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -226,9 +226,38 @@ namespace Kapsula
             return this;
         }
 
+        // Вид «быстрой команды»: цветной квадратик со значком сверху слева, короткая подпись в одну строку снизу
+        Brush shortcutColor;
+        public Tile Shortcut(Color color, string shortLabel, string tip)
+        {
+            shortcutColor = new LinearGradientBrush(Color.FromRgb((byte)Math.Min(255, color.R + 28), (byte)Math.Min(255, color.G + 28), (byte)Math.Min(255, color.B + 28)), color, 90);
+            var sp = (StackPanel)Root.Child;
+            sp.Children.Clear();
+            var g = new Grid { Margin = new Thickness(10, 10, 10, 9) };
+            badge.Width = badge.Height = 26; badge.CornerRadius = new CornerRadius(8);
+            badge.Background = shortcutColor;
+            badge.HorizontalAlignment = HorizontalAlignment.Left; badge.VerticalAlignment = VerticalAlignment.Top;
+            Glyph.FontSize = 13; Glyph.Foreground = Brushes.White;
+            Label.Text = shortLabel; Label.FontSize = 12.5; Label.FontWeight = FontWeights.SemiBold;
+            Label.TextWrapping = TextWrapping.NoWrap; Label.TextTrimming = TextTrimming.CharacterEllipsis; Label.MaxWidth = double.PositiveInfinity;
+            Label.HorizontalAlignment = HorizontalAlignment.Left; Label.VerticalAlignment = VerticalAlignment.Bottom; Label.Margin = new Thickness(1, 0, 0, 0);
+            g.Children.Add(badge); g.Children.Add(Label);
+            Root.Child = g;
+            Root.CornerRadius = new CornerRadius(16);
+            Root.ToolTip = tip;
+            return this;
+        }
+
         public void SetActive(bool on)
         {
             active = on;
+            if (shortcutColor != null)
+            {
+                // у «быстрой команды» включённое состояние — светящаяся рамка цвета значка
+                Root.BorderBrush = on ? shortcutColor : Line;
+                Root.BorderThickness = new Thickness(on ? 1.5 : 1);
+                return;
+            }
             badge.Background = on ? Accent : Badge;
             Glyph.Foreground = on ? Brushes.White : Light;
         }

@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: Pet.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: Pet.cs
 // Зверёк — пиксельный питомец Kapsula. Этот класс рисует его в любом месте интерфейса и сам оживляет:
 // настроение задаётся одним словом, движение идёт только пока зверёк виден на экране.
 using System;
@@ -67,6 +67,8 @@ namespace Kapsula
         public readonly StackPanel Root;
         readonly double px;
         readonly TranslateTransform shift = new TranslateTransform();
+        readonly ScaleTransform squash = new ScaleTransform(1, 1);
+        readonly RotateTransform tilt = new RotateTransform(0);
         readonly List<Rectangle>[] eyes = new List<Rectangle>[5];   // 0 обычные, 1 вниз, 2 круглые, 3 довольные, 4 закрытые
         readonly TextBlock mark;
         readonly DispatcherTimer timer;
@@ -143,7 +145,8 @@ namespace Kapsula
         public PetView(double pixel, Brush eyeBrush)
         {
             px = pixel;
-            var c = new Canvas { Width = 11 * px, Height = 9 * px, RenderTransform = shift, VerticalAlignment = VerticalAlignment.Center };
+            var tg = new TransformGroup(); tg.Children.Add(squash); tg.Children.Add(tilt); tg.Children.Add(shift);
+            var c = new Canvas { Width = 11 * px, Height = 9 * px, RenderTransform = tg, RenderTransformOrigin = new Point(0.5, 1), VerticalAlignment = VerticalAlignment.Center };
             for (int y = 0; y < Shape.Length; y++)
             {
                 int x = 0;
@@ -202,12 +205,171 @@ namespace Kapsula
             mark.Foreground = signBrush ?? Grey;
         }
 
+        // ---- Случайные сценки. Где живёт зверёк (Context), то он и делает: на полке таскает коробки, в чате «печатает»,
+        // в погоде отряхивается от дождя или ловит снежинки, у таймера постукивает ногой. Раз в 6–14 секунд, на 1–2,5 секунды.
+        public string Context = "";
+        static readonly bool Fast = Environment.GetEnvironmentVariable("KAPSULA_PETEVENT") == "1";   // для проверки: сценки сразу и подряд
+        string ev;
+        int evAt, evDur, evNext;
+        static readonly Brush Yellow = new SolidColorBrush(Color.FromRgb(0xFF, 0xD6, 0x4A));
+        static readonly Brush Pink = new SolidColorBrush(Color.FromRgb(0xFF, 0x5C, 0x8A));
+        static readonly Brush Ice = new SolidColorBrush(Color.FromRgb(0x9E, 0xD8, 0xFF));
+        static readonly Brush Drop = new SolidColorBrush(Color.FromRgb(0x4D, 0xA8, 0xFF));
+        static readonly Brush Cardboard = new SolidColorBrush(Color.FromRgb(0xC8, 0x92, 0x5A));
+
+        string[] EventsFor()
+        {
+            string m = mood == "" ? "idle" : mood;
+            if (m == "sleep")
+                switch (Context)
+                {
+                    case "clips": return new[] { "copydream", "peekclip", "snore" };      // буфер: снится копирование, проверяет, не скопировали ли что
+                    case "notif": return new[] { "bell", "letter", "turn" };              // уведомления: вздрагивает от «звонка», снится письмо
+                    case "claude": return new[] { "codedream", "mumble", "snore" };       // Claude Code: снится код, бормочет
+                    default: return new[] { "snore", "turn", "dream", "peek" };
+                }
+            if (m == "think") return new[] { "scratch", "idea" };
+            if (m == "run") return new[] { "sweat", "sprint" };
+            if (m == "tea") return new[] { "sip", "sigh" };
+            if (m != "idle") return null;   // радость, тревога, вопрос и прочие настроения не перебиваем
+            switch (Context)
+            {
+                case "shelf": return new[] { "box", "sweep", "stretch", "wave", "sit" };
+                case "chat": return new[] { "type", "tilt", "idea", "wave", "yawn" };
+                case "timer": return new[] { "tap", "check", "yawn", "stretch" };
+                case "cmd": return new[] { "peek", "nod", "yawn" };
+                case "nav": return new[] { "wave", "tinker", "proud", "stretch", "spin" };   // настройки: подкручивает шестерёнку
+                case "weather":
+                    if (Prop.IndexOf('☂') >= 0 || Prop.IndexOf('☔') >= 0) return new[] { "shake", "look", "lean" };
+                    if (Prop.IndexOf('❄') >= 0) return new[] { "shiver", "catch", "look" };
+                    if (Prop.IndexOf('☀') >= 0) return new[] { "sunbathe", "stretch", "look" };
+                    return new[] { "lean", "look", "catch" };
+                case "": return null;
+                default: return new[] { "look", "stretch", "yawn", "hop", "tilt" };
+            }
+        }
+
+        bool EventTick(int now, double t, double hop)
+        {
+            if (Context == "") return false;
+            if (ev != null && unchecked(now - evAt) < evDur)
+            {
+                double p = unchecked(now - evAt) / (double)evDur;
+                PlayEvent(ev, p, t, hop, now);
+                return true;
+            }
+            if (ev != null) { ev = null; mark.RenderTransform = Transform.Identity; evNext = now + (Fast ? 200 : 6000 + rnd.Next(8000)); }
+            if (evNext == 0) evNext = now + (Fast ? 300 : 3000 + rnd.Next(7000));
+            if (unchecked(now - evNext) >= 0)
+            {
+                string[] list = EventsFor();
+                evNext = now + 6000 + rnd.Next(8000);
+                if (list == null) return false;
+                string pick = list[rnd.Next(list.Length)];
+                if (pick == lastEv && list.Length > 1) pick = list[(Array.IndexOf(list, pick) + 1) % list.Length];
+                ev = pick; lastEv = pick; evAt = now;
+                evDur = pick == "snore" || pick == "box" || pick == "sweep" ? 2400 : pick == "spin" || pick == "hop" || pick == "nod" ? 1000 : 1600;
+                PlayEvent(ev, 0, t, hop, now);
+                return true;
+            }
+            return false;
+        }
+        string lastEv;
+
+        static double Ease(double v) { v = Math.Max(0, Math.Min(1, v)); return v * v * (3 - 2 * v); }
+
+        void LookEyes(int dir, int up)
+        {
+            foreach (Rectangle r in eyes[0]) { double[] home = (double[])r.Tag; Canvas.SetLeft(r, home[0] + dir * px); Canvas.SetTop(r, home[1] + up * px); }
+        }
+
+        void PlayEvent(string e, double p, double t, double hop, int now)
+        {
+            double bell = Math.Sin(p * Math.PI);
+            mark.RenderTransform = Transform.Identity;
+            switch (e)
+            {
+                case "look":     // огляделся: влево, вправо, прямо
+                    Face(0, Prop, PropBrush); LookEyes(p < 0.33 ? -1 : p < 0.66 ? 1 : 0, 0); break;
+                case "stretch":  // потянулся вверх
+                    Face(4, "", null); squash.ScaleY = 1 + 0.18 * bell; squash.ScaleX = 1 - 0.08 * bell; break;
+                case "yawn":     // зевнул
+                    Face(4, "o", Grey); squash.ScaleY = 1 + 0.06 * bell; mark.Opacity = bell; break;
+                case "hop":      // пара прыжков от хорошего настроения
+                    Face(3, "", null); shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 2)) * hop * 1.2; break;
+                case "tilt":     // наклонил голову: «а?»
+                    Face(2, "?", Grey); tilt.Angle = bell * 14; break;
+                case "wave":     // помахал
+                    Face(3, "✋", Orange); mark.RenderTransform = new RotateTransform(Math.Sin(t * 9) * 20, px * 2, px * 4); shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 3)) * hop * 0.4; break;
+                case "spin":     // крутанулся на месте
+                    Face(3, "", null); tilt.Angle = 360 * Ease(p); shift.Y = -bell * hop; break;
+                case "proud":    // гордо выпрямился
+                    Face(3, "✦", Yellow); squash.ScaleY = 1 + 0.06 * bell; mark.Opacity = 0.4 + 0.6 * Math.Abs(Math.Sin(t * 4)); break;
+                case "sit":      // присел отдохнуть
+                    Face(3, "", null); squash.ScaleY = 1 - 0.14 * bell; squash.ScaleX = 1 + 0.08 * bell; break;
+                case "box":      // таскает коробку по полке
+                    Face(1, "■", Cardboard); shift.X = Math.Sin(p * Math.PI * 2) * hop * 1.2; shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 6)) * hop * 0.5; break;
+                case "sweep":    // подметает полку
+                    Face(1, "~", Grey); shift.X = Math.Sin(p * Math.PI * 6) * hop * 0.7; tilt.Angle = Math.Sin(p * Math.PI * 6) * 6; break;
+                case "type":     // «печатает» ответ
+                    Face(1, new string('.', 1 + (now / 200) % 3), Grey); shift.Y = -Math.Abs(Math.Sin(t * 18)) * hop * 0.25; break;
+                case "idea":     // осенило!
+                    Face(2, "!", Yellow); shift.Y = p < 0.4 ? -Math.Sin(p / 0.4 * Math.PI) * hop * 1.4 : 0; break;
+                case "snore":    // храпит: «Z» раздувается и лопается
+                {
+                    Face(4, p < 0.85 ? "Z" : "○", Grey);
+                    double s = p < 0.85 ? 0.6 + p : 1.4;
+                    mark.RenderTransform = new ScaleTransform(s, s, 0, px * 4);
+                    mark.Opacity = p < 0.85 ? 0.8 : 1 - (p - 0.85) * 6;
+                    squash.ScaleY = 1 + Math.Sin(t * 2) * 0.03;
+                    break;
+                }
+                case "turn":     // ворочается во сне
+                    Face(4, "z", Grey); tilt.Angle = bell * 12; squash.ScaleY = 1 - 0.06 * bell; break;
+                case "dream":    // снится что-то хорошее
+                    Face(4, "♥", Pink); mark.Opacity = 0.3 + 0.7 * bell; break;
+                case "peek":     // приоткрыл глаза, огляделся — и снова спать
+                    if (p < 0.15 || p > 0.85) Face(4, "z", Grey); else { Face(0, "", null); LookEyes(p < 0.5 ? -1 : 1, 0); }
+                    break;
+
+                    Face(1, "?", Grey); tilt.Angle = Math.Sin(p * Math.PI * 8) * 5; break;
+                case "sweat":    // бежит изо всех сил, капля пота
+                    Face(1, "·", Drop); shift.X = Math.Sin(t * 10) * hop * 0.8; shift.Y = -Math.Abs(Math.Sin(t * 20)) * hop * 0.7; break;
+                case "sprint":   // рывок
+                    Face(1, "»", Grey); shift.X = Math.Sin(t * 14) * hop; shift.Y = -Math.Abs(Math.Sin(t * 28)) * hop * 0.5; break;
+                case "sip":      // отхлёбывает чай
+                    Face(4, "~", Grey); tilt.Angle = -8 * bell; break;
+                case "sigh":     // довольно вздыхает
+                    Face(4, "…", Grey); squash.ScaleY = 1 - 0.05 * bell; break;
+                case "shake":    // отряхивается от дождя
+                    Face(4, "·", Drop); shift.X = Math.Sin(p * Math.PI * 20) * hop * 0.5 * (1 - p); break;
+                case "lean":     // ветер: наклонился против ветра
+                    Face(0, "~", Grey); tilt.Angle = -10 * bell; break;
+                case "shiver":   // мёрзнет
+                    Face(1, "❄", Ice); shift.X = (rnd.NextDouble() - 0.5) * px * 0.8; break;
+                case "catch":    // ловит снежинку или лучик
+                    Face(3, "✦", Yellow); shift.Y = -bell * hop * 1.3; break;
+                case "sunbathe": // загорает
+                    Face(4, "☀", Yellow); squash.ScaleY = 1 - 0.05 * bell; break;
+                case "tap":      // постукивает ногой — ждёт
+                    Face(0, Prop, PropBrush); shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 6)) * px * 0.5; break;
+                case "check":    // поглядывает на таймер
+                    Face(0, "?", Grey); LookEyes(-1, 0); break;
+                case "peekcmd":
+                case "nod":      // кивает тому, что вы пишете
+                    Face(0, "", null); LookEyes(-1, 1); shift.Y = Math.Abs(Math.Sin(p * Math.PI * 4)) * hop * 0.35; break;
+                default:
+                    Face(0, "", null); LookEyes(-1, 1); break;   // заглядывает в строку
+            }
+        }
         void Step()
         {
             int now = Environment.TickCount;
             double t = now / 1000.0, age = unchecked(now - born) / 1000.0;
             shift.X = 0; shift.Y = 0; mark.Opacity = 1;
+            squash.ScaleX = squash.ScaleY = 1; tilt.Angle = 0;
             double hop = px * 1.4;
+            if (EventTick(now, t, hop)) return;   // случайная сценка поверх обычного поведения
             if (mood != "hello" && mark.RenderTransform != Transform.Identity) mark.RenderTransform = Transform.Identity;
             switch (mood)
             {

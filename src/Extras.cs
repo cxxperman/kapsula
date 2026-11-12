@@ -147,7 +147,7 @@ namespace Kapsula
             notifCount.Text = seenNotes.Count == 0 ? "Хранятся до закрытия Kapsula" : Plural(seenNotes.Count, "уведомление", "уведомления", "уведомлений") + " · хранятся до закрытия Kapsula";
             if (seenNotes.Count == 0)
             {
-                notifList.Children.Add(PetSpot("sleep", 50, 12));
+                notifList.Children.Add(PetSpot("sleep", 50, 12, "notif"));
                 notifList.Children.Add(new TextBlock { Text = "Уведомлений пока не было", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center });
                 return;
             }
@@ -735,6 +735,195 @@ namespace Kapsula
             var res = new string[hints.Length];
             for (int i = 0; i < hints.Length; i++) res[i] = boxes[i].Text;
             return res;
+        }
+        // ================================================================ «В избранное» и «Не интересует» (Cider)
+        readonly List<Border> rateBtns = new List<Border>(), favBtns = new List<Border>();
+        readonly List<FrameworkElement[]> favStars = new List<FrameworkElement[]>();   // [контурная, залитая]
+        static readonly Brush StarYellow = new SolidColorBrush(Color.FromRgb(0xFF, 0xCC, 0x33));
+        readonly List<Border> banBtns = new List<Border>();
+        bool? favNow;
+        string favKey;
+        string rateMode = "";          // "cider" — через API Cider, "uia" — кнопками самого плеера, "" — нет
+        bool uiaHasBan;
+        int ratePlayerSeq;
+
+        void ShowRate(bool fav, bool ban)
+        {
+            foreach (Border b in favBtns) b.Visibility = fav ? Visibility.Visible : Visibility.Collapsed;
+            foreach (Border b in banBtns) b.Visibility = ban ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        Border FavButton(double size)
+        {
+            var outline = MediaShape("star", size * 0.5, Fg);
+            var filled = MediaShape("starfill", size * 0.5, StarYellow);
+            filled.Visibility = Visibility.Collapsed;
+            var g = new Grid(); g.Children.Add(outline); g.Children.Add(filled);
+            var b = RateBtn(size, g, "В избранное", delegate { ToggleFavorite(); });
+            favStars.Add(new FrameworkElement[] { outline, filled });
+            favBtns.Add(b);
+            return b;
+        }
+
+        Border BanButton(double size)
+        {
+            var b = RateBtn(size, MediaShape("ban", size * 0.46, Dim), "Не интересует — предлагать меньше такого и дальше", delegate { NotInterested(); });
+            banBtns.Add(b);
+            return b;
+        }
+
+        Border RateBtn(double size, FrameworkElement child, string tip, Action click)
+        {
+            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = child, Cursor = Cursors.Hand, ToolTip = tip, Visibility = Visibility.Collapsed, Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
+            Fx.Press(b, 0.86);
+            HoverFollows(b);
+            rateBtns.Add(b);
+            return b;
+        }
+
+        // Кнопки видны, только когда играющий плеер умеет оценки: Cider — через его API, остальные (браузеры, Spotify,
+        // Яндекс Музыка) — если в их окне нашлись кнопки «Нравится» / «Не нравится» (альфа, включается в настройках)
+        void UpdateRateButtons()
+        {
+            bool test = Environment.GetEnvironmentVariable("KAPSULA_RATETEST") == "1";
+            string mode = !media.Has ? "" : (Cider.IsCider(media.Source) || test) ? (Store.Get("ciderRate") != "0" ? "cider" : "") : UiaRate.Enabled ? "uia" : "";
+            string key = mode + "|" + media.Source + "|" + media.Title + "|" + media.Artist;
+            if (mode == "") { rateMode = ""; favKey = null; ShowRate(false, false); return; }
+            if (mode == "cider") ShowRate(true, true);
+            else if (rateMode != "uia" || key != favKey) ShowRate(false, false);   // до проверки окна плеера кнопок не показываем
+            else ShowRate(true, uiaHasBan);
+            if (key == favKey && mode == rateMode) return;
+            rateMode = mode; favKey = key; favNow = null; PaintStar();
+            if (mode == "cider")
+            {
+                if (test) return;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    int st; bool? f = Cider.IsFavorite(out st);
+                    Dispatcher.BeginInvoke(new Action(delegate { if (favKey == key) { favNow = f; PaintStar(); } }));
+                });
+                return;
+            }
+            ProbeUia(key, 700);
+        }
+
+        // Ищем кнопки в окне плеера в фоне: сайту нужно мгновение, чтобы обновить полосу плеера, — пробуем дважды
+        void ProbeUia(string key, int delay)
+        {
+            string src = media.Source, title = media.Title;
+            int seq = ++ratePlayerSeq;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                UiaRate.Found f = null;
+                for (int i = 0; i < 2 && f == null; i++)
+                {
+                    System.Threading.Thread.Sleep(i == 0 ? delay : 1500);
+                    if (seq != ratePlayerSeq) return;
+                    try { f = UiaRate.Find(src, title); } catch (Exception ex) { Store.LogError("оценки", ex); }
+                }
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (favKey != key || rateMode != "uia") return;
+                    uiaHasBan = f != null && f.Dislike != null;
+                    ShowRate(f != null && f.Like != null, uiaHasBan);
+                    favNow = f != null ? f.Liked : null; PaintStar();
+                }));
+            });
+        }
+        void PaintStar()
+        {
+            foreach (FrameworkElement[] s in favStars)
+            {
+                s[0].Visibility = favNow == true ? Visibility.Collapsed : Visibility.Visible;
+                s[1].Visibility = favNow == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+            foreach (Border b in favBtns) b.ToolTip = favNow == true ? "Убрать из избранного" : "В избранное";
+        }
+
+        void ToggleFavorite()
+        {
+            if (rateMode == "uia") { UiaPress(true); return; }
+            bool want = favNow != true;
+            favNow = want; PaintStar();   // сразу, не дожидаясь Cider
+            string key = favKey;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                int st; bool ok = Cider.SetFavorite(want, out st);
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (ok) { Toast(((char)0xE734).ToString(), want ? "В избранном" : "Убрано из избранного", null, -1, want ? StarYellow : null); if (want) Happy(1200); return; }
+                    if (favKey == key) { favNow = !want; PaintStar(); }
+                    CiderFailed(st);
+                }));
+            });
+        }
+
+        void NotInterested()
+        {
+            if (rateMode == "uia") { UiaPress(false); return; }
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                int st; bool ok = Cider.Dislike(out st);
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (ok) { trackDir = 1; trackDirAt = Environment.TickCount; Toast(((char)0xE8D8).ToString(), "Учту: такого меньше", null, -1, null); return; }
+                    CiderFailed(st);
+                }));
+            });
+        }
+
+        // Нажимаем кнопку в самом плеере (ищем её заново — страница могла перестроиться), потом перечитываем состояние
+        void UiaPress(bool like)
+        {
+            string src = media.Source, title = media.Title, key = favKey;
+            bool? was = favNow;
+            if (like) { favNow = was != true; PaintStar(); }
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                UiaRate.Found f = null; bool ok = false;
+                try { f = UiaRate.Find(src, title); ok = like ? UiaRate.PressLike(f) : UiaRate.PressDislike(f); } catch (Exception ex) { Store.LogError("оценки", ex); }
+                bool? after = null;
+                if (ok && like)
+                {
+                    System.Threading.Thread.Sleep(600);
+                    try { var f2 = UiaRate.FindIn(f.Window); if (f2 != null) after = f2.Liked; } catch { }
+                }
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (!ok)
+                    {
+                        if (favKey == key) { favNow = was; PaintStar(); }
+                        Toast(((char)0xE7BA).ToString(), "Не вижу кнопку в плеере — откройте его вкладку", null, -1, null);
+                        return;
+                    }
+                    if (like)
+                    {
+                        bool nowLiked = after ?? (was != true);
+                        if (favKey == key) { favNow = after ?? favNow; PaintStar(); }
+                        Toast(((char)0xE734).ToString(), nowLiked ? "В избранном" : "Убрано из избранного", null, -1, nowLiked ? StarYellow : null);
+                        if (nowLiked) Happy(1200);
+                        return;
+                    }
+                    trackDir = 1; trackDirAt = Environment.TickCount;
+                    Toast(((char)0xE8D8).ToString(), "Учту: такого меньше", null, -1, null);
+                    // Сам плеер не переключил трек — переключаем сами
+                    string t0 = title;
+                    var tm = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
+                    tm.Tick += delegate { tm.Stop(); if (media.Has && media.Title == t0) watcher.Command(0xB0); };
+                    tm.Start();
+                }));
+            });
+        }
+
+        void CiderFailed(int status)
+        {
+            if (status == 401 || status == 403)
+            {
+                Toast(((char)0xE72E).ToString(), Cider.Token.Length == 0 ? "Нужен ключ Cider — настройки, «Музыка»" : "Cider не принял ключ — проверьте его в настройках", null, -1, ClaudeOrange);
+                if (Cider.Token.Length == 0) { openSection = "Музыка"; OpenSettings(); }
+            }
+            else Toast(((char)0xE7BA).ToString(), "Cider не ответил", null, -1, null);
         }
     }
 

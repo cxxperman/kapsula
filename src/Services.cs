@@ -1,4 +1,4 @@
-﻿// Kapsula — «остров» для Windows. Часть исходного кода: Services.cs
+// Kapsula — «остров» для Windows. Часть исходного кода: Services.cs
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -579,22 +579,26 @@ namespace Kapsula
     static class Ai
     {
         public static bool Gemini { get { return Store.Get("aiProvider") == "gemini"; } }
+        // Qwen на этом компьютере (скачивается в настройках); пока не скачан — работают сайты без ключа
+        public static bool Local { get { return Store.Get("aiProvider") == "local"; } }
         // Duck.ai во встроенном браузере: выбран в настройках или ничего не выбрано и своего ключа нет
         public static bool ForceDuck;
-        public static bool Duck { get { string p = Store.Get("aiProvider"); return ForceDuck || p == "duck" || p == "" && Secrets.GetKey() == ""; } }
-        public static string ProviderName { get { return Gemini ? "Gemini" : "Claude"; } }
-        public static string Key() { return Gemini ? Secrets.GetKey("geminiKey", "GEMINI_API_KEY") : Secrets.GetKey(); }
-        public static string Model() { return Gemini ? GeminiChat.Model() : ClaudeChat.Model(); }
+        public static bool Duck { get { string p = Store.Get("aiProvider"); return ForceDuck || p == "duck" || p == "" && Secrets.GetKey() == "" || p == "local" && !QwenLocal.Ready; } }
+        public static string ProviderName { get { return Local ? "Qwen" : Gemini ? "Gemini" : "Claude"; } }
+        public static string Key() { return Local ? (QwenLocal.Ready ? "local" : "") : Gemini ? Secrets.GetKey("geminiKey", "GEMINI_API_KEY") : Secrets.GetKey(); }
+        public static string Model() { return Local ? QwenLocal.Chosen.Id : Gemini ? GeminiChat.Model() : ClaudeChat.Model(); }
         public static string Label
         {
             get
             {
+                if (Local) return QwenLocal.Label;
                 if (Gemini) return "Gemini · " + GeminiChat.ModelName(GeminiChat.Model());
                 return "Claude · " + (ClaudeChat.Model() == "claude-sonnet-5-5" ? "Sonnet 5.5" : "Opus 5.5");
             }
         }
         public static string Send(string key, string model, List<ChatMsg> history, string system, Action<string> onText)
         {
+            if (Local) return QwenLocal.Send(history, system, onText);
             return Gemini ? GeminiChat.Send(key, model, history, system, onText) : ClaudeChat.Send(key, model, history, system, onText);
         }
     }
@@ -949,6 +953,69 @@ namespace Kapsula
             catch { }
             cache[path] = res;
             return res;
+        }
+
+        // Значок программы по её идентификатору (AppUserModelID), как в меню «Пуск»: shell:AppsFolder\<id>.
+        // Так находится значок и у обычных программ (Telegram, PowerShell), которым Windows не выдаёт логотип для уведомлений.
+        [System.Runtime.InteropServices.ComImport, System.Runtime.InteropServices.Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+        interface IShellItemImageFactory { [System.Runtime.InteropServices.PreserveSig] int GetImage(NativeSize size, int flags, out IntPtr hbitmap); }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct NativeSize { public int cx, cy; }
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, PreserveSig = false)]
+        static extern void SHCreateItemFromParsingName(string path, IntPtr bc, [System.Runtime.InteropServices.In] ref Guid riid, [System.Runtime.InteropServices.Out, System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Interface)] out IShellItemImageFactory item);
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr h);
+
+        public static ImageSource IconForApp(string aumid)
+        {
+            if (string.IsNullOrEmpty(aumid)) return null;
+            string key = "app:" + aumid;
+            ImageSource hit;
+            if (cache.TryGetValue(key, out hit)) return hit;
+            ImageSource res = null;
+            try
+            {
+                Guid iid = typeof(IShellItemImageFactory).GUID;
+                IShellItemImageFactory f;
+                SHCreateItemFromParsingName(@"shell:AppsFolder\" + aumid, IntPtr.Zero, ref iid, out f);
+                IntPtr hb;
+                // 0x1 — только значок (не миниатюра); 0x4 — подогнать размер
+                if (f != null && f.GetImage(new NativeSize { cx = 64, cy = 64 }, 0x1 | 0x4, out hb) == 0 && hb != IntPtr.Zero)
+                {
+                    try { res = FromDib(hb); }
+                    finally { DeleteObject(hb); }
+                }
+            }
+            catch { res = null; }
+            cache[key] = res;
+            return res;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct BITMAP { public int bmType, bmWidth, bmHeight, bmWidthBytes; public ushort bmPlanes, bmBitsPixel; public IntPtr bmBits; }
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern int GetObject(IntPtr h, int size, out BITMAP bm);
+
+        // HBITMAP из оболочки — DIB с прозрачностью (premultiplied BGRA). Обычное преобразование WPF теряет прозрачность,
+        // и значок получался на чёрном квадрате, поэтому копируем пиксели сами.
+        static ImageSource FromDib(IntPtr hb)
+        {
+            BITMAP bm;
+            if (GetObject(hb, System.Runtime.InteropServices.Marshal.SizeOf(typeof(BITMAP)), out bm) == 0 || bm.bmBits == IntPtr.Zero || bm.bmBitsPixel != 32) return null;
+            int w = bm.bmWidth, h = Math.Abs(bm.bmHeight), stride = bm.bmWidthBytes;
+            byte[] px = new byte[stride * h];
+            System.Runtime.InteropServices.Marshal.Copy(bm.bmBits, px, 0, px.Length);
+            if (bm.bmHeight > 0)
+            {
+                // снизу вверх — переворачиваем
+                byte[] flip = new byte[px.Length];
+                for (int y = 0; y < h; y++) Buffer.BlockCopy(px, y * stride, flip, (h - 1 - y) * stride, stride);
+                px = flip;
+            }
+            bool anyAlpha = false;
+            for (int i = 3; i < px.Length; i += 4) if (px[i] != 0) { anyAlpha = true; break; }
+            if (!anyAlpha) for (int i = 3; i < px.Length; i += 4) px[i] = 255;   // значок без прозрачности
+            var bs = BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, px, stride);
+            bs.Freeze();
+            return bs;
         }
     }
 

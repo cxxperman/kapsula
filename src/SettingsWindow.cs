@@ -288,12 +288,32 @@ namespace Kapsula
             for (int i = 0; i < offs.Length; i++) if (Math.Abs(offs[i] - island.LyricOffset) < 0.01) oi = i;
             sp.Children.Add(Row("Сдвиг текста песни", "Если строки отстают от звука — сдвиньте вперёд, если спешат — назад.", Chips(new string[] { "−1 с", "−0,5 с", "Без сдвига", "+0,5 с", "+1 с" }, oi, delegate(int i) { island.SetLyricOffset(offs[i]); }), true));
             sp.Children.Add(Header("Наушники"));
+            sp.Children.Add(Header("Cider"));
+            sp.Children.Add(Row("«В избранное» и «Не интересует»", "Когда играет Cider, по бокам кнопок плеера появляются звезда (в избранное Apple Music) и перечёркнутый круг (предлагать меньше такого и дальше). У других плееров Windows не даёт программам ставить оценки, поэтому там этих кнопок нет.", Toggle(Store.Get("ciderRate") != "0", delegate(bool v) { Store.Set("ciderRate", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Ключ Cider", "Cider пускает программы только по ключу. В Cider откройте настройки, раздел подключений (Connectivity), управление доступом внешних приложений — создайте ключ и вставьте сюда. Ключ хранится только на этом компьютере, зашифрованный Windows, и уходит только самому Cider на этом же компьютере.", BuildSecretEditor("ciderKey", "CIDER_TOKEN"), true));
+
+            sp.Children.Add(Row("Оценки в других плеерах · альфа", "Сырая функция, по умолчанию выключена. Звезда и «Не интересует» для Spotify, Яндекс Музыки, YouTube Music, SoundCloud и других — в браузере и в приложениях, без расширений и ключей. Kapsula находит кнопки «Нравится» и «Не нравится» в окне плеера через специальные возможности Windows и нажимает их, не трогая мышь. Вкладка с плеером должна быть выбранной в своём окне (окно может быть свёрнуто). Кнопки появляются, только если нашлись в плеере.", Toggle(Store.Get("uiaRate") == "1", delegate(bool v) { Store.Set("uiaRate", v ? "1" : "0"); }), false));
+
             sp = Sec("AirPods и Beats");
             sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке острова покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
             sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
 
             sp = Sec("Нейросети");
-            sp.Children.Add(Row("Кто отвечает в чате", "«Сайты без ключа» — Duck.ai, DeepSeek или Gemini прямо во вкладке «Чат»: переключаются строкой над чатом, кнопка «В окне» открывает сайт отдельным окном. Duck.ai работает без входа; в DeepSeek и Gemini входите в свой аккаунт на самом сайте. Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Сайты без ключа", "Claude по ключу", "Gemini по ключу" }, Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : "claude"); }), true));
+            sp.Children.Add(Row("Кто отвечает в чате", "«Сайты без ключа» — Duck.ai, DeepSeek или Gemini прямо во вкладке «Чат»: переключаются строкой над чатом, кнопка «В окне» открывает сайт отдельным окном. Duck.ai работает без входа; в DeepSeek и Gemini входите в свой аккаунт на самом сайте. «Qwen на этом ПК» — нейросеть прямо на компьютере: без ключа, без интернета и без отправки вопросов куда-либо (сначала её нужно скачать ниже). Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Сайты без ключа", "Claude по ключу", "Gemini по ключу", "Qwen на этом ПК" }, Ai.Local ? 3 : Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : i == 3 ? "local" : "claude"); }), true));
+            sp.Children.Add(Header("Qwen на этом компьютере"));
+            {
+                int rec = QwenLocal.Recommended();
+                var names = new string[QwenLocal.Models.Length];
+                for (int i = 0; i < names.Length; i++) names[i] = QwenLocal.Models[i].Name + " · " + QwenLocal.Models[i].SizeGb.ToString("0.#") + " ГБ";
+                string ramNote = "В этом ПК " + Math.Round(QwenLocal.RamGb()) + " ГБ памяти — советуем " + QwenLocal.Models[rec].Name + ".";
+                TextBlock desc = null;
+                Func<int, string> descOf = delegate(int i) { return "Чем больше модель, тем умнее, но медленнее и тяжелее. " + ramNote + " Выбрана " + QwenLocal.Models[i].Name + ": " + QwenLocal.Models[i].Note + "; нужно около " + QwenLocal.Models[i].RamGb + " ГБ свободной памяти."; };
+                int cur = Array.IndexOf(QwenLocal.Models, QwenLocal.Chosen);
+                var modelRow = Row("Модель Qwen 3.5", descOf(cur), Chips(names, cur, delegate(int i) { QwenLocal.Choose(QwenLocal.Models[i].Id); if (desc != null) desc.Text = descOf(i); if (qwenRefresh != null) qwenRefresh(); }), true);
+                try { desc = ((StackPanel)((Grid)((Border)modelRow).Child).Children[0]).Children[1] as TextBlock; } catch { }
+                sp.Children.Add(modelRow);
+                sp.Children.Add(Row("Скачать на компьютер", "Скачиваются движок llama.cpp (github.com/ggml-org/llama.cpp, " + QwenLocal.EngineSizeText + ") и выбранная модель (huggingface.co, сборка unsloth). Всё хранится в папке Kapsula и удаляется кнопкой «Удалить». Во время разговора интернет не нужен; Модель загружается на первом вопросе в чате и полностью выгружается из памяти кнопкой «Очистить» (и после 15 минут без вопросов). Работает на видеокарте: на NVIDIA — через CUDA (быстрее всего), на AMD и Intel — через Vulkan, а без видеокарты — на процессоре, медленнее.", BuildQwenEditor(), true));
+            }
             sp.Children.Add(Header("Gemini"));
             sp.Children.Add(Row("Ключ Gemini API", "Ключ создаётся в Google AI Studio под вашим аккаунтом Google; у Gemini есть бесплатный уровень с ограничением числа запросов. Ключ хранится только на этом компьютере, зашифрованный Windows, и отправляется только на generativelanguage.googleapis.com.", BuildGeminiKeyEditor(), true));
             sp.Children.Add(Row("Модель Gemini", "Flash-Lite — самая быстрая, на бесплатном уровне отвечает стабильнее всех. Flash умнее, но часто перегружена; если она занята, Kapsula сама попробует другую модель.", Chips(GeminiChat.ModelNames, Array.IndexOf(GeminiChat.Models, GeminiChat.Model()), delegate(int i) { Store.Set("geminiModel", GeminiChat.Models[i]); }), true));
@@ -346,7 +366,7 @@ namespace Kapsula
                 sp.Children.Add(cRow);
                 sp.Children.Add(Row("Звук, когда Claude Code ждёт вас", "Системный звук вместе с карточкой разрешения или вопроса — чтобы не пропустить, если вы отвернулись от экрана.", Toggle(Store.Get("claudeSound") != "0", delegate(bool v) { Store.Set("claudeSound", v ? "1" : "0"); }), false));
                 sp.Children.Add(Row("Кнопка «Открыть в VS Code» · альфа", "Сырая функция, по умолчанию выключена. На карточке «Claude закончил» появляется кнопка, открывающая папку проекта в VS Code (без VS Code — в Проводнике), а в строке острова — команда «открыть проект в VS Code».", Toggle(Store.Get("vscodeButton") == "1", delegate(bool v) { Store.Set("vscodeButton", v ? "1" : "0"); }), false));
-                sp.Children.Add(Row("Показывать, что делает Claude Code", "Короткая надпись на острове: какую команду он выполняет или какой файл правит. Только пока вы в другой программе.", Toggle(Store.Get("claudeActivity") != "0", delegate(bool v) { Store.Set("claudeActivity", v ? "1" : "0"); }), false));
+                sp.Children.Add(Row("Показывать, что делает Claude Code", "Короткая надпись на острове о каждом его действии: какую команду выполняет, какой файл правит. По умолчанию выключено — без этого остров показывает только важное: запросы разрешений, вопросы и «закончил» после работы дольше полуминуты.", Toggle(Store.Get("claudeActivity") == "1", delegate(bool v) { Store.Set("claudeActivity", v ? "1" : "0"); }), false));
             }
 
             sp = Sec("Steam и Discord");
@@ -422,6 +442,7 @@ namespace Kapsula
             sp = Sec("Уведомления");
             sp.Children.Add(Row("Смена раскладки", "Короткая подсказка «Раскладка: RU» при переключении языка.", Toggle(island.ShowLayout, delegate(bool v) { island.SetFlag("layout", v); }), false));
             sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
+            sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, Kapsula убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия Kapsula). Пока Kapsula закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
             sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке острова.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
 
@@ -505,7 +526,8 @@ namespace Kapsula
 
             var nav = new StackPanel { Margin = new Thickness(12, 20, 10, 12) };
             var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 2, 0, 0) };
-            var navPet = new PetView(2.0, RowBg);   // зверёк рядом с названием: моргает и поглядывает по сторонам
+            var navPet = new PetView(2.0, RowBg);
+            navPet.Context = "nav";   // зверёк рядом с названием: моргает и поглядывает по сторонам
             navPet.Root.Margin = new Thickness(0, 0, 2, 0);
             brand.Children.Add(navPet.Root);
             brand.Children.Add(new TextBlock { Text = "Kapsula", Foreground = Txt, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
@@ -1150,6 +1172,88 @@ namespace Kapsula
             b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; click(); };
             return b;
         }
+        // Скачивание Qwen: кнопка, ход скачивания, удаление
+        Action qwenRefresh;
+        FrameworkElement BuildQwenEditor()
+        {
+            var col = new StackPanel();
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var bar = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = ChipBg, Margin = new Thickness(0, 8, 0, 0), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+            var fill = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = OnBg, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+            bar.Child = fill;
+            col.Children.Add(row); col.Children.Add(bar); col.Children.Add(status);
+            string shown = null;
+            Action paint = null;
+            paint = delegate
+            {
+                var m = QwenLocal.Chosen;
+                string mode = QwenLocal.Busy ? "busy" : QwenLocal.Downloaded(m) && QwenLocal.EngineReady ? (QwenLocal.CanSpeedUp ? "ready-slow" : "ready") : "none";
+                if (mode != shown + "") { }
+                string key = mode + m.Id;
+                if (key != shown)
+                {
+                    shown = key;
+                    row.Children.Clear();
+                    if (mode == "busy") row.Children.Add(PillBtn("Отменить", false, delegate { QwenLocal.Cancel(); }));
+                    else if (mode.StartsWith("ready"))
+                    {
+                        var use = PillBtn(Ai.Local ? "Используется в чате" : "Отвечать в чате", !Ai.Local, delegate { Store.Set("aiProvider", "local"); shown = null; paint(); });
+                        row.Children.Add(use);
+                        var del = PillBtn("Удалить", false, delegate
+                        {
+                            if (MessageBox.Show(this, "Удалить Qwen " + m.Name + " с компьютера? Освободится около " + m.SizeGb.ToString("0.#") + " ГБ.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                            QwenLocal.Delete(m); shown = null; paint();
+                        });
+                        del.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(del);
+                        if (QwenLocal.CanSpeedUp)
+                        {
+                            var fast = PillBtn("Ускорить на NVIDIA · 0,6 ГБ", true, delegate { QwenLocal.SpeedUp(); shown = null; paint(); });
+                            fast.ToolTip = "Скачать сборку llama.cpp на CUDA: на видеокартах NVIDIA отвечает в разы быстрее";
+                            fast.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(fast);
+                        }
+                    }
+                    else row.Children.Add(PillBtn("Скачать Qwen " + m.Name + " · " + m.SizeGb.ToString("0.#") + " ГБ", true, delegate { QwenLocal.Download(m); shown = null; paint(); }));
+                }
+                bar.Visibility = QwenLocal.Busy ? Visibility.Visible : Visibility.Collapsed;
+                if (QwenLocal.Busy)
+                {
+                    long d = System.Threading.Interlocked.Read(ref QwenLocal.Done), tot = System.Threading.Interlocked.Read(ref QwenLocal.Total);
+                    double p = tot > 0 ? Math.Min(1, (double)d / tot) : 0;
+                    fill.Width = 320 * p;
+                    status.Text = QwenLocal.Status + (tot > 0 ? " — " + Math.Round(p * 100) + "% · " + (d / 1048576.0).ToString("0") + " из " + (tot / 1048576.0).ToString("0") + " МБ" : "");
+                }
+                else if (QwenLocal.Error != null) status.Text = QwenLocal.Error + ".";
+                else if (mode.StartsWith("ready")) status.Text = (QwenLocal.EngineKind.StartsWith("cuda") ? "Скачана, работает через CUDA. " : "Скачана. ") + "Всего занято " + QwenLocal.UsedGb().ToString("0.#") + " ГБ." + (Ai.Local ? " Отвечает в чате и в действиях с текстом." : "");
+                else status.Text = QwenLocal.EngineReady ? "llama.cpp уже скачан, осталась модель." : "Пока ничего не скачано.";
+            };
+            qwenRefresh = delegate { shown = null; paint(); };
+            paint();
+            var tm = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            tm.Tick += delegate { paint(); };
+            tm.Start();
+            Closed += delegate { tm.Stop(); };
+            return col;
+        }
+
+        // Поле для секретного ключа: сохранить, удалить, состояние
+        FrameworkElement BuildSecretEditor(string name, string env)
+        {
+            var col = new StackPanel();
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13 };
+            row.Children.Add(pw);
+            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            Action paint = delegate { status.Text = Secrets.IsSaved(name) ? "Ключ сохранён." : "Ключ не задан."; };
+            var save = PillBtn("Сохранить", true, delegate { if (pw.Password.Trim().Length == 0) return; Secrets.SetKey(name, pw.Password.Trim()); pw.Clear(); paint(); });
+            save.Margin = new Thickness(8, 0, 0, 0); row.Children.Add(save);
+            var del = PillBtn("Удалить", false, delegate { Secrets.SetKey(name, ""); pw.Clear(); paint(); });
+            del.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(del);
+            col.Children.Add(row); col.Children.Add(status);
+            paint();
+            return col;
+        }
+
         FrameworkElement BuildGeminiKeyEditor()
         {
             var col = new StackPanel();
