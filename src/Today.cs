@@ -126,7 +126,7 @@ namespace Kapsula
             DockPanel.SetDock(wd, Dock.Top); cal.Children.Add(wd);
             calGrid = new UniformGrid { Columns = 7, Rows = 6 };
             cal.Children.Add(calGrid);
-            g.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Child = cal });
+            var calCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Child = cal };
 
             // ---- день
             var day = new DockPanel();
@@ -151,8 +151,12 @@ namespace Kapsula
 
             todayList = new StackPanel();
             day.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = todayList });
-            Grid.SetColumn(day, 2); g.Children.Add(day);
-            return g;
+            // конструктор: месяц и день можно поменять местами или спрятать один
+            var tdb = PageBoard(PToday, "today", 12, 1, 10);
+            tdb.Add("month", "Месяц", calCard, 0, 0, 5, 1, false);
+            tdb.Add("day", "День", day, 5, 0, 7, 1, false);
+            GC.KeepAlive(g);
+            return FinishBoard(tdb);
         }
         void AddTasksFromText(string text)
         {

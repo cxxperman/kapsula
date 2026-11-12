@@ -2515,6 +2515,13 @@ namespace Kapsula
             pinBtn.Margin = new Thickness(0, 0, 34, 0);
             pinBtn.ToolTip = "Не закрывать панель";
             g.Children.Add(pinBtn);
+            // Карандаш: конструктор вкладки (есть не у всех вкладок)
+            pencilBtn = IconBtn(((char)0xE70F).ToString(), 30, delegate { Board b = BoardFor(page); if (b != null) EditPage(page, !b.Editing); });
+            pencilBtn.HorizontalAlignment = HorizontalAlignment.Right; pencilBtn.VerticalAlignment = VerticalAlignment.Center;
+            pencilBtn.Margin = new Thickness(0, 0, 68, 0);
+            pencilBtn.ToolTip = "Изменить вкладку: перетаскивайте блоки, прячьте лишнее";
+            pencilBtn.Visibility = Visibility.Collapsed;
+            g.Children.Add(pencilBtn);
             var gear = IconBtn(((char)0xE713).ToString(), 30, delegate { OpenSettings(); });
             gear.HorizontalAlignment = HorizontalAlignment.Right; gear.VerticalAlignment = VerticalAlignment.Center;
             gear.ToolTip = "Настройки";
@@ -2531,7 +2538,53 @@ namespace Kapsula
         RowDefinition pageRow;
         double chatExtra;
 
-        double PageExtra() { return page == PChat ? chatExtra : 0; }
+        double PageExtra() { return (page == PChat ? chatExtra : 0) + (EditingBoard() != null ? 56 : 0); }
+
+        // ---- Конструктор вкладок (доски): «Погода», «Система»
+        Board weatherBoard, systemBoard;
+        readonly Dictionary<int, Board> pageBoards = new Dictionary<int, Board>();
+        Board BoardFor(int p) { Board b; return pageBoards.TryGetValue(p, out b) ? b : null; }
+        Board EditingBoard() { Board b = BoardFor(page); return b != null && b.Editing ? b : null; }
+
+        void WireBoard(Board b)
+        {
+            b.Accent = accent;
+            b.Say = delegate(string s) { Toast(((char)0xE70F).ToString(), s, null, -1, null); };
+            b.Done = delegate { if (b == homeBoard) ApplyHomeLayout(); SetTargets(); RefreshPencil(); };
+            b.Changed = delegate { if (b == homeBoard) ApplyHomeLayout(); else if (state == 2) SetTargets(); };
+        }
+
+        // Карандаш в углу панели: включает правку вкладки, если у неё есть конструктор
+        public void EditPage(int p, bool on)
+        {
+            Board b = BoardFor(p);
+            if (b == null) return;
+            if (on && page != p) ShowPage(p);
+            b.SetEditing(on);
+            if (b == homeBoard) ApplyHomeLayout();
+            SetTargets(); RefreshPencil();
+        }
+        // для настроек: вкладки с конструктором по имени
+        int BoardPage(string name) { foreach (var kv in pageBoards) if (kv.Value.Key == name) return kv.Key; return -1; }
+        // доска на всю вкладку: регистрируется, связывается с островом и читает сохранённую раскладку
+        Board PageBoard(int p, string key, int cols, int rows, double gap) { var b = new Board(key, PageW, PageH, cols, rows, gap); pageBoards[p] = b; return b; }
+        FrameworkElement FinishBoard(Board b) { WireBoard(b); b.Load(); return b.Root; }
+        public void OpenEditor(string name)
+        {
+            int p = BoardPage(name); if (p < 0) return;
+            if (state != 2) SetState(2);
+            ShowPage(p);
+            EditPage(p, true);
+        }
+        public void ResetBoard(string name) { Board b = BoardFor(BoardPage(name)); if (b != null) b.Reset(); }
+        Border pencilBtn;
+        void RefreshPencil()
+        {
+            if (pencilBtn == null) return;
+            Board b = BoardFor(page);
+            pencilBtn.Visibility = b != null ? Visibility.Visible : Visibility.Collapsed;
+            pencilBtn.Background = b != null && b.Editing ? accent : Brushes.Transparent;
+        }
 
         void ApplyPageExtra()
         {
@@ -2649,7 +2702,9 @@ namespace Kapsula
         void ShowPage(int idx)
         {
             int prev = page;
+            if (prev != idx) { Board ob = BoardFor(prev); if (ob != null && ob.Editing) ob.SetEditing(false); }   // ушли с вкладки — правка закончена
             page = idx;
+            RefreshPencil();
             ApplyPageExtra();
             if (state == 2) SetTargets();   // у «Главной» своя высота
             int slide = ++pageSlide;
@@ -2795,70 +2850,37 @@ namespace Kapsula
         public static readonly string[] HomeTileIds = { "area", "full", "ocr", "qr", "pipette", "rec" };
         public static readonly string[] HomeTileNames = { "Область", "Весь экран", "Текст с экрана", "QR-код", "Пипетка", "Запись экрана" };
 
+        const int HomeRows = 8;
+        const double HomeCellH = 34;
+        Grid homeMain;
+        Board homeBoard;
+
+        // Что показывать в блоке «Плеер» и какой высоты панель: по нижнему видимому блоку
         public void ApplyHomeLayout()
         {
-            if (homeGrid == null) return;
-            bool playerOn = Store.Get("homePlayer") != "0", vol = Store.Get("homeVolume") != "0", launch = Store.Get("homeLauncher") == "1";   // ярлыки — по желанию, по умолчанию выключены
+            if (homeBoard == null) return;
             bool clipOn = TestHomeClips || Store.Get("homeClips") != "0";
-            var off = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-            homeTilesGrid.Children.Clear();
-            int n = 0;
-            for (int i = 0; i < homeTileList.Length; i++)
-                if (!off.Contains(HomeTileIds[i])) { homeTilesGrid.Children.Add(homeTileList[i].Root); n++; }
-            bool tiles = n > 0;
-            // Слева одна большая карточка: плеер, пока играет музыка; без музыки — недавно скопированное (если включено)
-            bool showPlayer = playerOn && (media.Has || !clipOn) && !TestHomeClips;   // --homeclips: показать недавнее даже при музыке
+            // в блоке «Плеер»: плеер, пока играет музыка; без музыки — недавно скопированное (если включено); в звонке — звонок
+            bool showPlayer = (media.Has || !clipOn) && !TestHomeClips;
             bool showClips = clipOn && !showPlayer;
             bool showCall = CallVisible();
-            if (showCall && media.Has && media.Playing) showCall = false;   // играет музыка — плеер остаётся, звонок виден в капсуле
-            if (showCall) { showPlayer = false; showClips = false; }   // во время звонка слева — карточка звонка
-            if (homeCallCard != null) { homeCallCard.Visibility = showCall ? Visibility.Visible : Visibility.Collapsed; Grid.SetColumnSpan(homeCallCard, n > 0 ? 1 : 3); }
-            bool left = showPlayer || showClips || showCall;
+            if (showCall && media.Has && media.Playing) showCall = false;
+            if (showCall) { showPlayer = false; showClips = false; }
+            if (homeCallCard != null) homeCallCard.Visibility = showCall ? Visibility.Visible : Visibility.Collapsed;
             homePlayerCard.Visibility = showPlayer ? Visibility.Visible : Visibility.Collapsed;
             homeClipCard.Visibility = showClips ? Visibility.Visible : Visibility.Collapsed;
-            homeTilesGrid.Visibility = tiles ? Visibility.Visible : Visibility.Collapsed;
-            homeVolCard.Visibility = vol ? Visibility.Visible : Visibility.Collapsed;
-            homeLaunchCard.Visibility = launch ? Visibility.Visible : Visibility.Collapsed;
-
-            int leftSpan = tiles ? 1 : 3;
-            Grid.SetColumnSpan(homePlayerCard, leftSpan); Grid.SetColumnSpan(homeClipCard, leftSpan);
-            Grid.SetColumnSpan(homeVolCard, left || !tiles ? leftSpan : 1);
-            double main = left ? 196 : 0;
-            if (tiles)
-            {
-                Grid.SetColumn(homeTilesGrid, left || vol ? 2 : 0); Grid.SetColumnSpan(homeTilesGrid, left || vol ? 1 : 3);
-                Grid.SetRow(homeTilesGrid, 0); Grid.SetRowSpan(homeTilesGrid, 3);
-                if (left || vol) { homeTilesGrid.Columns = 2; homeTilesGrid.Rows = Math.Max(1, (n + 1) / 2); }
-                else { homeTilesGrid.Columns = Math.Min(4, n); homeTilesGrid.Rows = (n + 3) / 4; }
-                // плитки занимают всю высоту слева: карточка + громкость; без них — по 54 точки на ряд
-                double need = homeTilesGrid.Rows * (left || vol ? 54 : 52);
-                double have = main + (vol ? (left ? 8 : 0) + 34 : 0);
-                if (need > have) main += need - have;
-            }
-            if (mProgress != null) mProgress.Resize(showPlayer && !tiles ? 444 : 244);
-            if (volBar != null) volBar.Resize(tiles && (left || vol) ? PageW - 12 - 188 - 32 - VolChipW - 40 - OutChipW : PageW - 32 - VolChipW - 40 - OutChipW);
-            bool nothing = !left && !tiles && !vol && !launch;
+            if (mProgress != null) mProgress.Resize(258);
+            if (volBar != null) volBar.Resize(homeBoard.Find("volume").El.Width - 32 - VolChipW - 40 - OutChipW);
+            bool nothing = homeBoard.UsedHeight() <= 0 && !homeBoard.Editing;
             homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
-            if (nothing) main = 46;
-            homeGrid.RowDefinitions[0].Height = new GridLength(main);
-            homeGrid.RowDefinitions[1].Height = new GridLength(main > 0 && vol ? 8 : 0);
-            homeGrid.RowDefinitions[2].Height = new GridLength(vol ? 34 : 0);
-            homeGrid.RowDefinitions[3].Height = new GridLength((main > 0 || vol) && launch ? 10 : 0);
-            homeGrid.RowDefinitions[4].Height = new GridLength(launch ? 50 : 0);
-            homeGrid.RowDefinitions[5].Height = new GridLength(0);
-            homeGrid.RowDefinitions[6].Height = new GridLength(0);
-            double total = 0;
-            foreach (RowDefinition r in homeGrid.RowDefinitions) total += r.Height.Value;
-            homeGrid.Height = total;
-            if (showClips) RenderHomeClips();
-            homeCut = PageH - total;
-            homeLeftPlayer = showPlayer;
+            if (showClips && homeBoard.IsShown("main")) RenderHomeClips();
+            homeLeftPlayer = showPlayer && homeBoard.IsShown("main");
             if (state == 2) SetTargets();
         }
-        bool homeLeftPlayer, homeHadMedia;
+        double HomeHeight() { if (homeBoard == null) return PageH; double h = homeBoard.UsedHeight(); return h <= 0 && !homeBoard.Editing ? 46 : h; }        bool homeLeftPlayer, homeHadMedia;
         // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
         // Панель подстраивается под содержимое: у «Главной» и «Текста» его меньше, чем у остальных вкладок
-        double PageCut() { return page == 0 ? homeCut : 0; }
+        double PageCut() { return page == 0 ? PageH - HomeHeight() : 0; }
 
         double ExpandedH() { return EH - PageCut() + PageExtra() + SubExtra(); }
 
@@ -2879,7 +2901,7 @@ namespace Kapsula
         public Visual PreviewMini { get { return previewMini; } }
         public static readonly double PreviewEH = EH;
         public Brush PreviewInk { get { return Ink; } }
-        public double PreviewHomeH { get { return EH - homeCut; } }
+        public double PreviewHomeH { get { return EH - (PageH - HomeHeight()); } }
         public bool PreviewHasMedia { get { return media.Has; } }
         public static readonly double PreviewBaseW = BaseW, PreviewEW = EW, PreviewER = ER, PreviewMW = MW, PreviewMH = MH, PreviewMR = MR;
         public void PreviewRefresh() { if (state == 0) { if (page != 0) ShowPage(0); RenderHomeLive(); } }
@@ -3077,12 +3099,28 @@ namespace Kapsula
             SetVolMode(false);
             Grid.SetRow(volCard, 2);
             g.Children.Add(volCard);
+            // Конструктор «Главной»: плеер (на его месте без музыки — недавно скопированное, в звонке — звонок),
+            // шесть плиток, громкость и ярлыки лежат на сетке 12×8 — их можно переставлять и прятать.
+            homeMain = new Grid();
+            g.Children.Remove(homeClipCard); g.Children.Remove(card);
+            homeMain.Children.Add(homeClipCard); homeMain.Children.Add(card);
+            homeGrid = homeMain;   // сюда же встаёт карточка звонка
+            var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            var hb = homeBoard = new Board("home", PageW, HomeRows * HomeCellH + (HomeRows - 1) * 8, 12, HomeRows, 8); pageBoards[0] = hb;
+            hb.Add("main", "Плеер", homeMain, 0, 0, 8, 5, Store.Get("homePlayer") == "0" && Store.Get("homeClips") == "0");
+            for (int i = 0; i < homeTileList.Length; i++)
+                hb.Add(HomeTileIds[i], HomeTileNames[i], homeTileList[i].Root, 8 + (i % 2) * 2, (i / 2) * 2, 2, 2, tilesOff.Contains(HomeTileIds[i]));
+            hb.Add("volume", "Громкость", volCard, 0, 5, 8, 1, Store.Get("homeVolume") == "0");
+            hb.Add("launcher", "Ярлыки", launchCard, 0, 6, 12, 2, Store.Get("homeLauncher") != "1");
+            WireBoard(hb);
+            hb.Load();
             ApplyHomeLayout();
             ApplyPlayerStyle();
-            // Холст не обрезает содержимое: со строкой «Недавно скопированное» «Главная» бывает выше остальных вкладок.
-            g.Width = PageW;
             var cv = new Canvas();
-            cv.Children.Add(g);
+            cv.Children.Add(hb.Root);
+            homeEmpty.Width = PageW; homeEmpty.Height = 46;
+            if (homeEmpty.Parent is Panel) ((Panel)homeEmpty.Parent).Children.Remove(homeEmpty);
+            cv.Children.Add(homeEmpty);
             return cv;
         }
 
@@ -3117,8 +3155,14 @@ namespace Kapsula
             dock.Children.Add(clipFilterRow);
 
             clipList = new StackPanel();
-            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = clipList });
-            return dock;
+            var clipScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = clipList };
+            // конструктор: поиск, фильтры, список и нижняя строка — по рядам
+            var cb = PageBoard(PClip, "clip", 1, 9, 8);
+            cb.Add("search", "Поиск", searchCard, 0, 0, 1, 1, false);
+            cb.Add("filters", "Фильтры", clipFilterRow, 0, 1, 1, 1, false);
+            cb.Add("list", "История", clipScroll, 0, 2, 1, 6, false);
+            cb.Add("foot", "Подсказка и «Очистить»", foot, 0, 8, 1, 1, false);
+            return FinishBoard(cb);
         }
 
         // «Недавно скопированное» на «Главной»: три последние текстовые записи, клик вставляет.
@@ -3847,8 +3891,10 @@ namespace Kapsula
             body.Children.Add(shelfPet);
             shelfPanel = new WrapPanel { Margin = new Thickness(10, 10, 2, 2) };
             body.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = shelfPanel });
-            dock.Children.Add(body);
-            return dock;
+            var shb = PageBoard(PShelf, "shelf", 1, 9, 8);
+            shb.Add("top", "Кнопки полки", top, 0, 0, 1, 1, false);
+            shb.Add("files", "Файлы", body, 0, 1, 1, 8, false);
+            return FinishBoard(shb);
         }
 
         void LoadShelf()
@@ -3996,7 +4042,8 @@ namespace Kapsula
         {
             var sp = new StackPanel();
             textPreview = new TextBlock { Foreground = Fg, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxHeight = 34, LineHeight = 17 };
-            sp.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 8), Height = 52, Child = textPreview, ToolTip = "Текст из буфера обмена" });
+            var textCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 8), Height = 52, Child = textPreview, ToolTip = "Текст из буфера обмена" };
+            sp.Children.Add(textCard);
             // счётчик под текстом и подсказка, что делают кнопки, — одной строкой
             var info = new Grid { Margin = new Thickness(4, 5, 4, 7) };
             textStats = new TextBlock { Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
@@ -4025,7 +4072,12 @@ namespace Kapsula
             AddAi(wrap, "Сократить", "сократи текст примерно вдвое, сохранив главное");
             AddAi(wrap, "Объяснить", "объясни простыми словами, о чём этот текст, в двух-четырёх предложениях");
             sp.Children.Add(wrap);
-            return sp;
+            sp.Children.Clear();
+            var tb = PageBoard(PText, "text", 1, 9, 6);
+            tb.Add("preview", "Текст из буфера", textCard, 0, 0, 1, 2, false);
+            tb.Add("info", "Счётчик", info, 0, 2, 1, 1, false);
+            tb.Add("tools", "Кнопки", wrap, 0, 3, 1, 6, false);
+            return FinishBoard(tb);
         }
 
         void AddAi(WrapPanel wrap, string name, string task)
@@ -4179,7 +4231,7 @@ namespace Kapsula
             DockPanel.SetDock(tools, Dock.Bottom);
             editor.Children.Add(tools);
             editor.Children.Add(noteRich);
-            left.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 12, 12, 8), Child = editor });
+            var noteCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 12, 12, 8), Child = editor }; left.Children.Add(noteCard);
             g.Children.Add(left);
 
             // ---- справа: таймер одной карточкой — заголовок со зверьком, кольцо, минуты, «Старт», напоминание
@@ -4236,9 +4288,12 @@ namespace Kapsula
             remCard.Background = Ink;   // поле внутри карточки — чуть темнее неё
             DockPanel.SetDock(remCard, Dock.Top); col.Children.Add(remCard);
             remList = new StackPanel();
-            col.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList, Margin = new Thickness(0, 4, 0, 0) });            Grid.SetColumn(right, 2);
-            g.Children.Add(right);
-            return g;
+            col.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList, Margin = new Thickness(0, 4, 0, 0) });            // конструктор: папки, заметка и таймер
+            var nb = PageBoard(PNote, "note", 11, 9, 8);
+            nb.Add("folders", "Папки", folders, 0, 0, 7, 1, false);
+            nb.Add("note", "Заметка", noteCard, 0, 1, 7, 8, false);
+            nb.Add("timer", "Таймер", right, 7, 0, 4, 9, false);
+            return FinishBoard(nb);
         }
 
         Border NoteTool(string text, bool mdl2, FontWeight weight, FontStyle style, string tip, Action act)
@@ -4648,7 +4703,7 @@ namespace Kapsula
             foot.Children.Add(refresh);
             skyBottom.Children.Add(foot);
             sky.Children.Add(skyBottom);
-            weatherGrid.Children.Add(new Border { Background = skyBrush, CornerRadius = new CornerRadius(22), Child = sky });
+            var skyCard = new Border { Background = skyBrush, CornerRadius = new CornerRadius(22), Child = sky };
 
             // ---- справа: прогноз и приборы
             var right = new Grid();
@@ -4663,7 +4718,7 @@ namespace Kapsula
             fc.Children.Add(wHours); fc.Children.Add(wDays);
             wfcSwitch = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 8, 0) };
             Grid.SetColumn(wfcSwitch, 1); fc.Children.Add(wfcSwitch);
-            right.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = fc });
+            var fcCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = fc };
             var tiles = new UniformGrid { Rows = 2, Columns = 3, Margin = new Thickness(-3, -3, -3, -3) };
             BuildWeatherGauges();
             tiles.Children.Add(WTileBig("Ветер", out wWind, out wWindSub, gCompass));
@@ -4672,9 +4727,18 @@ namespace Kapsula
             tiles.Children.Add(WTileBig("УФ-индекс", out wUv, out wUvSub, gUv));
             tiles.Children.Add(WTileBig("Осадки", out wRain, out wRainSub, gRain.Root));
             tiles.Children.Add(WTileBig("Солнце", out wSun, out wSunSub, gSun));
-            Grid.SetRow(tiles, 2); right.Children.Add(tiles);
-            Grid.SetColumn(right, 2);
-            weatherGrid.Children.Add(right);            body.Children.Add(weatherGrid);
+            // Конструктор: небо, прогноз и шесть приборов лежат на сетке 13×6 — их можно переставлять и прятать
+            var wb = weatherBoard = PageBoard(PWeather, "weather", 13, 6, 6);
+            wb.Add("sky", "Небо", skyCard, 0, 0, 4, 6, false);
+            wb.Add("forecast", "Прогноз", fcCard, 4, 0, 9, 2, false);
+            string[] wIds = { "wind", "hum", "pres", "uv", "rain", "sun" }, wNames = { "Ветер", "Влажность", "Давление", "УФ-индекс", "Осадки", "Солнце" };
+            var wTiles = new List<FrameworkElement>();
+            foreach (UIElement u in tiles.Children) wTiles.Add((FrameworkElement)u);
+            for (int i = 0; i < wTiles.Count && i < wIds.Length; i++) wb.Add(wIds[i], wNames[i], wTiles[i], 4 + (i % 3) * 3, 2 + (i / 3) * 2, 3, 2, false);
+            WireBoard(wb);
+            wb.Load();
+            weatherGrid.Children.Add(wb.Root);
+            body.Children.Add(weatherGrid);
             dock.Children.Add(body);
             RenderWeather();
             return dock;
@@ -5085,18 +5149,18 @@ namespace Kapsula
             // Плитки разложены по смыслу, у каждой группы подпись: что подключено, как ведёт себя Kapsula, питание компьютера.
             // Плитки «Настройки» здесь больше нет — шестерёнка стоит в углу панели на любой вкладке.
             GC.KeepAlive(setTile); GC.KeepAlive(tiles);
-            string[] captions = { "Подключения и звук", "Kapsula", "Питание" };
-            Tile[][] groups = { new Tile[] { netTile, btTile, vpnTile, micTile }, new Tile[] { themeTile, autoTile, lyrTile, quietTile }, new Tile[] { lockTile, sleepTile, restartTile, offTile } };
-            double[] heights = { 46, 46, 46 };   // вместе с подписями и нагрузкой всё должно уместиться в высоту вкладки
-            for (int gi = 0; gi < groups.Length; gi++)
+            // Конструктор: двенадцать плиток и нагрузка лежат на сетке 4×4 — их можно переставлять и прятать
+            Tile[] sysTiles = { netTile, btTile, vpnTile, micTile, themeTile, autoTile, lyrTile, quietTile, lockTile, sleepTile, restartTile, offTile };
+            string[] sysIds = { "net", "bt", "vpn", "mic", "theme", "auto", "lyrics", "quiet", "lock", "sleep", "restart", "off" };
+            var sb = systemBoard = PageBoard(PSystem, "system", 4, 4, 8);
+            for (int i = 0; i < sysTiles.Length; i++)
             {
-                sp.Children.Add(new TextBlock { Text = captions[gi], Foreground = Faint, FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, gi == 0 ? 0 : 5, 0, 1) });
-                var rowGrid = new UniformGrid { Rows = 1, Columns = 4, Height = heights[gi], Margin = new Thickness(-4, 0, -4, 0) };
-                foreach (Tile tl in groups[gi]) { tl.Compact(); tl.Label.FontSize = 11.5; tl.Label.MaxWidth = 92; tl.Root.Margin = new Thickness(4, 3, 4, 3); rowGrid.Children.Add(tl.Root); }
-                sp.Children.Add(rowGrid);
+                Tile tl = sysTiles[i];
+                tl.Compact(); tl.Label.FontSize = 11.5; tl.Label.MaxWidth = 110;
+                sb.Add(sysIds[i], tl.Label.Text, tl.Root, i % 4, i / 4, 1, 1, false);
             }
 
-            var stats = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 6, 0, 0) };
+            var stats = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8) };
             // процессор и память — в одну строку, чтобы над ними поместились яркость и питание
             var rows = new UniformGrid { Rows = 1, Columns = 2 };
             cpuBar = new Bar((PageW - 32 - 24) / 2 - 96 - 48 + 4, 5, accent, 22);
@@ -5104,7 +5168,10 @@ namespace Kapsula
             rows.Children.Add(StatRow("Процессор", cpuBar, out cpuText));
             rows.Children.Add(StatRow("Память", ramBar, out ramText));
             stats.Child = rows;
-            sp.Children.Add(stats);
+            sb.Add("load", "Нагрузка", stats, 0, 3, 4, 1, false);
+            WireBoard(sb);
+            sb.Load();
+            sp.Children.Add(sb.Root);
 
             var tr = new Grid { Margin = new Thickness(0, 10, 0, 0), Height = 34 };
             var trLeft = new StackPanel { Orientation = Orientation.Horizontal };
@@ -6018,8 +6085,7 @@ namespace Kapsula
             var t3 = StatTile("ЗА 7 ДНЕЙ", out claudeWeekVal, claudeWeekBars);
             Grid.SetColumn(t2, 2); Grid.SetColumn(t3, 4);
             stats.Children.Add(t1); stats.Children.Add(t2); stats.Children.Add(t3);
-            claudeStatsRow = new Border { Child = stats };
-            DockPanel.SetDock(claudeStatsRow, Dock.Top); dock.Children.Add(claudeStatsRow);
+            claudeStatsRow = new Border { Child = stats };   // подсказка с подробностями — на всех трёх плитках
 
             // ---- новая задача внизу: проект и что сделать
             var task = new Grid { Height = 36, Margin = new Thickness(0, 8, 0, 0) };
@@ -6033,7 +6099,7 @@ namespace Kapsula
             projRow.Children.Add(new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) });
             var proj = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 0), Child = projRow, Cursor = Cursors.Hand, ToolTip = "В какой папке работать" };
             proj.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ClaudeProjectMenu(proj); };
-            task.Children.Add(proj);
+            GC.KeepAlive(task);
             var field = new Grid();
             claudeTaskHint = new TextBlock { Text = "Попросить Claude Code… (Enter — запустить в терминале)", Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis };
             claudeTaskBox = MakeTextBox(false);
@@ -6047,16 +6113,25 @@ namespace Kapsula
             };
             field.Children.Add(claudeTaskHint); field.Children.Add(claudeTaskBox);
             var fieldCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 0, 14, 0), Child = field };
-            Grid.SetColumn(fieldCard, 2); task.Children.Add(fieldCard);
-            DockPanel.SetDock(task, Dock.Bottom); dock.Children.Add(task);
+
 
             // ---- сессии
             claudeList = new StackPanel();
-            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList });
+            var claudeScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList };
             claudeUsage = new TextBlock();   // подсказка с подробностями висит на плитках
             claudeStopAll = Btn("Остановить все", false, 0, 26, delegate { ClaudeStop(null, null); });
             ClaudeUsage.Updated += delegate { Dispatcher.BeginInvoke(new Action(delegate { if (expanded && page == PClaude) RenderClaudeUsage(); })); };
-            return dock;
+            // конструктор: три плитки статистики, сессии, папка и строка новой задачи
+            stats.Children.Clear();
+            var clb = PageBoard(PClaude, "claude", 12, 8, 8);
+            clb.Add("steps", "Шагов сегодня", t1, 0, 0, 4, 2, false);
+            clb.Add("written", "Написал сегодня", t2, 4, 0, 4, 2, false);
+            clb.Add("week", "За 7 дней", t3, 8, 0, 4, 2, false);
+            clb.Add("sessions", "Сессии", claudeScroll, 0, 2, 12, 5, false);
+            clb.Add("project", "Папка", proj, 0, 7, 3, 1, false);
+            clb.Add("task", "Новая задача", fieldCard, 3, 7, 9, 1, false);
+            GC.KeepAlive(dock);
+            return FinishBoard(clb);
         }
 
         // Недавние папки, где работал Claude Code
@@ -6784,6 +6859,7 @@ namespace Kapsula
         // Qwen выгружается из видеопамяти, остров тратит минимум ресурсов. Повторное нажатие — всё как было.
         // После перезапуска Kapsula режим выключен.
         public bool GamerMode, TestGamer;
+        public string TestEditTab;   // ключ --edittab weather|system
         public volatile bool InGame;   // игра на весь экран или игровой режим
         int phoneBlockedToastAt;
         // Телефон попытался нажать за игрока во время игры — напоминаем не чаще раза в минуту
@@ -7984,6 +8060,18 @@ namespace Kapsula
                 tg.Tick += delegate { SetState(state == 2 ? 0 : 2); };
                 tg.Start();
             }
+            if (TestEditTab != null) ClaudeAfter(1500, delegate
+            {
+                OpenEditor(TestEditTab);
+                if (Environment.GetEnvironmentVariable("KAPSULA_BOARDTEST") == "1")
+                {
+                    Board b = BoardFor(BoardPage(TestEditTab));
+                    var log = new System.Text.StringBuilder();
+                    if (TestEditTab == "system") { log.AppendLine("load->0,0 " + b.TestMove("load", 0, 0)); log.AppendLine("net->3,3 " + b.TestMove("net", 3, 3)); b.TestHide("vpn"); }
+                    else { log.AppendLine("sky->8,0 " + b.TestMove("sky", 8, 0)); log.AppendLine("wind->10,4 " + b.TestMove("wind", 10, 4)); log.AppendLine("forecast->4,4 " + b.TestMove("forecast", 4, 4)); b.TestHide("uv"); }
+                    try { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "kapsula-boardtest.txt"), log.ToString()); } catch { }
+                }
+            });
             if (TestGamer) { ClaudeAfter(3000, ToggleGamerMode); ClaudeAfter(9000, ToggleGamerMode); }   // проверка игрового режима без нажатий
             if (TestSlide) { ClaudeAfter(3000, delegate { ShowPage(PText); }); ClaudeAfter(5200, delegate { ShowPage(PSystem); }); }   // проверочный режим: смена вкладки без нажатий
             if (Demo)
@@ -8490,6 +8578,7 @@ namespace Kapsula
         void SetState(int s)
         {
             if (state == s) return;
+            if (s != 2) { Board eb = BoardFor(page); if (eb != null && eb.Editing) eb.SetEditing(false); RefreshPencil(); }   // панель закрылась — правка закончена
             if (s == 1) RenderMiniVolume();   // ползунок громкости — сразу с текущим значением
             bool wasFull = state == 2 || state == 4;
             bool wasCmd = state == 4;
@@ -8556,7 +8645,7 @@ namespace Kapsula
 
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetDoubleClickTime();
-        bool gamerBtnDown;
+        bool gamerBtnDown, escDown;
         int gamerClickAt;
 
         // Двойной щелчок левой кнопкой у верхней кромки экрана в районе острова. Нажатия видим опросом кнопки
@@ -8621,7 +8710,7 @@ namespace Kapsula
             {
                 double tw = state == 2 ? EW : MiniW(), th = state == 2 ? ExpandedH() : MH;
                 bool inside = Math.Abs(x - cx) <= tw / 2 + 14 && y <= th + 20;
-                if (pinned && state == 2) { leaveAt = 0; return; }   // закреплённая панель не закрывается сама
+                if ((pinned || EditingBoard() != null) && state == 2) { leaveAt = 0; return; }   // закреплённая панель и правка вкладки не закрываются сами
                 if (inside) holdOpenUntil = 0;   // курсор пришёл на остров — дальше обычные правила
                 if (inside || Typing() || volBar.Root.IsMouseCaptured || miniVolBar != null && miniVolBar.Root.IsMouseCaptured || holdOpenUntil != 0 && unchecked(Environment.TickCount - holdOpenUntil) < 0) { leaveAt = 0; return; }
                 if (leaveAt == 0) leaveAt = now;
@@ -9534,6 +9623,8 @@ namespace Kapsula
         {
             pollN++;
             UpdateHover();
+            // Esc заканчивает правку вкладки (окно острова фокус не берёт — смотрим клавишу сами)
+            { Board eb = EditingBoard(); bool esc = eb != null && (GetAsyncKeyState(0x1B) & 0x8000) != 0; if (esc && !escDown) eb.SetEditing(false); escDown = esc; }
 
             if (toastOn && unchecked(Environment.TickCount - toastUntil) >= 0) { toastOn = false; RenderCompact(); SetTargets(); }
             if (fsPeeking && unchecked(Environment.TickCount - fsPeekUntil) >= 0) { fsPeeking = false; SetTargets(); }

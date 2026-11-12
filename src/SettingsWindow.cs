@@ -427,9 +427,32 @@ namespace Kapsula
                 Sec("Поведение").Children.Add(Row("Монитор", "На каком экране живёт остров.", Chips(names, Math.Max(0, Math.Min(names.Length - 1, island.MonitorIndex)), delegate(int i) { island.SetMonitor(i); }), true));
             }
 
-            sp = Sec("Главная");
-            sp.Children.Add(HomeEditor());
-
+            // Конструктор вкладок: каждая вкладка острова — сетка блоков, которые перетаскиваются прямо на острове
+            sp = Sec("Вкладки острова");
+            sp.Children.Add(Header("Как это работает"));
+            sp.Children.Add(Row("Карандаш в углу панели", "На вкладке нажмите карандаш (справа вверху, рядом с булавкой) — блоки начнут покачиваться. Тащите любой блок мышью: остальные расступятся заранее, а место, куда он встанет, подсветится зелёным (красным — если не помещается). «−» прячет блок, спрятанные возвращаются кнопками снизу, «Как было» — исходная раскладка, Esc или «Готово» — закончить.", new TextBlock(), false));
+            sp.Children.Add(Header("Вкладки"));
+            foreach (string[] tab in new[] {
+                new[] { "home", "Главная", "Плеер, шесть плиток, громкость и ярлыки." },
+                new[] { "clip", "Буфер", "Поиск, фильтры, история и нижняя строка." },
+                new[] { "shelf", "Полка", "Кнопки полки и файлы." },
+                new[] { "text", "Текст", "Текст из буфера, счётчик и кнопки преобразований." },
+                new[] { "note", "Заметка", "Папки, заметка и таймер." },
+                new[] { "weather", "Погода", "Небо, прогноз и шесть приборов." },
+                new[] { "system", "Система", "Двенадцать плиток и нагрузка." },
+                new[] { "claude", "Claude Code", "Статистика, сессии, папка и новая задача." },
+                new[] { "today", "Сегодня", "Месяц и день." },
+                new[] { "notif", "Уведомления", "Список и нижняя строка." } })
+            {
+                string id = tab[0];
+                var btns = new StackPanel { Orientation = Orientation.Horizontal };
+                btns.Children.Add(PillBtn("Настроить", true, delegate { island.OpenEditor(id); }));
+                var rs = PillBtn("Как было", false, delegate { island.ResetBoard(id); });
+                rs.Margin = new Thickness(8, 0, 0, 0); btns.Children.Add(rs);
+                sp.Children.Add(Row(tab[1], tab[2], btns, false));
+            }
+            sp.Children.Add(Header("Главная"));
+            sp.Children.Add(Row("Недавно скопированное вместо плеера", "Когда музыка не играет, в блоке плеера — три последние записи из буфера.", Toggle(Store.Get("homeClips") != "0", delegate(bool v) { Store.Set("homeClips", v ? "1" : "0"); island.ApplyHomeLayout(); }), false));
             sp = Sec("Музыка");
             sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде. «Строка песни» работает, когда для трека нашёлся текст; иначе показывается название.", Chips(new string[] { "Часы и погода", "Название", "Строка песни", "Полоса трека" }, island.PillMode, delegate(int i) { island.SetPillMode(i); }), true));
             sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом. «Мягкое зеркало» — обложка по центру, а за ней она же, сильно размытая.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки", "Мягкое зеркало" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
@@ -617,14 +640,15 @@ namespace Kapsula
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
             "Версия, обновления, запуск, монитор",
             "Цвет, размер, стекло, часы, зверёк",
             "Когда остров прячется и что подсказывает",
             "Что показывать на главной вкладке",
+            "Конструктор: блоки вкладок перетаскиваются",
             "Плеер, жидкий край, тексты песен, оценки",
             "Карточки уведомлений и напоминания",
             "Остров в играх, игровой режим, Twitch",
@@ -795,7 +819,7 @@ namespace Kapsula
         // Цвета значков разделов, в порядке SectionOrder
         static readonly Color[] SectionColors =
         {
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x64, 0xD2, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
             Color.FromRgb(0x30, 0xD1, 0x58), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));

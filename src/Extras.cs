@@ -135,8 +135,12 @@ namespace Kapsula
             DockPanel.SetDock(foot, Dock.Bottom);
             dock.Children.Add(foot);
             notifList = new StackPanel();
-            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = notifList });
-            return dock;
+            var nsv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = notifList };
+            var ntb = PageBoard(PNotif, "notif", 1, 9, 8);
+            ntb.Add("list", "Список", nsv, 0, 0, 1, 8, false);
+            ntb.Add("foot", "Счётчик и «Очистить всё»", foot, 0, 8, 1, 1, false);
+            GC.KeepAlive(dock);
+            return FinishBoard(ntb);
         }
         TextBlock notifCount;
 
