@@ -146,7 +146,9 @@ namespace Kapsula
                             int age = unchecked(nowT - keyAt);
                             // Плееры часто отдают обложку с опозданием или сначала старую: первые 10 секунд перечитываем её
                             // каждую секунду, потом, пока её нет, — раз в 5 секунд ещё две минуты
-                            bool want = age < 10000 || (cover == null && age < 120000 && coverTries % 5 == 0);
+                            // некоторые плееры (Cider и другие на веб-движке) меняют картинку позже названия, порой через 10–20 секунд,
+                            // поэтому и дальше раз в 3 секунды сверяем: если плеер отдал другую картинку — берём её
+                            bool want = age < 10000 || coverTries % 3 == 0;
                             coverTries++;
                             if (want && p.Thumbnail != null)
                             {
@@ -162,14 +164,14 @@ namespace Kapsula
                                 string k2 = key, t2 = info.Title, a2 = info.Artist;
                                 ThreadPool.QueueUserWorkItem(delegate { byte[] oc = OnlineCover(t2, a2); if (oc != null) lock (onlineCovers) onlineCovers[k2] = oc; });
                             }
-                            if (cover == null) lock (onlineCovers) onlineCovers.TryGetValue(key, out cover);
+                            if (cover == null) { lock (onlineCovers) onlineCovers.TryGetValue(key, out cover); if (cover != null) coverSig = "online"; }   // иначе остров не заметил бы новую картинку
                             info.Cover = cover;
                         }
                     }
                 }
                 catch { mgr = null; }
 
-                string sig = info.Source + "|" + info.Sources.Length + "|" + info.Has + "|" + info.Playing + "|" + info.Title + "|" + info.Artist + "|" + (info.Cover == null ? 0 : info.Cover.Length) + "|" + (long)info.Pos + "|" + (long)info.Dur;
+                string sig = info.Source + "|" + info.Sources.Length + "|" + info.Has + "|" + info.Playing + "|" + info.Title + "|" + info.Artist + "|" + (info.Cover == null ? "" : coverSig ?? "") + "|" + (long)info.Pos + "|" + (long)info.Dur;
                 if (sig != sentSig)
                 {
                     sentSig = sig;

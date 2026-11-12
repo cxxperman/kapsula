@@ -215,12 +215,13 @@ namespace Kapsula
         }
 
         public void ReloadDeckHotkeys() { RegisterDeckHotkeys(); }
+        public void RefreshTabs() { if (page == PDeck && !DeckOn) ShowPage(PHome); else ShowPage(page); }
 
         void RegisterDeckHotkeys()
         {
             if (hwnd == IntPtr.Zero) return;
             for (int i = 0; i < 9; i++) Native.UnregisterHotKey(hwnd, DeckHotBase + i);
-            if (Store.Get("deckHotkeys") == "0") return;
+            if (Store.Get("deckHotkeys") == "0" || !DeckOn) return;
             int n = DeckLoad().Count;
             for (int i = 0; i < n && i < 9; i++) Native.RegisterHotKey(hwnd, DeckHotBase + i, 0x1 | 0x2 | 0x4000, (uint)(0x31 + i));   // Ctrl+Alt+цифра
         }

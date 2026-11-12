@@ -26,7 +26,7 @@ namespace Kapsula
 
         public static List<CalEvent> Events() { lock (typeof(Calendar)) return new List<CalEvent>(events); }
 
-        // Перечитать события на ближайшие двое суток (не чаще раза в пять минут)
+        // Перечитать события — с запасом на месяц назад и три вперёд, для календаря во вкладке «Сегодня» (не чаще раза в пять минут)
         public static void Refresh(bool force)
         {
             int now = Environment.TickCount;
@@ -40,7 +40,7 @@ namespace Kapsula
                     AppointmentStore store = Wait(AppointmentManager.RequestStoreAsync(AppointmentStoreAccessType.AllCalendarsReadOnly));
                     var list = new List<CalEvent>();
                     if (store != null)
-                        foreach (Appointment a in Wait(store.FindAppointmentsAsync(DateTimeOffset.Now.AddMinutes(-5), TimeSpan.FromHours(48))))
+                        foreach (Appointment a in Wait(store.FindAppointmentsAsync(DateTimeOffset.Now.Date.AddDays(-40), TimeSpan.FromDays(110))))
                         {
                             if (a.IsCanceledMeeting) continue;
                             list.Add(new CalEvent { Subject = string.IsNullOrEmpty(a.Subject) ? "Без названия" : a.Subject, Location = a.Location ?? "", Start = a.StartTime.LocalDateTime, AllDay = a.AllDay });

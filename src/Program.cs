@@ -47,7 +47,9 @@ namespace Kapsula
             if (!created)
             {
                 // «--wait» передаёт сама Kapsula при перезапуске после обновления: ждём, пока прежняя копия закроется.
-                if (Array.IndexOf(args, "--wait") < 0) return;
+                // Уже работает другая копия. Если она старее — это прошлая версия из другой папки: закрываем её и запускаемся сами.
+                bool waitArg = Array.IndexOf(args, "--wait") >= 0;
+                if (!waitArg && !Takeover.CloseOlder()) return;
                 try { if (!mutex.WaitOne(10000)) return; }
                 catch (AbandonedMutexException) { }
             }
@@ -119,6 +121,12 @@ namespace Kapsula
                 if (args[i] == "--duckask" && i + 1 < args.Length) { Ai.ForceDuck = true; w.TestDuckAsk = args[i + 1]; w.ForceOpen = 4; }
                 if (args[i] == "--camtest") PhoneCam.TestPattern(w);
                 if (args[i] == "--camserve") PhoneCam.Start(w);
+                if (args[i] == "--steamdltest") w.Loaded += delegate
+                {
+                    double pct = 5; var st = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                    st.Tick += delegate { pct = Math.Min(100, pct + 2.5); if (pct >= 100) { st.Stop(); w.SteamDownload("0", "", 0, 0, false, null); } else w.SteamDownload("570", "Dota 2", pct, 24e6, false, null); };
+                    st.Start();
+                };
                 if (args[i] == "--qrtest") w.Loaded += delegate { w.Dispatcher.BeginInvoke(new Action(delegate { PhoneCam.Start(w); PhoneCam.ShowQr(); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); };
                 if (args[i] == "--timerdone") { w.TestTimerDone = true; w.ForceOpen = -3; }
                 if (args[i] == "--traymenu") { w.TestTray = true; w.ForceOpen = -3; }
@@ -130,7 +138,7 @@ namespace Kapsula
             }
             w.Plain = plain;
             w.Show();
-            if (plain) Updater.Start(w);
+            if (plain) { Updater.Start(w); System.Threading.ThreadPool.QueueUserWorkItem(delegate { Takeover.FixAutostart(); }); }
             if (updated)
             {
                 var hello = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1800) };

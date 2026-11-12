@@ -746,18 +746,69 @@ namespace Kapsula
             return b;
         }
 
-        Border RoundPlay(double size, out TextBlock glyph)
+        // Кнопки плеера в духе macOS: сплошные фигуры со скруглёнными углами, без подложки.
+        // kind: play, pause, next, prev; рисуются в квадрате 24×24 и масштабируются
+        static FrameworkElement MediaShape(string kind, double size, Brush fill)
         {
-            var tb = new TextBlock { Text = "", FontFamily = Icons, FontSize = size * 0.38, Foreground = Ink, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Fg, Child = tb, Cursor = Cursors.Hand, Margin = new Thickness(14, 0, 14, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
-            b.MouseEnter += delegate { Pulse(b, 1.08); };
-            b.MouseLeave += delegate { Pulse(b, 1); };
-            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; Pulse(b, 0.9); watcher.Command(0xB3); };
-            b.MouseLeftButtonUp += delegate { Pulse(b, 1.08); };
-            glyph = tb;
+            var c = new Canvas { Width = 24, Height = 24 };
+            Action<Point[]> tri = delegate(Point[] pts)
+            {
+                var fig = new PathFigure { StartPoint = pts[0], IsClosed = true };
+                for (int i = 1; i < pts.Length; i++) fig.Segments.Add(new LineSegment(pts[i], true));
+                var g = new PathGeometry(); g.Figures.Add(fig);
+                c.Children.Add(new Path { Data = g, Fill = fill, Stroke = fill, StrokeThickness = 2.4, StrokeLineJoin = PenLineJoin.Round });
+            };
+            switch (kind)
+            {
+                case "play": tri(new[] { new Point(7.5, 4.8), new Point(19.6, 12), new Point(7.5, 19.2) }); break;
+                case "pause":
+                    foreach (double x in new double[] { 5.8, 13.8 })
+                    {
+                        var r = new Rectangle { Width = 4.4, Height = 15.6, RadiusX = 1.5, RadiusY = 1.5, Fill = fill };
+                        Canvas.SetLeft(r, x); Canvas.SetTop(r, 4.2); c.Children.Add(r);
+                    }
+                    break;
+                case "next": tri(new[] { new Point(3.2, 6.4), new Point(11.6, 12), new Point(3.2, 17.6) }); tri(new[] { new Point(12.4, 6.4), new Point(20.8, 12), new Point(12.4, 17.6) }); break;
+                default: tri(new[] { new Point(20.8, 6.4), new Point(12.4, 12), new Point(20.8, 17.6) }); tri(new[] { new Point(11.6, 6.4), new Point(3.2, 12), new Point(11.6, 17.6) }); break;
+            }
+            return new Viewbox { Width = size, Height = size, Child = c, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        // «Назад» и «Вперёд»
+        Border MediaBtn(string kind, double size, Action click)
+        {
+            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = MediaShape(kind, size * 0.5, Fg), Cursor = Cursors.Hand };
+            b.MouseEnter += delegate { b.Background = ChipHover; };
+            b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
+            Fx.Press(b, 0.86);
             return b;
         }
 
+        // Большая кнопка «играть/пауза». glyph — скрытая подпись: код по-прежнему пишет в неё знак паузы или игры,
+        // а кнопка по нему показывает нужную фигуру
+        Border RoundPlay(double size, out TextBlock glyph)
+        {
+            var tb = new TextBlock { Text = ((char)0xE768).ToString(), Visibility = Visibility.Collapsed };
+            var play = MediaShape("play", size * 0.62, Fg);
+            var pause = MediaShape("pause", size * 0.62, Fg);
+            pause.Visibility = Visibility.Collapsed;
+            var g = new Grid();
+            g.Children.Add(tb); g.Children.Add(play); g.Children.Add(pause);
+            System.ComponentModel.DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock)).AddValueChanged(tb, delegate
+            {
+                bool playing = tb.Text == ((char)0xE769).ToString();
+                pause.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
+                play.Visibility = playing ? Visibility.Collapsed : Visibility.Visible;
+            });
+            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = g, Cursor = Cursors.Hand, Margin = new Thickness(12, 0, 12, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
+            b.MouseEnter += delegate { b.Background = ChipHover; Pulse(b, 1.06); };
+            b.MouseLeave += delegate { b.Background = Brushes.Transparent; Pulse(b, 1); };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; Pulse(b, 0.88); watcher.Command(0xB3); };
+            b.MouseLeftButtonUp += delegate { Pulse(b, 1.06); };
+            glyph = tb;
+            return b;
+        }
         static void Pulse(Border b, double to)
         {
             var st = (ScaleTransform)b.RenderTransform;
@@ -770,7 +821,6 @@ namespace Kapsula
         {
             miniHost.Background = Brushes.Transparent;
             miniHost.Cursor = Cursors.Hand;
-            miniHost.ToolTip = "Нажмите, чтобы открыть панель";
             miniHost.MouseLeftButtonDown += delegate { SetState(2); };
 
             // Колонка с текстом песни: появляется справа, когда текст найден
@@ -819,9 +869,9 @@ namespace Kapsula
             g.Children.Add(pr);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            ctl.Children.Add(IconBtn("", 36, delegate { watcher.Command(0xB1); }));
+            ctl.Children.Add(MediaBtn("prev", 36, delegate { watcher.Command(0xB1); }));
             ctl.Children.Add(RoundPlay(34, out nPlayGlyph));
-            ctl.Children.Add(IconBtn("", 36, delegate { watcher.Command(0xB0); }));
+            ctl.Children.Add(MediaBtn("next", 36, delegate { watcher.Command(0xB0); }));
             Grid.SetRow(ctl, 4);
             g.Children.Add(ctl);
             miniHost.Children.Add(g);
@@ -1423,40 +1473,99 @@ namespace Kapsula
         void LoadLauncher()
         {
             launcherRow.Children.Clear();
+            List<string> items = Demo ? DemoLauncher() : LauncherItems();
             int n = 0;
-            try
+            foreach (string it in items)
             {
-                string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar");
-                string[] items = new string[0];
-                if (Demo)
-                {
-                    string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-                    var std = new List<string>();
-                    foreach (string f in new string[] { @"explorer.exe", @"System32\notepad.exe", @"System32\calc.exe", @"System32\mspaint.exe", @"System32\SnippingTool.exe", @"System32\cmd.exe" })
-                        if (System.IO.File.Exists(System.IO.Path.Combine(win, f))) std.Add(System.IO.Path.Combine(win, f));
-                    items = std.ToArray();
-                }
-                else if (System.IO.Directory.Exists(dir)) items = System.IO.Directory.GetFiles(dir, "*.lnk");
-                    foreach (string lnk in items)
-                    {
-                        if (n >= 13) break;
-                        ImageSource icon = Shell.IconFor(lnk);
-                        if (icon == null) continue;
-                        string path = lnk;
-                        var img = new Image { Source = icon, Width = 24, Height = 24 };
-                        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-                        var b = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = img, Cursor = Cursors.Hand, ToolTip = System.IO.Path.GetFileNameWithoutExtension(lnk), Margin = new Thickness(1, 0, 1, 0) };
-                        b.MouseEnter += delegate { b.Background = ChipHover; };
-                        b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
-                        b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(path); } catch { } };
-                        launcherRow.Children.Add(b);
-                        n++;
-                    }
+                if (n >= 12) break;
+                string path = it;
+                bool url = path.StartsWith("http://") || path.StartsWith("https://");
+                FrameworkElement icon = null;
+                if (!url) { ImageSource src = null; try { src = Shell.IconFor(path); } catch { } if (src != null) { var img = new Image { Source = src, Width = 24, Height = 24 }; RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality); icon = img; } }
+                if (icon == null) icon = new TextBlock { Text = ((char)(url ? 0xE774 : System.IO.Directory.Exists(path) ? 0xE8B7 : 0xE8A5)).ToString(), FontFamily = Icons, FontSize = 17, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                string name = url ? new Uri(path).Host.Replace("www.", "") : System.IO.Path.GetFileNameWithoutExtension(path.TrimEnd('\\'));
+                if (name.Length == 0) name = path;
+                var b = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = icon, Cursor = Cursors.Hand, ToolTip = name + (Demo ? "" : " · правый клик — убрать") };
+                b.MouseEnter += delegate { b.Background = ChipHover; };
+                b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
+                b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); } catch { Toast(((char)0xE783).ToString(), "Не удалось открыть: " + name, null, -1, null); } };
+                if (!Demo) b.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; var l = LauncherItems(); l.Remove(path); SaveLauncher(l); LoadLauncher(); };
+                Fx.Press(b, 0.92);
+                launcherRow.Children.Add(b);
+                n++;
             }
-            catch { }
-            if (n == 0) launcherRow.Children.Add(new TextBlock { Text = "Закрепите программы на панели задач — они появятся здесь", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+            if (Demo) return;
+            if (n < 12)
+            {
+                var plus = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = "Закрепить программу, файл, папку или ссылку (можно просто перетащить сюда)",
+                    Child = new TextBlock { Text = ((char)0xE710).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+                plus.MouseEnter += delegate { plus.Background = ChipHover; };
+                plus.MouseLeave += delegate { plus.Background = Brushes.Transparent; };
+                plus.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; LauncherAddMenu(plus); };
+                launcherRow.Children.Add(plus);
+            }
+            if (n == 0) launcherRow.Children.Add(new TextBlock { Text = "Закрепите здесь что угодно: программу, файл, папку или ссылку", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
         }
 
+        // Свой список ярлыков: пути и ссылки через «|»
+        static List<string> LauncherItems()
+        {
+            var l = new List<string>();
+            foreach (string p in Store.Get("launcher").Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries)) if (!l.Contains(p)) l.Add(p);
+            return l;
+        }
+
+        void SaveLauncher(List<string> l) { Store.Set("launcher", string.Join("|", l.ToArray())); }
+
+        void AddToLauncher(IEnumerable<string> paths)
+        {
+            var l = LauncherItems();
+            foreach (string p in paths) { string v = (p ?? "").Trim().Replace("|", ""); if (v.Length > 0 && !l.Contains(v) && l.Count < 12) l.Add(v); }
+            SaveLauncher(l); LoadLauncher();
+        }
+
+        static List<string> DemoLauncher()
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            var std = new List<string>();
+            foreach (string f in new string[] { @"explorer.exe", @"System32\notepad.exe", @"System32\calc.exe", @"System32\mspaint.exe", @"System32\SnippingTool.exe", @"System32\cmd.exe" })
+                if (System.IO.File.Exists(System.IO.Path.Combine(win, f))) std.Add(System.IO.Path.Combine(win, f));
+            return std;
+        }
+
+        void LauncherAddMenu(FrameworkElement anchor)
+        {
+            var menu = new WF.ContextMenuStrip();
+            menu.Items.Add("Программа или файл…", null, delegate
+            {
+                var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Что закрепить", Multiselect = true, Filter = "Все файлы|*.*|Программы и ярлыки|*.exe;*.lnk;*.url" };
+                if (dlg.ShowDialog() == true) AddToLauncher(dlg.FileNames);
+            });
+            menu.Items.Add("Папка…", null, delegate
+            {
+                using (var fb = new WF.FolderBrowserDialog { Description = "Какую папку закрепить" })
+                    if (fb.ShowDialog() == WF.DialogResult.OK) AddToLauncher(new string[] { fb.SelectedPath });
+            });
+            menu.Items.Add("Ссылка…", null, delegate
+            {
+                string[] r = PromptFields("Закрепить ссылку", new string[] { "Адрес (https://…)" });
+                if (r == null) return;
+                string u = r[0].Trim();
+                if (u.Length == 0) return;
+                if (!u.StartsWith("http://") && !u.StartsWith("https://")) u = "https://" + u;
+                Uri tmp; if (!Uri.TryCreate(u, UriKind.Absolute, out tmp)) return;
+                AddToLauncher(new string[] { u });
+            });
+            menu.Items.Add(new WF.ToolStripSeparator());
+            menu.Items.Add("Взять с панели задач", null, delegate
+            {
+                string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar");
+                if (System.IO.Directory.Exists(dir)) AddToLauncher(System.IO.Directory.GetFiles(dir, "*.lnk"));
+            });
+            DarkMenuRenderer.Apply(menu, 240, false);
+            Point at = anchor.PointToScreen(new Point(0, anchor.ActualHeight + 4));
+            menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
+        }
         // --------------------------------------------------------- загрузки
         static string DownloadsDir()
         {
@@ -2090,6 +2199,8 @@ namespace Kapsula
             cCover = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             cGlyph = new TextBlock { FontFamily = Icons, FontSize = 14, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(micDot);
+            camDot = new Ellipse { Width = 7, Height = 7, Fill = ClaudeGreen, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(4, 0, 0, 0), ToolTip = "Камера включена" };
+            left.Children.Add(camDot);
             claudeDot = BuildClaudePet();
             left.Children.Add(claudeDot);
             unreadText = new TextBlock { Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -2118,6 +2229,10 @@ namespace Kapsula
             cBar.Root.HorizontalAlignment = HorizontalAlignment.Center;
             cBar.Root.Visibility = Visibility.Collapsed;
             compactHost.Children.Add(cBar.Root);
+            // Дорожка «курьера»: пока Steam качает игру, зверёк носит коробки по полосе загрузки
+            dlLane = new Canvas { Width = 130, Height = CH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            BuildCourier();
+            compactHost.Children.Add(dlLane);
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, Ear + 13, 0) };
             cRight = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
@@ -2289,7 +2404,8 @@ namespace Kapsula
 
         static int GroupOf(int p) { for (int g = 0; g < TabGroups.Length; g++) if (Array.IndexOf(TabGroups[g], p) >= 0) return g; return 0; }
 
-        bool TabAvailable(int p) { return p != PClaude || ClaudeBridge.Enabled; }   // вкладка Claude есть только у тех, кто его подключил
+        bool TabAvailable(int p) { return (p != PClaude || ClaudeBridge.Enabled) && (p != PDeck || DeckOn); }
+        public static bool DeckOn { get { return Store.Get("deckOn") == "1"; } }   // «Дека» — альфа, по умолчанию выключена   // вкладка Claude есть только у тех, кто его подключил
 
         // Клик по значку закрытой группы открывает ту её вкладку, на которой были в прошлый раз
         int TabTarget(int p)
@@ -2410,7 +2526,7 @@ namespace Kapsula
         Border srcBtn;
         TextBlock srcLabel;
 
-        const double OutChipW = 104;
+        const double OutChipW = 134;   // чтобы помещались и «Наушники», и «Динамики», и названия покороче
         Border outChip;
         TextBlock outLabel;
 
@@ -2489,13 +2605,13 @@ namespace Kapsula
         Tile[] homeTileList;
         TextBlock homeEmpty;
         double homeCut;   // на сколько «Главная» ниже полной высоты
-        public static readonly string[] HomeTileIds = { "area", "full", "ocr", "qr", "pipette", "plain", "rec", "cmd", "dictate" };
-        public static readonly string[] HomeTileNames = { "Область", "Весь экран", "Текст с экрана", "QR-код", "Пипетка", "Чистый текст", "Запись экрана", "Команда", "Диктовка" };
+        public static readonly string[] HomeTileIds = { "area", "full", "ocr", "qr", "pipette", "rec" };
+        public static readonly string[] HomeTileNames = { "Область", "Весь экран", "Текст с экрана", "QR-код", "Пипетка", "Запись экрана" };
 
         public void ApplyHomeLayout()
         {
             if (homeGrid == null) return;
-            bool playerOn = Store.Get("homePlayer") != "0", vol = Store.Get("homeVolume") != "0", launch = Store.Get("homeLauncher") != "0";
+            bool playerOn = Store.Get("homePlayer") != "0", vol = Store.Get("homeVolume") != "0", launch = Store.Get("homeLauncher") == "1";   // ярлыки — по желанию, по умолчанию выключены
             bool clipOn = TestHomeClips || Store.Get("homeClips") != "0";
             var off = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
             homeTilesGrid.Children.Clear();
@@ -2614,7 +2730,17 @@ namespace Kapsula
 
             // Ряд программ, закреплённых на панели задач
             launcherRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
-            var launchCard = homeLaunchCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Child = launcherRow };
+            launcherRow.AllowDrop = true;
+            var launchCard = homeLaunchCard = new Border { AllowDrop = true,  Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Child = launcherRow };
+            // перетащили файл, папку или ссылку на ряд ярлыков — закрепляем
+            DragEventHandler over = delegate(object o, DragEventArgs e) { e.Handled = true; e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Text) ? DragDropEffects.Link : DragDropEffects.None; };
+            launchCard.DragEnter += over; launchCard.DragOver += over;
+            launchCard.Drop += delegate(object o, DragEventArgs e)
+            {
+                e.Handled = true;
+                if (e.Data.GetDataPresent(DataFormats.FileDrop)) AddToLauncher((string[])e.Data.GetData(DataFormats.FileDrop));
+                else if (e.Data.GetDataPresent(DataFormats.Text)) { string u = ((string)e.Data.GetData(DataFormats.Text) ?? "").Trim(); if (u.StartsWith("http://") || u.StartsWith("https://")) AddToLauncher(new string[] { u }); }
+            };
             Grid.SetRow(launchCard, 4); Grid.SetColumnSpan(launchCard, 3);
             g.Children.Add(launchCard);
             LoadLauncher();
@@ -2672,9 +2798,9 @@ namespace Kapsula
             playerBody.Children.Add(progressRow);
 
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            var prev = IconBtn("", 38, delegate { watcher.Command(0xB1); });
+            var prev = MediaBtn("prev", 38, delegate { watcher.Command(0xB1); });
             var play = RoundPlay(42, out mPlayGlyph);
-            var next = IconBtn("", 38, delegate { watcher.Command(0xB0); });
+            var next = MediaBtn("next", 38, delegate { watcher.Command(0xB0); });
             prev.VerticalAlignment = VerticalAlignment.Center; next.VerticalAlignment = VerticalAlignment.Center;
             ctl.Children.Add(prev); ctl.Children.Add(play); ctl.Children.Add(next);
             Grid.SetRow(ctl, 2);
@@ -2707,20 +2833,7 @@ namespace Kapsula
                 new Tile("", "Текст с экрана", delegate { StartOcr(); }).Compact(),
                 new Tile("", "QR-код", delegate { ScanQr(); }).Compact(),
                 new Tile("", "Пипетка", delegate { StartSnip(true); }).Compact(),
-                new Tile("", "Чистый текст", delegate
-                {
-                    // Убирает оформление у скопированного: в буфере остаётся только текст.
-                    try
-                    {
-                        if (!Clipboard.ContainsText()) { Toast("", "В буфере нет текста", null, -1, null); return; }
-                        Clipboard.SetText(Clipboard.GetText());
-                        Toast("", "Оформление убрано", null, -1, accent);
-                    }
-                    catch { }
-                }).Compact(),
-                recTile,
-                new Tile(((char)0xE721).ToString(), "Команда", delegate { ToggleCommand(); }).Compact(),
-                new Tile("", "Диктовка", delegate { Dictate(); }).Compact()
+                recTile
             };
             homeTileList = ts;
             for (int i = 0; i < ts.Length; i++)
@@ -3517,7 +3630,7 @@ namespace Kapsula
         {
             var dock = new DockPanel();
             var top = new Grid { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
-            top.Children.Add(new TextBlock { Text = "Файлы ждут здесь, пока вы не перетащите их в нужное окно", Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+            top.Children.Add(new TextBlock { Text = "Файлы до востребования", TextTrimming = TextTrimming.CharacterEllipsis, Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var all = Btn("Перетащить все", false, 0, 28, delegate { if (shelf.Count > 0) DragOut(shelf.ToArray()); });
             all.Margin = new Thickness(0, 0, 6, 0);
@@ -3664,7 +3777,7 @@ namespace Kapsula
             try
             {
                 // Менеджеры паролей помечают так секреты — их не запоминаем.
-                if (Clipboard.ContainsData("ExcludeClipboardContentFromMonitorProcessing")) return;
+                if (Store.Get("clipSecrets") != "0" && (Clipboard.ContainsData("ExcludeClipboardContentFromMonitorProcessing") || Clipboard.ContainsData("Clipboard Viewer Ignore"))) return;   // пароли из менеджеров паролей
                 if (!Clipboard.ContainsText())
                 {
                     if (Clipboard.ContainsImage()) OnClipboardImage();
@@ -3889,10 +4002,12 @@ namespace Kapsula
             ringText = new TextBlock { Foreground = Fg, FontSize = 17, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             ring.Children.Add(ringText);
             ringRow.Children.Add(ring);
-            ringPet = new PetView(2.0, Ink);   // бежит, пока идёт таймер; на перерыве пьёт чай
+            ringPet = new PetView(1.4, Ink);   // бежит, пока идёт таймер; на перерыве пьёт чай — живёт внутри кольца, под временем
             ringPet.Root.HorizontalAlignment = HorizontalAlignment.Center;
-            ringPet.Root.Margin = new Thickness(14, 0, 0, 0);
-            ringRow.Children.Add(ringPet.Root);
+            ringPet.Root.VerticalAlignment = VerticalAlignment.Bottom;
+            ringPet.Root.Margin = new Thickness(0, 0, 0, 17);
+            ringText.Margin = new Thickness(0, 0, 0, 12);
+            ring.Children.Add(ringPet.Root);
             var start = Btn("Старт", false, 88, 34, delegate
             {
                 if (timerEnd > DateTime.Now) { timerEnd = DateTime.MinValue; timerRinging = false; }
@@ -4800,7 +4915,6 @@ namespace Kapsula
             rows.Children.Add(StatRow("Процессор", cpuBar, out cpuText));
             rows.Children.Add(StatRow("Память", ramBar, out ramText));
             stats.Child = rows;
-            sp.Children.Add(BuildQuickControls());
             sp.Children.Add(stats);
 
             var tr = new Grid { Margin = new Thickness(0, 10, 0, 0), Height = 34 };
@@ -5131,6 +5245,19 @@ namespace Kapsula
             catch { }
         }
 
+        bool camInUse;
+        Ellipse camDot;
+
+        static bool CamBusy()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam"))
+                    return k != null && MicScan(k);
+            }
+            catch { return false; }
+        }
+
         static bool MicBusy()
         {
             try
@@ -5356,7 +5483,7 @@ namespace Kapsula
                                 Dispatcher.BeginInvoke(new Action(delegate
                                 {
                                     if (Quiet(a.Length > 0 ? a : "Windows", a.Length > 0 ? a : "Уведомление", text)) return;
-                                    ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", text, delegate { }, null, null, false);
+                                    ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", Store.Get("hideNotifText") == "1" ? "Новое уведомление" : text, delegate { }, null, null, false);
                                     SetCardBadge(ImageFrom(logo));
                                     HideCardButton();
                                     cardUntil = Environment.TickCount + 5500;
@@ -6401,7 +6528,7 @@ namespace Kapsula
         {
             Calendar.Refresh(false);
             DateTime now = DateTime.Now;
-            List<CalEvent> list = Calendar.Events();
+            List<CalEvent> list = Calendar.Events().FindAll(delegate(CalEvent e) { return e.Start >= now.AddMinutes(-5) && e.Start <= now.AddHours(48); });
             if (list.Count == 0)
             {
                 AddCmd(Calendar.Failed ? "Календарь Windows не открылся" : "На ближайшие два дня событий нет", "календарь Windows", ((char)0xE787).ToString(), null, null);
@@ -6642,6 +6769,78 @@ namespace Kapsula
         Border cDlIcon;
         TextBlock cDlName;
         double steamDlNameW;
+
+        // ---- зверёк-курьер для загрузок Steam
+        Canvas dlLane, courier;
+        Rectangle courierBox;
+        TranslateTransform courierPos = new TranslateTransform();
+        const double CourierPx = 1.2, CourierFloor = 23.5;
+        int courierT0;
+        double courierFrom;
+
+        void BuildCourier()
+        {
+            courier = new Canvas { Width = 11 * CourierPx, Height = 9 * CourierPx, RenderTransform = courierPos };
+            for (int y = 0; y < PetShape.Length; y++)
+            {
+                int x = 0;
+                while (x < 11)
+                {
+                    if (PetShape[y][x] != 'B') { x++; continue; }
+                    int start = x;
+                    while (x < 11 && PetShape[y][x] == 'B') x++;
+                    var r = new Rectangle { Width = (x - start) * CourierPx + 0.3, Height = CourierPx + 0.3, Fill = PetBody, SnapsToDevicePixels = true };
+                    Canvas.SetLeft(r, start * CourierPx); Canvas.SetTop(r, y * CourierPx);
+                    courier.Children.Add(r);
+                }
+            }
+            foreach (int ex in new int[] { 2, 8 })
+            {
+                var eye = new Rectangle { Width = CourierPx + 0.3, Height = 2 * CourierPx, Fill = Ink };
+                Canvas.SetLeft(eye, ex * CourierPx); Canvas.SetTop(eye, 4 * CourierPx);
+                courier.Children.Add(eye);
+            }
+            // коробка на голове: картон с полоской скотча
+            courierBox = new Rectangle { Width = 6.5, Height = 5.5, RadiusX = 0.8, RadiusY = 0.8, Fill = new SolidColorBrush(Color.FromRgb(0xC8, 0x92, 0x5A)), Stroke = new SolidColorBrush(Color.FromRgb(0x8E, 0x62, 0x36)), StrokeThickness = 0.8 };
+            Canvas.SetLeft(courierBox, 11 * CourierPx / 2 - 3.25); Canvas.SetTop(courierBox, -5.2);
+            courier.Children.Add(courierBox);
+            Canvas.SetTop(courier, CourierFloor - 9 * CourierPx);
+            dlLane.Children.Add(courier);
+        }
+
+        // Туда — с коробкой до края заполненной части полосы, там коробка «ложится» на полосу, обратно — налегке
+        void CourierTick(int now)
+        {
+            if (dlLane == null || dlLane.Visibility != Visibility.Visible) return;
+            double laneW = 130, petW = 11 * CourierPx;
+            double fill = Math.Max(0, Math.Min(1, steamDlPct / 100.0)) * laneW;
+            double target = Math.Max(0, fill - petW - 1);
+            double t = unchecked(now - courierT0) / 1000.0;
+            if (steamDlDone)
+            {
+                // всё скачано: прыгает от радости у конца полосы
+                courierPos.X = laneW - petW; courierPos.Y = -Math.Abs(Math.Sin(t * 7)) * 3; courierBox.Visibility = Visibility.Collapsed;
+                return;
+            }
+            if (steamDlPaused || target < 4)
+            {
+                // пауза или самое начало: стоит с коробкой у старта и переминается
+                courierPos.X = 0; courierPos.Y = steamDlPaused ? 0 : -Math.Abs(Math.Sin(t * 5)) * 1; courierBox.Visibility = Visibility.Visible;
+                return;
+            }
+            double go = Math.Max(0.5, target / 55.0), drop = 0.3, back = go * 0.75, pick = 0.25, cycle = go + drop + back + pick;
+            if (t > cycle) { courierT0 = now; t = 0; }
+            double x, hop = Math.Abs(Math.Sin(t * 14)) * 1.6;
+            bool box;
+            if (t < go) { x = target * Ease(t / go); box = true; }
+            else if (t < go + drop) { x = target; box = false; hop = 0; }
+            else if (t < go + drop + back) { x = target * (1 - Ease((t - go - drop) / back)); box = false; }
+            else { x = 0; box = true; hop = 0; }
+            courierPos.X = Math.Round(x * 2) / 2; courierPos.Y = -Math.Round(hop * 2) / 2;
+            courierBox.Visibility = box ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        static double Ease(double v) { v = Math.Max(0, Math.Min(1, v)); return v * v * (3 - 2 * v); }
 
         public void SteamDownload(string appid, string name, double percent, double rate, bool paused, byte[] icon)
         {
@@ -7463,6 +7662,7 @@ namespace Kapsula
             bool playing = media.Has && media.Playing;
             bool timing = timerEnd > DateTime.Now;
             cBar.Root.Visibility = Visibility.Collapsed;
+            cBar.Root.Margin = new Thickness(0); if (dlLane != null) dlLane.Visibility = Visibility.Collapsed;
             cText.Visibility = Visibility.Visible;
             cText.MaxWidth = 1000;
             cDlIcon.Visibility = Visibility.Collapsed;
@@ -7512,6 +7712,10 @@ namespace Kapsula
                 micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = Visibility.Collapsed;
                 cDlIcon.Visibility = Visibility.Visible;
+                claudeDot.Visibility = Visibility.Collapsed;   // зверёк сейчас работает курьером на полосе
+                cBar.Root.Margin = new Thickness(0, 18, 0, 0);
+                if (dlLane.Visibility != Visibility.Visible) courierT0 = Environment.TickCount;
+                dlLane.Visibility = PetProps() ? Visibility.Visible : Visibility.Collapsed;
                 cDlName.Text = steamDlName; cDlName.Visibility = steamDlName != "" ? Visibility.Visible : Visibility.Collapsed;
                 steamDlNameW = Math.Min(112, NaturalWidth(cDlName));   // ширина капсулы зависит от длины названия
                 cText.Visibility = Visibility.Collapsed;
@@ -7543,6 +7747,7 @@ namespace Kapsula
 
             cGlyph.Visibility = Visibility.Collapsed;
             micDot.Visibility = micInUse && !playing ? Visibility.Visible : Visibility.Collapsed;
+            camDot.Visibility = camInUse ? Visibility.Visible : Visibility.Collapsed;
             // Зверёк рисуется отдельно (он же показывает, чем занят Claude Code), остальные персонажи — в «глазах»
             eyes.Visibility = Character != "pet" && (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
             if (TestEyes) cCover.Visibility = Visibility.Collapsed;
@@ -8284,6 +8489,7 @@ namespace Kapsula
             }
             if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
             if (state == 0 && (!gameLite || pollN % 6 == 0)) PetAnimate();   // в игре — пять раз в секунду вместо тридцати
+            if (state == 0) CourierTick(Environment.TickCount);   // курьер на полосе загрузки Steam
             GlassTick();
             DuckTick();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
@@ -8335,7 +8541,10 @@ namespace Kapsula
             }
             if (tick % 4 == 0)
             {
-                bool mic = MicBusy();
+                // индикаторы микрофона и камеры — по желанию («Настройки → Безопасность»), по умолчанию выключены
+                bool cam = Store.Get("camDot") == "1" && CamBusy();
+                if (cam != camInUse) { camInUse = cam; if (cam && !StartingUp()) Toast(((char)0xE714).ToString(), "Камера включена", null, -1, ClaudeGreen); RenderCompact(); }
+                bool mic = Store.Get("micDot") == "1" && MicBusy();
                 if (mic != micInUse) { micInUse = mic; if (mic && !StartingUp()) Toast("", "Микрофон используется", null, -1, new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A))); }
             }
 

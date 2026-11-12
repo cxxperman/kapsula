@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -91,57 +92,73 @@ namespace Kapsula
 
     partial class IslandWindow
     {
-        Grid todayHead;
-        StackPanel todayWeek, todayList;
-        TextBlock todayLeft;
-        Path todayRing;
-        DateTime todayDay = DateTime.Today;
+        // ---- «Сегодня»: календарь месяца слева, план выбранного дня справа
+        DateTime todayDay = DateTime.Today;                                   // выбранный день
+        DateTime calMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        TextBlock calTitle, dayTitle, dayDate, dayInfo, dayHint;
+        UniformGrid calGrid;
+        StackPanel todayList;
         TextBox todayBox;
 
         FrameworkElement BuildTodayPage()
         {
-            var dock = new DockPanel();
-            // строка ввода внизу
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(214) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            // ---- месяц
+            var cal = new DockPanel { Margin = new Thickness(12, 10, 12, 10) };
+            var head = new Grid { Height = 26 };
+            calTitle = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+            head.Children.Add(calTitle);
+            var nav = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var prev = IconBtn(((char)0xE76B).ToString(), 24, delegate { calMonth = calMonth.AddMonths(-1); RenderToday(); });
+            var next = IconBtn(((char)0xE76C).ToString(), 24, delegate { calMonth = calMonth.AddMonths(1); RenderToday(); });
+            ((TextBlock)prev.Child).FontSize = 10; ((TextBlock)next.Child).FontSize = 10;
+            prev.ToolTip = "Предыдущий месяц"; next.ToolTip = "Следующий месяц";
+            nav.Children.Add(prev); nav.Children.Add(next);
+            head.Children.Add(nav);
+            DockPanel.SetDock(head, Dock.Top); cal.Children.Add(head);
+            var wd = new UniformGrid { Columns = 7, Rows = 1, Margin = new Thickness(0, 6, 0, 2) };
+            foreach (string d in new string[] { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс" })
+                wd.Children.Add(new TextBlock { Text = d, Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            DockPanel.SetDock(wd, Dock.Top); cal.Children.Add(wd);
+            calGrid = new UniformGrid { Columns = 7, Rows = 6 };
+            cal.Children.Add(calGrid);
+            g.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Child = cal });
+
+            // ---- день
+            var day = new DockPanel();
+            var dhead = new Grid { Margin = new Thickness(4, 2, 4, 6) };
+            var titles = new StackPanel();
+            dayTitle = new TextBlock { Foreground = Fg, FontSize = 19, FontWeight = FontWeights.SemiBold };
+            dayDate = new TextBlock { Foreground = Dim, FontSize = 12 };
+            titles.Children.Add(dayTitle); titles.Children.Add(dayDate);
+            dhead.Children.Add(titles);
+            dayInfo = new TextBlock { Foreground = Dim, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 3, 0, 0), ToolTip = "Второй часовой пояс меняется в настройках" };
+            dhead.Children.Add(dayInfo);
+            DockPanel.SetDock(dhead, Dock.Top); day.Children.Add(dhead);
+
             var input = new Grid { Height = 34, Margin = new Thickness(0, 6, 0, 0) };
-            var hint = new TextBlock { Text = "Добавить: «отчёт, потом в 14:00 созвон», «завтра в 9 спорт»", Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
+            dayHint = new TextBlock { Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis };
             todayBox = MakeTextBox(false);
-            todayBox.TextChanged += delegate { hint.Visibility = todayBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
+            todayBox.TextChanged += delegate { dayHint.Visibility = todayBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
             todayBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; AddTasksFromText(todayBox.Text); todayBox.Text = ""; } };
-            var field = new Grid(); field.Children.Add(hint); field.Children.Add(todayBox);
+            var field = new Grid(); field.Children.Add(dayHint); field.Children.Add(todayBox);
             input.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(14, 0, 14, 0), Child = field });
-            DockPanel.SetDock(input, Dock.Bottom);
-            dock.Children.Add(input);
-
-            // шапка: дата и неделя · ближайшее событие · погода и вторые часы
-            todayHead = new Grid { Height = 64, Margin = new Thickness(0, 0, 0, 6) };
-            DockPanel.SetDock(todayHead, Dock.Top);
-            dock.Children.Add(todayHead);
-
-            // лента недели и кольцо «осталось»
-            var weekRow = new Grid { Height = 40, Margin = new Thickness(0, 0, 0, 4) };
-            todayWeek = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left };
-            weekRow.Children.Add(todayWeek);
-            var ringBox = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            todayLeft = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            var ringGrid = new Grid { Width = 26, Height = 26 };
-            ringGrid.Children.Add(new Ellipse { Stroke = Bar.TrackBrush, StrokeThickness = 3 });
-            todayRing = new Path { Stroke = accent, StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
-            ringGrid.Children.Add(todayRing);
-            ringBox.Children.Add(todayLeft); ringBox.Children.Add(ringGrid);
-            weekRow.Children.Add(ringBox);
-            DockPanel.SetDock(weekRow, Dock.Top);
-            dock.Children.Add(weekRow);
+            DockPanel.SetDock(input, Dock.Bottom); day.Children.Add(input);
 
             todayList = new StackPanel();
-            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = todayList });
-            return dock;
+            day.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = todayList });
+            Grid.SetColumn(day, 2); g.Children.Add(day);
+            return g;
         }
-
         void AddTasksFromText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             List<DayTask> all = Tasks.Load();
-            List<DayTask> fresh = Tasks.Parse(text, DateTime.Today);
+            List<DayTask> fresh = Tasks.Parse(text, todayDay);   // без «завтра» и т. п. — на выбранный в календаре день
             all.AddRange(fresh);
             Tasks.Save(all);
             if (fresh.Count > 0) todayDay = fresh[0].Day;
@@ -160,110 +177,95 @@ namespace Kapsula
             return label;
         }
 
+        // События календаря Windows на день (уже загруженные; читаются с запасом на месяц назад и три вперёд)
+        static List<CalEvent> EventsOn(DateTime d)
+        {
+            var res = Calendar.Events().FindAll(delegate(CalEvent e) { return e.Start.Date == d.Date; });
+            res.Sort(delegate(CalEvent a, CalEvent b) { if (a.AllDay != b.AllDay) return a.AllDay ? -1 : 1; return a.Start.CompareTo(b.Start); });
+            return res;
+        }
+
         void RenderToday()
         {
-            if (todayHead == null) return;
+            if (calGrid == null) return;
+            Calendar.Refresh(false);
             var ru = new CultureInfo("ru-RU");
-            DateTime now = DateTime.Now;
-            todayHead.Children.Clear();
-            todayHead.ColumnDefinitions.Clear();
-            todayHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            todayHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            todayHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
-            todayHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            todayHead.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+            DateTime now = DateTime.Now, today = DateTime.Today;
+            List<DayTask> all = Tasks.Load();
+            List<CalEvent> evAll = Calendar.Events();
 
-            // 1) дата
-            int week = ru.Calendar.GetWeekOfYear(now, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-            var date = new Grid { Margin = new Thickness(12, 8, 10, 8) };
-            var dn = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            dn.Children.Add(new TextBlock { Text = now.Day.ToString(), Foreground = Fg, FontSize = 30, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-            var dw = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 0, 0) };
-            dw.Children.Add(new TextBlock { Text = ru.DateTimeFormat.GetAbbreviatedDayName(now.DayOfWeek).ToUpper(), Foreground = accent, FontSize = 10.5, FontWeight = FontWeights.Bold });
-            dw.Children.Add(new TextBlock { Text = ru.DateTimeFormat.GetAbbreviatedMonthName(now.Month).TrimEnd('.'), Foreground = Dim, FontSize = 11 });
-            dn.Children.Add(dw);
-            date.Children.Add(dn);
-            date.Children.Add(new TextBlock { Text = "неделя " + week, Foreground = Faint, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top });
-            todayHead.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Child = date });
+            // ---- месяц
+            string mn = ru.DateTimeFormat.GetMonthName(calMonth.Month);
+            calTitle.Text = char.ToUpper(mn[0]) + mn.Substring(1) + (calMonth.Year != today.Year ? " " + calMonth.Year : "");
+            calGrid.Children.Clear();
+            DateTime first = calMonth.AddDays(-(((int)calMonth.DayOfWeek + 6) % 7));
+            for (int i = 0; i < 42; i++)
+            {
+                DateTime d = first.AddDays(i);
+                bool inMonth = d.Month == calMonth.Month, isToday = d == today, sel = d == todayDay;
+                bool hasTask = all.Exists(delegate(DayTask t) { return t.Day == d && !t.Done; });
+                bool hasEv = evAll.Exists(delegate(CalEvent e) { return e.Start.Date == d; });
+                var cell = new Grid { Height = 25 };
+                var circle = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+                    Background = isToday ? (Brush)accent : Brushes.Transparent, BorderBrush = sel && !isToday ? Fg : null, BorderThickness = new Thickness(sel && !isToday ? 1.4 : 0),
+                    Child = new TextBlock { Text = d.Day.ToString(), FontSize = 11, FontWeight = isToday || sel ? FontWeights.Bold : FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                        Foreground = isToday ? (Brush)Brushes.White : !inMonth ? Faint : (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday ? Dim : Fg) } };
+                cell.Children.Add(circle);
+                // точки под числом: синяя — событие календаря, оранжевая — открытая задача
+                var dots = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -1) };
+                if (hasEv) dots.Children.Add(new Ellipse { Width = 3, Height = 3, Fill = isToday ? Fg : (Brush)accent, Margin = new Thickness(0.8, 0, 0.8, 0) });
+                if (hasTask) dots.Children.Add(new Ellipse { Width = 3, Height = 3, Fill = ClaudeOrange, Margin = new Thickness(0.8, 0, 0.8, 0) });
+                cell.Children.Add(dots);
+                var hit = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = cell, Opacity = inMonth ? 1 : 0.55 };
+                DateTime dd = d;
+                hit.MouseEnter += delegate { if (dd != today) circle.Background = ChipHover; };
+                hit.MouseLeave += delegate { if (dd != today) circle.Background = Brushes.Transparent; };
+                hit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true; todayDay = dd;
+                    if (dd.Month != calMonth.Month || dd.Year != calMonth.Year) calMonth = new DateTime(dd.Year, dd.Month, 1);
+                    RenderToday();
+                };
+                calGrid.Children.Add(hit);
+            }
 
-            // 2) ближайшее событие календаря или задача со временем
-            string evTitle = null; DateTime evAt = DateTime.MinValue;
-            try
-            {
-                foreach (CalEvent e in Calendar.Events())
-                    if (!e.AllDay && e.Start > now && (evTitle == null || e.Start < evAt)) { evTitle = e.Subject; evAt = e.Start; }
-            }
-            catch { }
-            foreach (DayTask t in Tasks.Load())
-                if (!t.Done && t.Day == DateTime.Today && t.Time.HasValue && DateTime.Today + t.Time.Value > now && (evTitle == null || DateTime.Today + t.Time.Value < evAt)) { evTitle = t.Text; evAt = DateTime.Today + t.Time.Value; }
-            var ev = new StackPanel { Margin = new Thickness(12, 8, 12, 8), VerticalAlignment = VerticalAlignment.Center };
-            if (evTitle != null)
-            {
-                TimeSpan left = evAt - now;
-                string inTxt = left.TotalMinutes < 60 ? "через " + Math.Max(1, (int)left.TotalMinutes) + " мин" : left.TotalHours < 24 ? "в " + evAt.ToString("H:mm") : evAt.ToString("d MMM, H:mm", ru);
-                var row = new Grid();
-                row.Children.Add(new TextBlock { Text = evTitle, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 70, 0) });
-                row.Children.Add(new TextBlock { Text = inTxt, Foreground = accent, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right });
-                ev.Children.Add(new TextBlock { Text = "БЛИЖАЙШЕЕ", Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 3) });
-                ev.Children.Add(row);
-                // полоса: сколько осталось из последних двух часов
-                double f = Math.Max(0, Math.Min(1, 1 - left.TotalMinutes / 120.0));
-                var track = new Grid { Height = 4, Margin = new Thickness(0, 6, 0, 0) };
-                track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Bar.TrackBrush });
-                var fill = new Border { CornerRadius = new CornerRadius(2), Background = accent, HorizontalAlignment = HorizontalAlignment.Left };
-                track.SizeChanged += delegate { fill.Width = Math.Max(3, track.ActualWidth * f); };
-                track.Children.Add(fill);
-                ev.Children.Add(track);
-            }
-            else
-            {
-                ev.Children.Add(new TextBlock { Text = "БЛИЖАЙШЕЕ", Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 3) });
-                ev.Children.Add(new TextBlock { Text = "Больше ничего на сегодня", Foreground = Dim, FontSize = 12.5 });
-            }
-            var evCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Child = ev };
-            Grid.SetColumn(evCard, 2); todayHead.Children.Add(evCard);
-
-            // 3) погода и вторые часы
+            // ---- день
+            string dn = ru.DateTimeFormat.GetDayName(todayDay.DayOfWeek);
+            dayTitle.Text = todayDay == today ? "Сегодня" : todayDay == today.AddDays(1) ? "Завтра" : todayDay == today.AddDays(-1) ? "Вчера" : char.ToUpper(dn[0]) + dn.Substring(1);
+            dayDate.Text = (todayDay == today || todayDay == today.AddDays(1) || todayDay == today.AddDays(-1) ? dn + ", " : "") + todayDay.ToString("d MMMM", ru) + (todayDay.Year != today.Year ? " " + todayDay.Year : "");
             DateTime other;
             string city = WorldClockLabel(out other);
-            var wx = new Grid { Margin = new Thickness(12, 8, 12, 8) };
-            var top = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
-            if (weather != null && weather.Error == null)
-            {
-                top.Children.Add(WeatherArt.Icon(weather.Code, weather.IsDay, 20));
-                top.Children.Add(new TextBlock { Text = " " + Weather.Temp(weather.Temp), Foreground = Fg, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-            }
-            else top.Children.Add(new TextBlock { Text = "Погода не выбрана", Foreground = Dim, FontSize = 11.5 });
-            wx.Children.Add(top);
-            var clock = new TextBlock { FontSize = 11.5, VerticalAlignment = VerticalAlignment.Bottom, ToolTip = "Второй часовой пояс меняется в настройках" };
-            clock.Inlines.Add(new System.Windows.Documents.Run(city + " ") { Foreground = Dim });
-            clock.Inlines.Add(new System.Windows.Documents.Run(other.ToString("H:mm")) { Foreground = Fg, FontWeight = FontWeights.SemiBold });
-            wx.Children.Add(clock);
-            var wxCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Child = wx };
-            Grid.SetColumn(wxCard, 4); todayHead.Children.Add(wxCard);
+            dayInfo.Inlines.Clear();
+            if (weather != null && weather.Error == null && todayDay == today) dayInfo.Inlines.Add(new System.Windows.Documents.Run(Weather.Temp(weather.Temp) + " · ") { Foreground = Fg, FontWeight = FontWeights.SemiBold });
+            dayInfo.Inlines.Add(new System.Windows.Documents.Run(city + " ") { Foreground = Dim });
+            dayInfo.Inlines.Add(new System.Windows.Documents.Run(other.ToString("H:mm")) { Foreground = Fg, FontWeight = FontWeights.SemiBold });
+            dayHint.Text = todayDay == today ? "Добавить: «отчёт, потом в 14:00 созвон»" : "Добавить на " + todayDay.ToString("d MMMM", ru) + ": «в 9 спорт»";
 
-            // лента недели: понедельник…воскресенье, точка под днём с задачами
-            List<DayTask> all = Tasks.Load();
-            todayWeek.Children.Clear();
-            DateTime mon = DateTime.Today.AddDays(-(((int)DateTime.Today.DayOfWeek + 6) % 7));
-            for (int i = 0; i < 7; i++)
+            todayList.Children.Clear();
+            // события календаря Windows
+            foreach (CalEvent ev in EventsOn(todayDay))
             {
-                DateTime d = mon.AddDays(i);
-                bool sel = d == todayDay, isToday = d == DateTime.Today;
-                bool has = all.Exists(delegate(DayTask t) { return t.Day == d && !t.Done; });
-                var sp = new StackPanel { Width = 34 };
-                sp.Children.Add(new TextBlock { Text = ru.DateTimeFormat.GetShortestDayName(d.DayOfWeek), Foreground = Faint, FontSize = 9.5, HorizontalAlignment = HorizontalAlignment.Center });
-                var num = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = sel ? (Brush)Fg : Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Center,
-                    Child = new TextBlock { Text = d.Day.ToString(), Foreground = sel ? (Brush)Ink : isToday ? (Brush)accent : Fg, FontSize = 11.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-                sp.Children.Add(num);
-                sp.Children.Add(new Ellipse { Width = 3, Height = 3, Fill = has ? (Brush)accent : Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0) });
-                var hit = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = sp };
-                DateTime day = d;
-                hit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; todayDay = day; RenderToday(); };
-                todayWeek.Children.Add(hit);
+                bool past = !ev.AllDay && ev.Start < now;
+                var row = new Grid { Height = 32, Margin = new Thickness(0, 0, 0, 2), Opacity = past ? 0.5 : 1 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.Children.Add(new Border { Width = 3.5, CornerRadius = new CornerRadius(2), Background = accent, Margin = new Thickness(6, 6, 0, 6), HorizontalAlignment = HorizontalAlignment.Left });
+                var time = new TextBlock { Text = ev.AllDay ? "весь день" : ev.Start.ToString("H:mm"), Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(time, 1); row.Children.Add(time);
+                var subj = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                subj.Children.Add(new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                if (ev.Location.Length > 0) subj.Children.Add(new TextBlock { Text = ev.Location, Foreground = Faint, FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis });
+                Grid.SetColumn(subj, 2); row.Children.Add(subj);
+                if (!ev.AllDay && ev.Start > now && ev.Start < now.AddHours(12))
+                {
+                    var inTxt = new TextBlock { Text = Calendar.In(ev.Start, now), Foreground = accent, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                    Grid.SetColumn(inTxt, 2); row.Children.Add(inTxt);
+                }
+                todayList.Children.Add(new Border { CornerRadius = new CornerRadius(10), Background = Card, Child = row, Margin = new Thickness(0, 0, 0, 4) });
             }
 
-            // задачи выбранного дня
+            // задачи выбранного дня (и просроченные — сегодня, сверху)
             List<DayTask> list = all.FindAll(delegate(DayTask t) { return t.Day == todayDay; });
             list.Sort(delegate(DayTask a, DayTask b)
             {
@@ -271,21 +273,13 @@ namespace Kapsula
                 TimeSpan ta = a.Time ?? TimeSpan.MaxValue, tb = b.Time ?? TimeSpan.MaxValue;
                 return ta.CompareTo(tb);
             });
-            // просроченные со вчера и раньше — тоже сегодня, сверху
-            if (todayDay == DateTime.Today) list.InsertRange(0, all.FindAll(delegate(DayTask t) { return t.Day < DateTime.Today && !t.Done; }));
-            int left2 = 0, overdue = 0;
-            foreach (DayTask t in list) if (!t.Done) { left2++; if (IsOverdue(t)) overdue++; }
-            todayLeft.Inlines.Clear();
-            todayLeft.Inlines.Add(new System.Windows.Documents.Run(left2 == 0 ? "всё сделано" : "осталось " + left2) { Foreground = Fg });
-            if (overdue > 0) todayLeft.Inlines.Add(new System.Windows.Documents.Run("\n" + overdue + " просрочено") { Foreground = ClaudeOrange, FontSize = 10.5, FontWeight = FontWeights.Normal });
-            int total = list.Count;
-            double frac = total == 0 ? 0 : (total - left2) / (double)total;
-            todayRing.Data = frac <= 0.001 ? null : ArcGeometry(13, 13, 11.5, 0, Math.Min(359.9, frac * 360));
-
-            todayList.Children.Clear();
-            if (list.Count == 0)
+            if (todayDay == today) list.InsertRange(0, all.FindAll(delegate(DayTask t) { return t.Day < today && !t.Done; }));
+            if (list.Count == 0 && todayList.Children.Count == 0)
             {
-                todayList.Children.Add(new TextBlock { Text = todayDay == DateTime.Today ? "На сегодня задач нет — напишите их строкой ниже" : "На этот день задач нет", Foreground = Dim, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 22, 0, 0) });
+                var empty = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 26, 0, 0) };
+                empty.Children.Add(new TextBlock { Text = ((char)0xE787).ToString(), FontFamily = Icons, FontSize = 22, Foreground = Faint, HorizontalAlignment = HorizontalAlignment.Center });
+                empty.Children.Add(new TextBlock { Text = todayDay == today ? "Сегодня ничего не запланировано" : "Свободный день", Foreground = Dim, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
+                todayList.Children.Add(empty);
                 return;
             }
             foreach (DayTask tk in list)
@@ -326,7 +320,6 @@ namespace Kapsula
                 todayList.Children.Add(b);
             }
         }
-
         static bool IsOverdue(DayTask t)
         {
             if (t.Done) return false;

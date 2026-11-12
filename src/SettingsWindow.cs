@@ -288,6 +288,7 @@ namespace Kapsula
             for (int i = 0; i < offs.Length; i++) if (Math.Abs(offs[i] - island.LyricOffset) < 0.01) oi = i;
             sp.Children.Add(Row("Сдвиг текста песни", "Если строки отстают от звука — сдвиньте вперёд, если спешат — назад.", Chips(new string[] { "−1 с", "−0,5 с", "Без сдвига", "+0,5 с", "+1 с" }, oi, delegate(int i) { island.SetLyricOffset(offs[i]); }), true));
             sp.Children.Add(Header("Наушники"));
+            sp = Sec("AirPods и Beats");
             sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке острова покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
             sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
 
@@ -414,7 +415,6 @@ namespace Kapsula
             sp = Sec("Запись и снимки");
             string ra = Store.Get("recAudio");
             sp.Children.Add(Row("Звук в записи экрана", "Звук компьютера — то, что играет в колонках или наушниках: видео, игра, звонок. Микрофон добавляется поверх, если выбран третий вариант.", Chips(new string[] { "Без звука", "Звук компьютера", "Компьютер и микрофон" }, ra == "0" ? 0 : (ra == "2" ? 2 : 1), delegate(int i) { Store.Set("recAudio", i.ToString()); }), true));
-            sp.Children.Add(Row("Показывать остров на скриншотах", "По умолчанию он скрыт от снимков, записи экрана и трансляций.", Toggle(island.ShowInCapture, delegate(bool v) { island.SetFlag("showInCapture", v); }), false));
             sp = Sec("Общее");
             sp.Children.Add(Row("Запускать вместе с Windows", null, Toggle(Autostart.IsOn(), delegate(bool v) { Autostart.Set(v); }), false));
             sp.Children.Add(Row("Автообновление", "Kapsula сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
@@ -426,6 +426,7 @@ namespace Kapsula
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
 
             BuildExtrasSection(Sec("Дополнительно"));
+            BuildSecuritySection(Sec("Безопасность"));
 
             sp = Sec("Клавиши");
             sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Нажмите на сочетание и введите новое. Backspace отключает, правый клик возвращает исходное. Красным отмечены сочетания, занятые другой программой." });
@@ -436,24 +437,25 @@ namespace Kapsula
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "Уведомления", "Steam и Discord", "Запись и снимки", "Нейросети", "Телефон", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Музыка", "AirPods и Beats", "Уведомления", "Steam и Discord", "Запись и снимки", "Нейросети", "Телефон", "Безопасность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
             "Версия, обновления, запуск",
             "Цвет, размер, стекло, зверёк",
             "Когда остров прячется и на каком экране живёт",
             "Что показывать на главной вкладке",
-            "Плеер, жидкий край, тексты песен, наушники",
+            "Плеер, жидкий край, тексты песен",
+            "Заряд наушников и пауза, когда их сняли",
             "Что и когда показывает остров",
             "Игры, сообщения и уведомления",
-            "Звук в записи, скрытие острова",
+            "Звук в записи и снимки экрана",
             "Чат, ключи, Claude Code",
             "Веб-камера из телефона и пульт",
+            "Камера, микрофон, пароли, скриншоты",
             "Звонки, дека, игры, виджет, агенты",
             "Сочетания клавиш"
-        };
-        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
+        };        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
         List<Border> navItems = new List<Border>();
         TextBlock paneTitle, paneHint;
         string currentSection;
@@ -469,8 +471,8 @@ namespace Kapsula
         // Цвета значков разделов, в порядке SectionOrder
         static readonly Color[] SectionColors =
         {
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
-            Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xAC, 0xAC, 0xB2),
+            Color.FromRgb(0xFF, 0x45, 0x3A), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
         static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x2A));
@@ -884,7 +886,7 @@ namespace Kapsula
                 Store.Set("homeTilesOff", string.Join(",", new List<string>(tilesOff).ToArray()));
                 island.ApplyHomeLayout(); draw();
             }));
-            group("СНИЗУ", new string[] { "homeLauncher" }, new string[] { "Ярлыки программ" }, new bool[] { true });
+            group("СНИЗУ", new string[] { "homeLauncher" }, new string[] { "Ярлыки" }, new bool[] { false });
 
             // схема: прямоугольники на месте частей панели
             Brush part = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x42)), hot = new SolidColorBrush(Color.FromRgb(0x5A, 0x5A, 0x66));
@@ -893,7 +895,7 @@ namespace Kapsula
                 schema.Children.Clear();
                 var frame = new Border { Width = 150, Height = 96, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0E, 0x11)), BorderBrush = Divider, BorderThickness = new Thickness(1) };
                 schema.Children.Add(frame);
-                bool pl = on("homePlayer", true) || on("homeClips", true), vol = on("homeVolume", true), lau = on("homeLauncher", true);
+                bool pl = on("homePlayer", true) || on("homeClips", true), vol = on("homeVolume", true), lau = on("homeLauncher", false);
                 var off2 = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
                 int n = 0; foreach (string id in IslandWindow.HomeTileIds) if (!off2.Contains(id)) n++;
                 double x = 8, y = 8, w = 134, bottom = lau ? 72 : 88;
@@ -1036,12 +1038,27 @@ namespace Kapsula
 
         // Поле для ключа: вводит его сам пользователь; обратно ключ никогда не показывается.
         // Поле для ключа Gemini: ключ вводит сам пользователь, хранится зашифрованным на этом компьютере
+        // ---- «Безопасность»: индикаторы камеры и микрофона, приватность уведомлений и буфера, скрытие от записи
+        void BuildSecuritySection(StackPanel sp)
+        {
+            sp.Children.Add(Header("Камера и микрофон"));
+            sp.Children.Add(Row("Индикатор микрофона", "Оранжевая точка в капсуле и короткое сообщение, когда какая-то программа включает микрофон.", Toggle(Store.Get("micDot") == "1", delegate(bool v) { Store.Set("micDot", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Индикатор камеры", "Зелёная точка в капсуле и короткое сообщение, когда какая-то программа включает веб-камеру.", Toggle(Store.Get("camDot") == "1", delegate(bool v) { Store.Set("camDot", v ? "1" : "0"); }), false));
+            sp.Children.Add(Header("Приватность"));
+            sp.Children.Add(Row("Скрывать текст уведомлений", "Карточки уведомлений Windows на острове показывают только программу, без текста сообщения, — если рядом кто-то смотрит на экран.", Toggle(Store.Get("hideNotifText") == "1", delegate(bool v) { Store.Set("hideNotifText", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Не запоминать пароли из буфера", "Пароли, скопированные из менеджеров паролей, не попадают в историю буфера Kapsula. История буфера и так хранится только в памяти и стирается при выходе.", Toggle(Store.Get("clipSecrets") != "0", delegate(bool v) { Store.Set("clipSecrets", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Показывать остров на скриншотах", "По умолчанию он скрыт от снимков, записи экрана и трансляций.", Toggle(island.ShowInCapture, delegate(bool v) { island.SetFlag("showInCapture", v); }), false));
+            sp.Children.Add(Header("Доступ с телефона"));
+            sp.Children.Add(Row("Новая секретная ссылка", "Ссылка из QR-кода открывает пульт и камеру. Если она могла попасть не туда — сделайте новую, старая сразу перестанет работать.", PillBtn("Сделать новую", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Чтобы подключить телефон снова, покажите ему новый QR-код.", "Kapsula"); }), false));
+        }
+
         // ---- «Дополнительно»: звонки, дека, телефон, игры, Twitch, виджет, утро, MCP
         void BuildExtrasSection(StackPanel sp)
         {
             sp.Children.Add(Header("Каждый день"));
             sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: погода, первое событие, задачи и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. Kapsula сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Дека · альфа", "Вкладка рядом с «Главной»: до 9 ярлыков программ и действий с запуском по Ctrl+Alt+1…9. Сырая функция, по умолчанию выключена.", Toggle(Store.Get("deckOn") == "1", delegate(bool v) { Store.Set("deckOn", v ? "1" : "0"); island.ReloadDeckHotkeys(); island.RefreshTabs(); }), false));
             sp.Children.Add(Row("Клавиши деки", "Ctrl+Alt+1…9 запускают места на вкладке «Дека» — программы и действия.", Toggle(Store.Get("deckHotkeys") != "0", delegate(bool v) { Store.Set("deckHotkeys", v ? "1" : "0"); island.ReloadDeckHotkeys(); }), false));
 
             sp.Children.Add(Header("Поверх экрана"));

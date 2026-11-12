@@ -32,6 +32,7 @@ $refs = @(
     "$fw\System.Security.dll",
     "$fw\System.Xml.dll",
     "$fw\System.Management.dll",
+    "$fw\Microsoft.VisualBasic.dll",
     "$fw\System.Runtime.WindowsRuntime.dll",
     (Facade 'System.Runtime'),
     (Facade 'System.Runtime.InteropServices.WindowsRuntime'),
