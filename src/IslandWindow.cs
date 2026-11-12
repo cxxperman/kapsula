@@ -4189,7 +4189,7 @@ namespace Kapsula
             head.Children.Add(ringPet.Root);
             DockPanel.SetDock(head, Dock.Top); col.Children.Add(head);
 
-            var ring = new Grid { Width = 84, Height = 84, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
+            var ring = new Grid { Width = RingSize, Height = RingSize, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) };
             ring.Children.Add(new Ellipse { Stroke = Bar.TrackBrush, StrokeThickness = 6, Margin = new Thickness(3) });
             ringArc = new Path { Stroke = accent, StrokeThickness = 6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
             ring.Children.Add(ringArc);
@@ -4458,6 +4458,7 @@ namespace Kapsula
         // ---------------------------------------------------- кольцо таймера
         PetView ringPet, wPet;
 
+        const double RingSize = 84;
         void UpdateRing()
         {
             bool running = timerEnd > DateTime.Now;
@@ -4466,7 +4467,8 @@ namespace Kapsula
             ringText.Text = running ? Fmt(timerEnd - DateTime.Now) : timerPreset + ":00";
             startLabel.Text = running ? "Стоп" : "Старт";
             ringArc.Opacity = running ? 1 : 0.35;
-            double ang = Math.Min(359.9, 360 * frac) * Math.PI / 180, r = 40, c = 46;
+            // дуга лежит ровно на серой дорожке: центр круга и её радиус (отступ 3 + половина толщины 3)
+            double ang = Math.Min(359.9, 360 * frac) * Math.PI / 180, c = RingSize / 2, r = RingSize / 2 - 6;
             var g = new StreamGeometry();
             using (var ctx = g.Open())
             {
@@ -7256,14 +7258,16 @@ namespace Kapsula
             new[] { "out", "pick", "back", "drop", "flip", "rest" },                                           // 5 сальто
             new[] { "out", "pick", "sniff", "sneeze", "back", "drop", "rest" }                                 // 6 чих
         };
-        static double SegDur(string s)
+        // Ходьба длится по расстоянию: склад коробок у правого края, и путь бывает и коротким, и через всю полосу
+        double SegDur(string s)
         {
+            double trip = courierTrip;
             switch (s)
             {
-                case "out": return 0.46; case "pick": return 0.26; case "back": return 0.6; case "drop": return 0.3; case "rest": return 0.22;
-                case "backA": return 0.3; case "fall": return 0.22; case "lie": return 0.5; case "getup": return 0.32; case "dust": return 0.42; case "backB": return 0.34;
-                case "windup": return 0.2; case "throw": return 0.52; case "cheer": return 0.34; case "home": return 0.5;
-                case "bonk": return 0.34; case "faint": return 1.0; case "kickwind": return 0.18; case "kick": return 0.6;
+                case "out": return Math.Max(0.46, trip / 55); case "pick": return 0.26; case "back": return Math.Max(0.6, trip / 40); case "drop": return 0.3; case "rest": return 0.22;
+                case "backA": return Math.Max(0.3, trip * 0.5 / 40); case "fall": return 0.22; case "lie": return 0.5; case "getup": return 0.32; case "dust": return 0.42; case "backB": return Math.Max(0.34, trip * 0.5 / 45);
+                case "windup": return 0.2; case "throw": return 0.52 + trip / 400; case "cheer": return 0.34; case "home": return Math.Max(0.5, trip / 55);
+                case "bonk": return 0.34; case "faint": return 1.0; case "kickwind": return 0.18; case "kick": return 0.6 + trip / 300;
                 case "flip": return 0.5; case "sniff": return 0.3; case "sneeze": return 0.32;
             }
             return 0.3;
@@ -7356,7 +7360,8 @@ namespace Kapsula
             if (int.TryParse(Environment.GetEnvironmentVariable("KAPSULA_COURIER") ?? "", out forced) && forced >= 0 && forced < EpisodeSegs.Length) return forced;
             int ep;
             double r = courierRnd.NextDouble();
-            ep = r < 0.5 ? 0 : r < 0.59 ? 1 : r < 0.68 ? 2 : r < 0.76 ? 3 : r < 0.84 ? 4 : r < 0.92 ? 5 : 6;
+            // обычный рейс — только в трети случаев, остальное — сценки
+            ep = r < 0.3 ? 0 : r < 0.42 ? 1 : r < 0.54 ? 2 : r < 0.65 ? 3 : r < 0.76 ? 4 : r < 0.88 ? 5 : 6;
             if (ep != 0 && ep == courierLastEpisode) ep = 0;   // одна и та же сценка дважды подряд — скучно
             if (ep != 0) courierLastEpisode = ep;
             return ep;
@@ -7400,11 +7405,12 @@ namespace Kapsula
             {
                 courierCycleAt = now; t = 0; courierDropped = false;
                 courierBase = baseNow;
-                courierTrip = Math.Max(0, Math.Min(22, LaneW - pw - baseNow));
+                courierTrip = Math.Max(0, LaneW - pw - baseNow);   // за коробкой — к правому краю, где «склад»
                 courierEpisode = PickEpisode(courierTrip);
                 segs = EpisodeSegs[courierEpisode];
             }
             double baseX = courierBase, trip = courierTrip, far = baseX + trip;
+            double steps = Math.Max(3, Math.Round(trip / 9));   // шагов на путь — по длине пути
             double boxGroundX = far + pw / 2 - BoxW / 2 + 3.5;
             double headX = pw / 2 - BoxW / 2;   // коробка на голове относительно зверька
             double edgeX = courierEdge - BoxW / 2 + 2;
@@ -7423,7 +7429,7 @@ namespace Kapsula
             switch (seg)
             {
                 case "out":   // налегке за коробкой
-                    x = baseX + trip * Smooth(p); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.4; eyeDir = 1;
+                    x = baseX + trip * Smooth(p); hop = Math.Abs(Math.Sin(p * Math.PI * steps)) * 1.4; eyeDir = 1;
                     if (courierEpisode != 3) { groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH); }
                     break;
                 case "pick":  // присел и поднял коробку на голову
@@ -7436,7 +7442,7 @@ namespace Kapsula
                     break;
                 }
                 case "back":  // с коробкой к краю — шаги тяжелее
-                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.9; squash = 1 - Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.04; eyeDir = -1;
+                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * steps)) * 0.9; squash = 1 - Math.Abs(Math.Sin(p * Math.PI * steps)) * 0.04; eyeDir = -1;
                     courierBox.Visibility = Visibility.Visible;
                     break;
                 case "drop":  // кладёт коробку на край — она «вливается» в полосу
@@ -7449,7 +7455,7 @@ namespace Kapsula
                     break;
                 }
                 case "backA": // несёт, на полпути…
-                    x = baseX + trip * (1 - 0.5 * Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 1.5)) * 0.9; eyeDir = -1;
+                    x = baseX + trip * (1 - 0.5 * Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * Math.Max(1.5, steps / 2))) * 0.9; eyeDir = -1;
                     courierBox.Visibility = Visibility.Visible;
                     break;
                 case "fall":  // …спотыкается и падает вперёд, коробка вылетает к краю
@@ -7483,7 +7489,7 @@ namespace Kapsula
                     break;
                 }
                 case "backB": // дальше налегке, коробка уже на месте
-                    x = baseX + trip * 0.5 * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 2)) * 1.2; eyeDir = -1;
+                    x = baseX + trip * 0.5 * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * Math.Max(2, steps / 2))) * 1.2; eyeDir = -1;
                     break;
                 case "windup":   // бросок: присел с коробкой
                     x = far; squash = 1 - Smooth(p) * 0.18; eyeDir = -1;
@@ -7501,7 +7507,7 @@ namespace Kapsula
                     x = far; hop = Math.Abs(Math.Sin(p * Math.PI * 2)) * 2.6; eyeH = 0.8; eyeDir = -1;
                     break;
                 case "home":     // налегке к краю
-                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.3; eyeDir = -1;
+                    x = baseX + trip * (1 - Smooth(p)); hop = Math.Abs(Math.Sin(p * Math.PI * steps)) * 1.3; eyeDir = -1;
                     break;
                 case "bonk":     // коробка падает сверху на голову
                 {
