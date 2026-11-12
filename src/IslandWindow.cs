@@ -774,14 +774,27 @@ namespace Kapsula
             return new Viewbox { Width = size, Height = size, Child = c, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         }
 
+        // Подсветка и «нажатость» следуют за тем, есть ли курсор над кнопкой прямо сейчас (IsMouseOver ведёт сам WPF).
+        // На событиях «вошёл/вышел» подсветка застревала, если остров сворачивался, пока курсор был на кнопке.
+        static void HoverFollows(Border b)
+        {
+            Action sync = delegate
+            {
+                bool over = b.IsMouseOver && b.IsVisible;
+                b.Background = over ? (Brush)ChipHover : Brushes.Transparent;
+                if (!over) Fx.Scale(b, 1, 160);
+            };
+            System.ComponentModel.DependencyPropertyDescriptor.FromProperty(UIElement.IsMouseOverProperty, typeof(UIElement)).AddValueChanged(b, delegate { sync(); });
+            b.IsVisibleChanged += delegate { sync(); };
+        }
+
         // «Назад» и «Вперёд»
         Border MediaBtn(string kind, double size, Action click)
         {
             var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = MediaShape(kind, size * 0.5, Fg), Cursor = Cursors.Hand };
-            b.MouseEnter += delegate { b.Background = ChipHover; };
-            b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.86);
+            HoverFollows(b);
             return b;
         }
 
@@ -802,10 +815,9 @@ namespace Kapsula
                 play.Visibility = playing ? Visibility.Collapsed : Visibility.Visible;
             });
             var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = g, Cursor = Cursors.Hand, Margin = new Thickness(12, 0, 12, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
-            b.MouseEnter += delegate { b.Background = ChipHover; Pulse(b, 1.06); };
-            b.MouseLeave += delegate { b.Background = Brushes.Transparent; Pulse(b, 1); };
-            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; Pulse(b, 0.88); watcher.Command(0xB3); };
-            b.MouseLeftButtonUp += delegate { Pulse(b, 1.06); };
+            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; watcher.Command(0xB3); };
+            Fx.Press(b, 0.86);
+            HoverFollows(b);
             glyph = tb;
             return b;
         }
@@ -6771,16 +6783,36 @@ namespace Kapsula
         double steamDlNameW;
 
         // ---- зверёк-курьер для загрузок Steam
+        // Смысл: пустая часть полосы — то, что ещё качается. Зверёк стоит на переднем крае скачанного, отбегает вправо
+        // за коробкой, приседает, поднимает её, несёт к краю и кладёт — полоса подрастает. Полосу двигают именно доставки:
+        // каждая догоняет настоящий процент наполовину, поэтому край не прыгает, пока зверёк в пути.
+        // Кадры считаются на каждое обновление экрана (CompositionTarget.Rendering), а не по таймеру опроса.
         Canvas dlLane, courier;
-        Rectangle courierBox;
+        Rectangle courierBox, groundBox, dropBox;
+        Rectangle[] courierEyes;
         TranslateTransform courierPos = new TranslateTransform();
-        const double CourierPx = 1.2, CourierFloor = 23.5;
-        int courierT0;
-        double courierFrom;
+        ScaleTransform courierSquash = new ScaleTransform(1, 1);
+        const double CourierPx = 1.2, CourierFloor = 23.5, LaneW = 130, BoxW = 6.5, BoxH = 5.5;
+        readonly System.Diagnostics.Stopwatch courierClock = new System.Diagnostics.Stopwatch();
+        double courierEdge = -1;       // докуда полоса показана заполненной (в точках)
+        double courierCycleAt;         // начало текущего рейса, мс
+        double courierTrip;            // длина текущего рейса
+        double courierBase;            // где стоял в начале рейса
+        bool courierDropped, courierOn;
+        // длительности фаз рейса, с: туда, подъём, обратно, сброс, передышка
+        const double CwOut = 0.46, CwPick = 0.26, CwBack = 0.6, CwDrop = 0.3, CwRest = 0.2;
+
+        static Rectangle Parcel()
+        {
+            return new Rectangle { Width = BoxW, Height = BoxH, RadiusX = 0.8, RadiusY = 0.8, Fill = new SolidColorBrush(Color.FromRgb(0xC8, 0x92, 0x5A)), Stroke = new SolidColorBrush(Color.FromRgb(0x8E, 0x62, 0x36)), StrokeThickness = 0.8, IsHitTestVisible = false };
+        }
 
         void BuildCourier()
         {
-            courier = new Canvas { Width = 11 * CourierPx, Height = 9 * CourierPx, RenderTransform = courierPos };
+            double pw = 11 * CourierPx, ph = 9 * CourierPx;
+            courier = new Canvas { Width = pw, Height = ph, RenderTransformOrigin = new Point(0.5, 1) };
+            var tg = new TransformGroup(); tg.Children.Add(courierSquash); tg.Children.Add(courierPos);
+            courier.RenderTransform = tg;
             for (int y = 0; y < PetShape.Length; y++)
             {
                 int x = 0;
@@ -6789,59 +6821,183 @@ namespace Kapsula
                     if (PetShape[y][x] != 'B') { x++; continue; }
                     int start = x;
                     while (x < 11 && PetShape[y][x] == 'B') x++;
-                    var r = new Rectangle { Width = (x - start) * CourierPx + 0.3, Height = CourierPx + 0.3, Fill = PetBody, SnapsToDevicePixels = true };
+                    var r = new Rectangle { Width = (x - start) * CourierPx + 0.3, Height = CourierPx + 0.3, Fill = PetBody };
                     Canvas.SetLeft(r, start * CourierPx); Canvas.SetTop(r, y * CourierPx);
                     courier.Children.Add(r);
                 }
             }
-            foreach (int ex in new int[] { 2, 8 })
+            courierEyes = new Rectangle[2];
+            for (int i = 0; i < 2; i++)
             {
-                var eye = new Rectangle { Width = CourierPx + 0.3, Height = 2 * CourierPx, Fill = Ink };
-                Canvas.SetLeft(eye, ex * CourierPx); Canvas.SetTop(eye, 4 * CourierPx);
-                courier.Children.Add(eye);
+                courierEyes[i] = new Rectangle { Width = CourierPx + 0.3, Height = 2 * CourierPx, Fill = Ink };
+                Canvas.SetTop(courierEyes[i], 4 * CourierPx);
+                courier.Children.Add(courierEyes[i]);
             }
-            // коробка на голове: картон с полоской скотча
-            courierBox = new Rectangle { Width = 6.5, Height = 5.5, RadiusX = 0.8, RadiusY = 0.8, Fill = new SolidColorBrush(Color.FromRgb(0xC8, 0x92, 0x5A)), Stroke = new SolidColorBrush(Color.FromRgb(0x8E, 0x62, 0x36)), StrokeThickness = 0.8 };
-            Canvas.SetLeft(courierBox, 11 * CourierPx / 2 - 3.25); Canvas.SetTop(courierBox, -5.2);
+            // коробка на голове
+            courierBox = Parcel();
+            Canvas.SetLeft(courierBox, pw / 2 - BoxW / 2); Canvas.SetTop(courierBox, -BoxH + 0.4);
             courier.Children.Add(courierBox);
-            Canvas.SetTop(courier, CourierFloor - 9 * CourierPx);
+            Canvas.SetTop(courier, CourierFloor - ph);
+            // коробка, которая ждёт справа, и коробка, которая ложится на полосу
+            groundBox = Parcel(); Canvas.SetTop(groundBox, CourierFloor - BoxH); groundBox.Visibility = Visibility.Collapsed;
+            dropBox = Parcel(); dropBox.Visibility = Visibility.Collapsed;
+            dlLane.Children.Add(groundBox);
+            dlLane.Children.Add(dropBox);
             dlLane.Children.Add(courier);
         }
 
-        // Туда — с коробкой до края заполненной части полосы, там коробка «ложится» на полосу, обратно — налегке
-        void CourierTick(int now)
+        string courierApp;
+
+        // Перерисовка капсулы вызывает это при каждом сообщении Steam — рейс не начинается заново, пока качается та же игра
+        void CourierStart()
         {
-            if (dlLane == null || dlLane.Visibility != Visibility.Visible) return;
-            double laneW = 130, petW = 11 * CourierPx;
-            double fill = Math.Max(0, Math.Min(1, steamDlPct / 100.0)) * laneW;
-            double target = Math.Max(0, fill - petW - 1);
-            double t = unchecked(now - courierT0) / 1000.0;
-            if (steamDlDone)
+            if (courierApp != steamDlApp)
             {
-                // всё скачано: прыгает от радости у конца полосы
-                courierPos.X = laneW - petW; courierPos.Y = -Math.Abs(Math.Sin(t * 7)) * 3; courierBox.Visibility = Visibility.Collapsed;
-                return;
+                courierApp = steamDlApp;
+                courierEdge = -1;
+                courierClock.Restart(); courierCycleAt = 0; courierTrip = 0; courierDropped = false;
             }
-            if (steamDlPaused || target < 4)
-            {
-                // пауза или самое начало: стоит с коробкой у старта и переминается
-                courierPos.X = 0; courierPos.Y = steamDlPaused ? 0 : -Math.Abs(Math.Sin(t * 5)) * 1; courierBox.Visibility = Visibility.Visible;
-                return;
-            }
-            double go = Math.Max(0.5, target / 55.0), drop = 0.3, back = go * 0.75, pick = 0.25, cycle = go + drop + back + pick;
-            if (t > cycle) { courierT0 = now; t = 0; }
-            double x, hop = Math.Abs(Math.Sin(t * 14)) * 1.6;
-            bool box;
-            if (t < go) { x = target * Ease(t / go); box = true; }
-            else if (t < go + drop) { x = target; box = false; hop = 0; }
-            else if (t < go + drop + back) { x = target * (1 - Ease((t - go - drop) / back)); box = false; }
-            else { x = 0; box = true; hop = 0; }
-            courierPos.X = Math.Round(x * 2) / 2; courierPos.Y = -Math.Round(hop * 2) / 2;
-            courierBox.Visibility = box ? Visibility.Visible : Visibility.Collapsed;
+            if (courierOn) return;
+            courierOn = true;
+            if (!courierClock.IsRunning) courierClock.Start();
+            CompositionTarget.Rendering += CourierFrame;
         }
 
-        static double Ease(double v) { v = Math.Max(0, Math.Min(1, v)); return v * v * (3 - 2 * v); }
+        void CourierStop()
+        {
+            if (!courierOn) return;
+            courierOn = false;
+            CompositionTarget.Rendering -= CourierFrame;
+        }
 
+        static double Smooth(double v) { v = Math.Max(0, Math.Min(1, v)); return v * v * (3 - 2 * v); }
+
+        void CourierFrame(object sender, EventArgs e)
+        {
+            if (dlLane == null || dlLane.Visibility != Visibility.Visible) { CourierStop(); courierApp = null; return; }
+            if (state != 0) return;
+            double pw = 11 * CourierPx;
+            double real = Math.Max(0, Math.Min(1, steamDlPct / 100.0)) * LaneW;
+            if (courierEdge < 0) { courierEdge = real; cBar.Set(courierEdge / LaneW); }   // загрузка уже шла — начинаем с её места
+            double now = courierClock.Elapsed.TotalMilliseconds;
+            double t = (now - courierCycleAt) / 1000.0;
+            double eyeDir = 0, hop = 0, squash = 1, x;
+
+            if (steamDlDone)
+            {
+                // всё скачано: полоса до конца, зверёк прыгает у финиша, коробок больше нет
+                if (courierEdge < LaneW) { courierEdge = LaneW; cBar.Glide(1, 380); }
+                x = LaneW - pw; hop = Math.Abs(Math.Sin(t * 6.5)) * 3.2; squash = 1 - Math.Max(0, Math.Cos(t * 13)) * 0.06;
+                courierBox.Visibility = Visibility.Collapsed; groundBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed;
+                ApplyCourier(x, hop, squash, 0);
+                return;
+            }
+
+            double baseX = Math.Max(0, Math.Min(LaneW - pw, courierEdge - pw / 2));   // стоит на переднем крае скачанного
+            if (steamDlPaused)
+            {
+                // пауза: сидит на краю с коробкой и дремлет
+                courierBox.Visibility = Visibility.Visible; groundBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed;
+                ApplyCourier(baseX, 0, 0.9 + Math.Sin(t * 2) * 0.015, 0);
+                courierEyes[0].Height = courierEyes[1].Height = CourierPx * 0.6;
+                courierCycleAt = now;
+                return;
+            }
+            courierEyes[0].Height = courierEyes[1].Height = 2 * CourierPx;
+
+            // новый рейс: длина — до 22 точек вправо, но не дальше конца полосы
+            double cycle = CwOut + CwPick + CwBack + CwDrop + CwRest;
+            if (t >= cycle || courierTrip <= 0)
+            {
+                courierCycleAt = now; t = 0; courierDropped = false;
+                courierBase = baseX;
+                courierTrip = Math.Max(0, Math.Min(22, LaneW - pw - baseX));
+            }
+            double trip = courierTrip;
+            double newBase = baseX;   // край мог сдвинуться после сброса — догоняем его в передышке, а не прыжком
+            baseX = courierBase;
+            double boxGroundX = baseX + trip + pw / 2 - BoxW / 2 + 3.5;
+
+            if (t < CwOut)
+            {
+                // налегке вправо, за коробкой: шаги лёгкие и частые
+                double p = t / CwOut;
+                x = baseX + trip * Smooth(p);
+                hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 1.4;
+                eyeDir = 1;
+                courierBox.Visibility = Visibility.Collapsed;
+                groundBox.Visibility = Visibility.Visible; Canvas.SetLeft(groundBox, boxGroundX); Canvas.SetTop(groundBox, CourierFloor - BoxH);
+            }
+            else if (t < CwOut + CwPick)
+            {
+                // присел и поднял: коробка с земли переезжает на голову
+                double p = (t - CwOut) / CwPick;
+                x = baseX + trip;
+                squash = 1 - Math.Sin(p * Math.PI) * 0.16;
+                eyeDir = 1;
+                double lift = Smooth(p);
+                double headX = x + pw / 2 - BoxW / 2, headY = CourierFloor - 9 * CourierPx * squash - BoxH + 0.4;
+                groundBox.Visibility = Visibility.Visible;
+                Canvas.SetLeft(groundBox, boxGroundX + (headX - boxGroundX) * lift);
+                Canvas.SetTop(groundBox, (CourierFloor - BoxH) + (headY - (CourierFloor - BoxH)) * lift);
+                courierBox.Visibility = Visibility.Collapsed;
+            }
+            else if (t < CwOut + CwPick + CwBack)
+            {
+                // с коробкой назад к краю: шаги тяжелее и реже, коробка чуть пружинит
+                double p = (t - CwOut - CwPick) / CwBack;
+                x = baseX + trip * (1 - Smooth(p));
+                hop = Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.9;
+                squash = 1 - Math.Abs(Math.Sin(p * Math.PI * 3)) * 0.04;
+                eyeDir = -1;
+                groundBox.Visibility = Visibility.Collapsed;
+                courierBox.Visibility = Visibility.Visible;
+            }
+            else if (t < CwOut + CwPick + CwBack + CwDrop)
+            {
+                // сбросил коробку на край полосы: она съезжает вперёд и «вливается», полоса подрастает, зверёк подпрыгивает
+                double p = (t - CwOut - CwPick - CwBack) / CwDrop;
+                x = baseX;
+                courierBox.Visibility = Visibility.Collapsed;
+                double fromX = baseX + pw / 2 - BoxW / 2, fromY = CourierFloor - 9 * CourierPx - BoxH + 0.4;
+                double toX = courierEdge - BoxW / 2 + 2, toY = CourierFloor + 0.5;
+                double q = Smooth(Math.Min(1, p * 1.6));
+                dropBox.Visibility = p < 0.7 ? Visibility.Visible : Visibility.Collapsed;
+                Canvas.SetLeft(dropBox, fromX + (toX - fromX) * q);
+                Canvas.SetTop(dropBox, fromY + (toY - fromY) * q - Math.Sin(q * Math.PI) * 3);
+                dropBox.Opacity = 1 - Math.Max(0, p - 0.45) * 3;
+                if (!courierDropped && p >= 0.55)
+                {
+                    courierDropped = true;
+                    double gap = real - courierEdge;
+                    courierEdge = gap > 2 ? courierEdge + gap * 0.55 : Math.Max(courierEdge, real);
+                    cBar.Glide(courierEdge / LaneW, 260);
+                }
+                hop = p > 0.55 ? Math.Sin((p - 0.55) / 0.45 * Math.PI) * 2.2 : 0;
+                eyeDir = -1;
+            }
+            else
+            {
+                // передышка: пара шагов к новому краю полосы, потом моргает
+                double pr = (t - CwOut - CwPick - CwBack - CwDrop) / CwRest;
+                x = baseX + (newBase - baseX) * Smooth(pr);
+                hop = Math.Abs(newBase - baseX) > 0.5 ? Math.Abs(Math.Sin(pr * Math.PI * 2)) * 0.9 : 0;
+                eyeDir = newBase > baseX + 0.5 ? 1 : 0;
+                courierBox.Visibility = Visibility.Collapsed; dropBox.Visibility = Visibility.Collapsed; groundBox.Visibility = Visibility.Collapsed;
+                double p = (t - CwOut - CwPick - CwBack - CwDrop) / CwRest;
+                courierEyes[0].Height = courierEyes[1].Height = (p > 0.4 && p < 0.7 ? 0.5 : 2) * CourierPx;
+            }
+            ApplyCourier(x, hop, squash, eyeDir);
+        }
+
+        void ApplyCourier(double x, double hop, double squash, double eyeDir)
+        {
+            courierPos.X = x; courierPos.Y = -hop;
+            courierSquash.ScaleY = squash; courierSquash.ScaleX = 1 + (1 - squash) * 0.5;
+            // глаза смотрят туда, куда он идёт
+            Canvas.SetLeft(courierEyes[0], (2 + eyeDir * 0.7) * CourierPx);
+            Canvas.SetLeft(courierEyes[1], (8 + eyeDir * 0.7) * CourierPx);
+        }
         public void SteamDownload(string appid, string name, double percent, double rate, bool paused, byte[] icon)
         {
             if (appid == "" || appid == "0")
@@ -7662,7 +7818,7 @@ namespace Kapsula
             bool playing = media.Has && media.Playing;
             bool timing = timerEnd > DateTime.Now;
             cBar.Root.Visibility = Visibility.Collapsed;
-            cBar.Root.Margin = new Thickness(0); if (dlLane != null) dlLane.Visibility = Visibility.Collapsed;
+            cBar.Root.Margin = new Thickness(0); if (dlLane != null) dlLane.Visibility = Visibility.Collapsed;   // курьер сам остановится на следующем кадре
             cText.Visibility = Visibility.Visible;
             cText.MaxWidth = 1000;
             cDlIcon.Visibility = Visibility.Collapsed;
@@ -7714,8 +7870,8 @@ namespace Kapsula
                 cDlIcon.Visibility = Visibility.Visible;
                 claudeDot.Visibility = Visibility.Collapsed;   // зверёк сейчас работает курьером на полосе
                 cBar.Root.Margin = new Thickness(0, 18, 0, 0);
-                if (dlLane.Visibility != Visibility.Visible) courierT0 = Environment.TickCount;
                 dlLane.Visibility = PetProps() ? Visibility.Visible : Visibility.Collapsed;
+                if (PetProps()) CourierStart(); else CourierStop();
                 cDlName.Text = steamDlName; cDlName.Visibility = steamDlName != "" ? Visibility.Visible : Visibility.Collapsed;
                 steamDlNameW = Math.Min(112, NaturalWidth(cDlName));   // ширина капсулы зависит от длины названия
                 cText.Visibility = Visibility.Collapsed;
@@ -7723,12 +7879,12 @@ namespace Kapsula
                 cRight.Visibility = Visibility.Visible;
                 if (steamDlDone)
                 {
-                    cBar.SetColor(accent); cBar.Glide(1, 420);
+                    cBar.SetColor(accent); if (!courierOn) cBar.Glide(1, 420);
                     cRight.Foreground = accent; cRight.Text = "✓ готово";
                 }
                 else
                 {
-                    cBar.Glide(steamDlPct / 100.0, 900);   // плавно между сообщениями Steam, а не рывками
+                    if (!courierOn) cBar.Glide(steamDlPct / 100.0, 900);   // плавно между сообщениями Steam; с курьером полосу двигают его доставки
                     cRight.Foreground = Dim;
                     cRight.Text = steamDlPaused ? "пауза" : Math.Round(steamDlPct) + "%" + (steamDlRate > 1024 ? " · " + SizeText(steamDlRate) + "/с" : "");
                 }
@@ -8489,7 +8645,6 @@ namespace Kapsula
             }
             if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
             if (state == 0 && (!gameLite || pollN % 6 == 0)) PetAnimate();   // в игре — пять раз в секунду вместо тридцати
-            if (state == 0) CourierTick(Environment.TickCount);   // курьер на полосе загрузки Steam
             GlassTick();
             DuckTick();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
