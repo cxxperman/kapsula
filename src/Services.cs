@@ -24,6 +24,7 @@ namespace Kapsula
     {
         public static readonly string Dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Kapsula");
         static Dictionary<string, string> data = new Dictionary<string, string>();
+        public static bool Fresh;   // настроек ещё не было: программа запущена на этом компьютере впервые
 
         public static void Load()
         {
@@ -31,7 +32,7 @@ namespace Kapsula
             {
                 System.IO.Directory.CreateDirectory(Dir);
                 string f = System.IO.Path.Combine(Dir, "settings.txt");
-                if (!System.IO.File.Exists(f)) return;
+                if (!System.IO.File.Exists(f)) { Fresh = true; return; }
                 foreach (string line in System.IO.File.ReadAllLines(f, Encoding.UTF8))
                 {
                     int i = line.IndexOf('=');
@@ -441,6 +442,178 @@ namespace Kapsula
         }
 
         public static bool Saved { get { return Store.Get("claudeKey") != ""; } }
+
+        // То же для ключей других сервисов: хранятся зашифрованными средствами Windows под своим именем
+        public static void SetKey(string name, string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) { Store.Set(name, ""); return; }
+            byte[] enc = System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes(key.Trim()), null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+            Store.Set(name, Convert.ToBase64String(enc));
+        }
+
+        public static string GetKey(string name, string envName)
+        {
+            try
+            {
+                string s = Store.Get(name);
+                if (s != "") return Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(Convert.FromBase64String(s), null, System.Security.Cryptography.DataProtectionScope.CurrentUser));
+            }
+            catch { }
+            return Environment.GetEnvironmentVariable(envName) ?? "";
+        }
+
+        public static bool IsSaved(string name) { return Store.Get(name) != ""; }
+    }
+
+    // Какая нейросеть отвечает в чате и в действиях с текстом: Claude или Gemini. У каждой свой ключ.
+    static class Ai
+    {
+        public static bool Gemini { get { return Store.Get("aiProvider") == "gemini"; } }
+        public static string ProviderName { get { return Gemini ? "Gemini" : "Claude"; } }
+        public static string Key() { return Gemini ? Secrets.GetKey("geminiKey", "GEMINI_API_KEY") : Secrets.GetKey(); }
+        public static string Model() { return Gemini ? GeminiChat.Model() : ClaudeChat.Model(); }
+        public static string Label
+        {
+            get
+            {
+                if (Gemini) return "Gemini · " + GeminiChat.ModelName(GeminiChat.Model());
+                return "Claude · " + (ClaudeChat.Model() == "claude-sonnet-5-5" ? "Sonnet 5.5" : "Opus 5.5");
+            }
+        }
+        public static string Send(string key, string model, List<ChatMsg> history, string system, Action<string> onText)
+        {
+            return Gemini ? GeminiChat.Send(key, model, history, system, onText) : ClaudeChat.Send(key, model, history, system, onText);
+        }
+    }
+
+    // Запрос к Gemini (Interactions API) обычным HTTP с потоковым ответом. Ключ — свой, из Google AI Studio.
+    // Разговор отправляется целиком в каждом запросе и на стороне Google не сохраняется ("store": false).
+    static class GeminiChat
+    {
+        public static readonly string[] Models = { "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite" };
+        public static readonly string[] ModelNames = { "3.8 Flash", "3.6 Flash", "3.5 Flash-Lite" };
+        const string SystemPrompt = "Ты — помощник внутри небольшого виджета на рабочем столе Windows. Отвечай по делу, без вступлений и повторов вопроса. Пиши простым текстом без Markdown-разметки: виджет её не отображает, так что списки оформляй обычными строками. Отвечай на языке пользователя.";
+
+        // По умолчанию Flash-Lite: на бесплатном уровне она отвечает стабильнее остальных, те часто перегружены
+        public const string DefaultModel = "gemini-3.5-flash-lite";
+        public static string Model() { string m = Store.Get("geminiModel"); return Array.IndexOf(Models, m) >= 0 ? m : DefaultModel; }
+        public static string ModelName(string id) { int i = Array.IndexOf(Models, id); return i >= 0 ? ModelNames[i] : id; }
+
+        // Тело запроса: вся переписка шагами user_input / model_output
+        public static Dictionary<string, object> Body(string model, List<ChatMsg> history, string system)
+        {
+            var steps = new List<object>();
+            foreach (ChatMsg h in history)
+            {
+                var parts = new List<object>();
+                if (h.ImageB64 != null) parts.Add(new Dictionary<string, object> { { "type", "image" }, { "data", h.ImageB64 }, { "mime_type", "image/png" } });
+                parts.Add(new Dictionary<string, object> { { "type", "text" }, { "text", h.Text ?? "" } });
+                steps.Add(new Dictionary<string, object> { { "type", h.Role == "assistant" ? "model_output" : "user_input" }, { "content", parts } });
+            }
+            return new Dictionary<string, object>
+            {
+                { "model", model },
+                { "system_instruction", system ?? SystemPrompt },
+                { "input", steps },
+                { "stream", true },
+                { "store", false }
+            };
+        }
+
+        // Одна строка потока: возвращает кусок текста, null — если в строке текста нет; error получает описание ошибки
+        public static string Piece(string line, out string error)
+        {
+            error = null;
+            if (line == null) return null;
+            // При перегрузке сервис присылает ошибку отдельной строкой без «data:»
+            if (line.StartsWith("{\"error\"")) line = "data: " + line.Replace("{\"error\"", "{\"event_type\":\"error\",\"error\"");
+            if (!line.StartsWith("data:")) return null;
+            string json = line.Substring(5).Trim();
+            if (json.Length == 0 || json[0] != '{') return null;
+            Dictionary<string, object> ev;
+            try { ev = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(json) as Dictionary<string, object>; } catch { return null; }
+            if (ev == null) return null;
+            string type = Str(ev, "event_type");
+            if (type == "error") { error = Str(Obj(ev, "error"), "message") ?? "без описания"; return null; }
+            if (type != "step.delta") return null;
+            var d = Obj(ev, "delta");
+            return Str(d, "type") == "text" ? Str(d, "text") : null;
+        }
+
+        static bool Overloaded(string err) { return err != null && (err.Contains("(503)") || err.Contains("high demand") || err.Contains("overloaded") || err.Contains("перегружен")); }
+
+        // Возвращает null при успехе, иначе текст ошибки для показа пользователю.
+        // Бесплатные модели Gemini часто бывают перегружены: тогда пробуем остальные по очереди.
+        public static string Send(string key, string model, List<ChatMsg> history, string system, Action<string> onText)
+        {
+            var order = new List<string> { model };
+            foreach (string m in Models) if (m != model) order.Add(m);
+            string last = null;
+            foreach (string m in order)
+            {
+                bool wrote = false;
+                last = SendOnce(key, m, history, system, delegate(string piece) { wrote = true; onText(piece); });
+                if (last == null || wrote || !Overloaded(last)) return last;   // ответ уже пошёл или ошибка не про перегрузку — другие модели не трогаем
+            }
+            return "Gemini сейчас перегружен — заняты все модели. Попробуйте через минуту.";
+        }
+
+        static string SendOnce(string key, string model, List<ChatMsg> history, string system, Action<string> onText)
+        {
+            try
+            {
+                System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+                var js = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                byte[] payload = Encoding.UTF8.GetBytes(js.Serialize(Body(model, history, system)));
+                var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("https://generativelanguage.googleapis.com/v1beta/interactions?alt=sse");
+                req.Method = "POST";
+                req.ContentType = "application/json";
+                req.Headers["x-goog-api-key"] = key;   // ключ идёт в заголовке, а не в адресе
+                req.Timeout = 30000;
+                // Перегруженная модель может долго держать соединение и ничего не присылать — столько ждать незачем
+                req.ReadWriteTimeout = 25000;
+                using (var rs = req.GetRequestStream()) rs.Write(payload, 0, payload.Length);
+                bool any = false;
+                using (var resp = req.GetResponse())
+                using (var reader = new System.IO.StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        string err;
+                        string piece = Piece(line, out err);
+                        if (err != null) return "Ошибка сервиса: " + err;
+                        if (!string.IsNullOrEmpty(piece)) { any = true; onText(piece); }
+                    }
+                }
+                return any ? null : "Gemini не прислал ответа. Возможно, запрос отклонён.";
+            }
+            catch (System.Net.WebException ex)
+            {
+                var hr = ex.Response as System.Net.HttpWebResponse;
+                if (hr == null && ex.Status == System.Net.WebExceptionStatus.Timeout) return "Сервис перегружен (503): модель не отвечает.";
+                if (hr == null) return "Нет связи с generativelanguage.googleapis.com: " + ex.Message;
+                string msg = null;
+                try
+                {
+                    using (var reader = new System.IO.StreamReader(hr.GetResponseStream(), Encoding.UTF8))
+                        msg = Str(Obj(new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(reader.ReadToEnd()) as Dictionary<string, object>, "error"), "message");
+                }
+                catch { }
+                int code = (int)hr.StatusCode;
+                // Google на неверный ключ отвечает кодом 400 с текстом про API key
+                if (code == 401 || code == 403 || (code == 400 && msg != null && msg.IndexOf("API key", StringComparison.OrdinalIgnoreCase) >= 0)) return "Ключ Gemini не принят. Проверьте его в настройках.";
+                if (code == 404) return "Модель недоступна для этого ключа (404).";
+                if (code == 429) return "Исчерпан бесплатный лимит или слишком много запросов (429). Попробуйте позже.";
+                if (code == 400) return "Запрос отклонён (400): " + (msg ?? "неверный запрос");
+                if (code >= 500) return "Сервис перегружен (" + code + "). Попробуйте ещё раз.";
+                return "Ошибка " + code + ": " + (msg ?? ex.Message);
+            }
+            catch (Exception ex) { return "Не удалось получить ответ: " + ex.Message; }
+        }
+
+        static Dictionary<string, object> Obj(Dictionary<string, object> d, string key) { object v; return d != null && d.TryGetValue(key, out v) ? v as Dictionary<string, object> : null; }
+        static string Str(Dictionary<string, object> d, string key) { object v; return d != null && d.TryGetValue(key, out v) ? v as string : null; }
     }
 
     // Запрос к Claude Messages API обычным HTTP с потоковым ответом (SSE).
@@ -573,7 +746,7 @@ namespace Kapsula
         }
     }
 
-    class CmdItem { public string Title, Sub, Glyph, IconPath; public Action Run; }
+    class CmdItem { public string Title, Sub, Glyph, IconPath; public Action Run; public bool Stay; /* не закрывать строку после выбора */ }
 
     class Reminder { public DateTime At; public string Text; public bool Daily; }
 

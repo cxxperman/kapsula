@@ -80,6 +80,14 @@ namespace Kapsula
                 if (args[i] == "--card") { w.TestCard = true; w.ForceOpen = -3; }
                 if (args[i] == "--opacity" && i + 1 < args.Length && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out y)) w.ApplyOpacity(y, false);
                 if (args[i] == "--chatlong") { w.TestChat = true; w.TestChatLong = true; }
+                if (args[i] == "--claudetest" && i + 1 < args.Length) { w.TestClaude = args[i + 1]; w.ForceOpen = -3; ClaudeBridge.ForceOn = true; ClaudeBridge.Start(); if (args[i + 1] == "stopnow") ClaudeBridge.RequestStop(null); }
+                if (args[i] == "--pet" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) { w.TestPet = n; w.ForceOpen = -3; ClaudeBridge.ForceOn = true; }
+                if (args[i] == "--budstest" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) { w.TestBuds = n; w.ForceOpen = -3; }
+                if (args[i] == "--chiptest" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) w.TestChip = n;
+                if (args[i] == "--glass") { w.GlassOn = true; w.ApplyEffectiveTheme(); }
+                if (args[i] == "--glassdump" && i + 1 < args.Length) { w.GlassOn = true; w.TestGlassDump = args[i + 1]; w.Demo = true; w.ForceOpen = 0; }
+                if (args[i] == "--slidetest") { w.TestSlide = true; w.Demo = true; w.ForceOpen = 0; }
+                if (args[i] == "--welcome") { w.TestWelcome = true; w.ForceOpen = -3; }
                 if (args[i] == "--homeclips") { w.TestHomeClips = true; w.ApplyHomeLayout(); }
                 if (args[i] == "--hideapps" && i + 1 < args.Length) w.TestHideApps = args[i + 1];
                 if (args[i] == "--democard" && i + 1 < args.Length) { w.TestCard = true; w.TestDemoCard = args[i + 1]; w.ForceOpen = -3; }

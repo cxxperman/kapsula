@@ -27,7 +27,7 @@ namespace Kapsula
         const double MW = 440, MH = 138, MR = 28;
         const double EW = 584, EH = 370, ER = 34;
         const double CardW = 390, CardH = 80, CmdW = 580;
-        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7;
+        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8;
 
         // Экономный режим отрисовки жидкого края
         double liquidAt, appliedAt;
@@ -49,9 +49,10 @@ namespace Kapsula
         int happyUntil;
         public string TestCharacter, TestMood;   // ключи --character и --mood: для снимков
 
-        public static readonly string[] CharacterIds = { "eyes", "cat", "robot", "dots" };
-        public static readonly string[] CharacterNames = { "Глаза", "Кот", "Робот", "Точки" };
-        public string Character { get { string c = TestCharacter ?? Store.Get("character"); return Array.IndexOf(CharacterIds, c) >= 0 ? c : "eyes"; } }
+        // Персонаж в капсуле один — пиксельный зверёк. Прежние (глаза, кот, робот и другие) убраны.
+        public static readonly string[] CharacterIds = { "pet" };
+        public static readonly string[] CharacterNames = { "Зверёк" };
+        public string Character { get { return "pet"; } }
 
         // Персонаж ненадолго радуется: глаза превращаются в дужки
         public void Happy(int ms) { happyUntil = Environment.TickCount + ms; }
@@ -89,6 +90,33 @@ namespace Kapsula
                 var earL = new Polygon { Fill = Fg, Points = new PointCollection { new Point(0.5, 1.5), new Point(2.5, -5), new Point(7.5, 0) } };
                 var earR = new Polygon { Fill = Fg, Points = new PointCollection { new Point(17.5, 0), new Point(22.5, -5), new Point(24.5, 1.5) } };
                 eyes.Children.Insert(0, earL); eyes.Children.Insert(0, earR);
+            }
+            if (character == "bear")
+            {
+                // круглые уши за глазами
+                for (int i = 0; i < 2; i++)
+                {
+                    var ear = new Ellipse { Width = 8, Height = 8, Fill = Fg };
+                    Canvas.SetLeft(ear, i == 0 ? -1.5 : 18.5); Canvas.SetTop(ear, -3.5);
+                    eyes.Children.Insert(0, ear);
+                }
+            }
+            if (character == "bunny")
+            {
+                // длинные уши торчком
+                for (int i = 0; i < 2; i++)
+                {
+                    var ear = new Rectangle { Width = 4.6, Height = 10.5, RadiusX = 2.3, RadiusY = 2.3, Fill = Fg, RenderTransformOrigin = new Point(0.5, 1), RenderTransform = new RotateTransform(i == 0 ? -9 : 9) };
+                    Canvas.SetLeft(ear, i == 0 ? 3.2 : 17.2); Canvas.SetTop(ear, -8.5);
+                    eyes.Children.Insert(0, ear);
+                }
+            }
+            if (character == "owl")
+            {
+                // кисточки по краям и клюв между глазами
+                eyes.Children.Insert(0, new Polygon { Fill = Fg, Points = new PointCollection { new Point(0, 3), new Point(-2.5, -4), new Point(5, 0) } });
+                eyes.Children.Insert(0, new Polygon { Fill = Fg, Points = new PointCollection { new Point(25, 3), new Point(27.5, -4), new Point(20, 0) } });
+                eyes.Children.Add(new Polygon { Fill = Amber, Points = new PointCollection { new Point(10.3, 8.2), new Point(14.7, 8.2), new Point(12.5, 12.6) } });
             }
             if (robot)
             {
@@ -189,6 +217,7 @@ namespace Kapsula
             LiquidOn = Store.Get("liquid") != "0";
             ShowSeconds = Store.Get("seconds") == "1";
             AutoHide = Store.Get("autoHide") == "1";
+            GlassOn = Store.Get("glass") == "1";
             ShowLayout = Store.Get("layout") != "0";
             ShowEyes = Store.Get("eyes") != "0";
             ShowNotifications = Store.Get("notifications") == "1";
@@ -208,8 +237,9 @@ namespace Kapsula
             Color text = light ? Color.FromRgb(0x11, 0x11, 0x14) : Color.FromRgb(0xF4, 0xF4, 0xF6);
             Ink.Color = island;
             Fg.Color = text;
-            Dim.Color = Mix(text, island, 0.42);
-            Faint.Color = Mix(text, island, 0.64);
+            // На «матовом стекле» под текстом не ровный чёрный, а размытый фон: серые подписи делаем заметно светлее
+            Dim.Color = Mix(text, island, GlassOn ? 0.22 : 0.42);
+            Faint.Color = Mix(text, island, GlassOn ? 0.38 : 0.64);
             Card.Color = Mix(island, text, light ? 0.06 : 0.085);
             Chip.Color = Mix(island, text, light ? 0.09 : 0.115);
             ChipHover.Color = Mix(island, text, 0.18);
@@ -262,7 +292,9 @@ namespace Kapsula
 
         void ApplyCapture()
         {
-            if (hwnd != IntPtr.Zero) Native.SetWindowDisplayAffinity(hwnd, Capturable || ShowInCapture ? 0u : 0x11u);
+            // glassHide: пока открыта панель с «матовым стеклом», остров в снимки экрана не попадает —
+            // иначе он попадал бы и в собственный снимок фона, и размытие не могло бы быть живым
+            if (hwnd != IntPtr.Zero) Native.SetWindowDisplayAffinity(hwnd, Capturable || (ShowInCapture && !glassHide) ? 0u : 0x11u);
         }
 
         public void SetFlag(string key, bool v)
@@ -309,7 +341,7 @@ namespace Kapsula
             if (settingsWin != null) { settingsWin.Activate(); return; }
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
-            if (TestSettings) { settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 780) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); }
+            if (TestSettings) { settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 840) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); }
             settingsWin.Show();
             settingsWin.Activate();
         }
@@ -547,13 +579,20 @@ namespace Kapsula
             watcher.Start();
             DiscordBridge.Notified += delegate(string t, string x, byte[] i) { Dispatcher.BeginInvoke(new Action(delegate { DiscordNotify(t, x, i); })); };
             DiscordBridge.Start();
+            ClaudeBridge.Asked += delegate(ClaudeBridge.Ask a) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeAsk(a); })); };
+            ClaudeBridge.Questioned += delegate(ClaudeBridge.Question q) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeQuestion(q); })); };
+            ClaudeBridge.Done += delegate(ClaudeBridge.Finished f) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeDone(f); })); };
+            ClaudeBridge.Working += delegate(string tool, string detail, string project) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeWorking(tool, detail, project); })); };
+            ClaudeBridge.Waiting += delegate(string project) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeWaiting(project); })); };
+            ClaudeBridge.Start();
+            Earbuds.Start();
             SteamBridge.Received += delegate(Dictionary<string, object> d)
             {
                 object type;
                 d.TryGetValue("type", out type);
                 if ((type as string) == "hello")
                 {
-                    Dispatcher.BeginInvoke(new Action(delegate { Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
+                    Dispatcher.BeginInvoke(new Action(delegate { if (StartingUp()) return; Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
                     SteamBridge.SendConfig();
                     // Проверочный режим: просим Steam показать его собственные образцы уведомлений.
                     if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestAchievement:550\",\"TestDownloadComplete:570\",\"TestKapsulaInvite\"]}");
@@ -621,6 +660,12 @@ namespace Kapsula
             root = new Grid { RenderTransform = slide, Width = BaseW, Height = BaseH, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, LayoutTransform = scaleT };
             double op;
             if (double.TryParse(Store.Get("opacity"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out op) && op >= 0.5 && op <= 1) IslandOpacity = op;
+            // слой «матового стекла» лежит под фоном острова и показывает размытый снимок того, что за панелью
+            glassBrush = new ImageBrush { Stretch = Stretch.Fill, ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, BaseW, BaseH) };
+            RenderOptions.SetBitmapScalingMode(glassBrush, BitmapScalingMode.HighQuality);
+            glassLayer = new Path { Fill = glassBrush, SnapsToDevicePixels = false, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            RenderOptions.SetBitmapScalingMode(glassLayer, BitmapScalingMode.HighQuality);
+            root.Children.Add(glassLayer);
             shape = new Path { Fill = Ink, SnapsToDevicePixels = false, Opacity = IslandOpacity };
             root.Children.Add(shape);
 
@@ -771,6 +816,18 @@ namespace Kapsula
             // Без рамки: у круглых значков (Steam) она выглядела как лишнее кольцо.
             cardBadge = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
             thumb.Children.Add(cardBadge);
+            // Кольцо заряда вокруг значка — для карточки наушников: заполняется плавно, когда она появляется
+            cardRingTrack = new Path { Stroke = Chip, StrokeThickness = 3.5, Data = ArcGeometry(26, 26, 22, 0, 359.9), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            cardRing = new Path { StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            thumb.Children.Add(cardRingTrack); thumb.Children.Add(cardRing);
+            // Зверёк вместо значка — на карточках Claude Code: он показывает, чего от вас ждут
+            cardPet = new PetView(2.4, Ink);
+            cardPet.Root.HorizontalAlignment = HorizontalAlignment.Center;
+            cardPet.Root.Margin = new Thickness(7, 0, 0, 0);
+            cardPet.Root.Visibility = Visibility.Collapsed;
+            thumb.Children.Add(cardPet.Root);
+            cardGlyph.RenderTransformOrigin = new Point(0.5, 0.5);
+            cardGlyph.RenderTransform = cardGlyphScale;
             g.Children.Add(thumb);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             cardTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -785,7 +842,26 @@ namespace Kapsula
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             cardNo = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
                 Child = new TextBlock { Text = "", FontFamily = Icons, FontSize = 13, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-            Grid.SetColumn(cardNo, 4); g.Children.Add(cardNo);
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(cardNo, 6); g.Children.Add(cardNo);
+            // Ещё две кнопки с подписью — для карточек с несколькими вариантами (например, вопрос от Claude Code).
+            for (int i = 0; i < 2; i++)
+            {
+                int idx = i;
+                var lbl = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 120, TextTrimming = TextTrimming.CharacterEllipsis };
+                var ab = new Border { Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, Padding = new Thickness(12, 0, 12, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Child = lbl };
+                ab.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    var a = cardAltAction[idx];
+                    hoverBlock = true;
+                    SetState(0);
+                    if (a != null) a();
+                };
+                Grid.SetColumn(ab, 4 + i); g.Children.Add(ab);
+                cardAlt[i] = ab; cardAltLabel[i] = lbl;
+            }
             cardNo.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
                 e.Handled = true;
@@ -805,12 +881,302 @@ namespace Kapsula
                 a();
             };
             cardHost.Children.Add(g);
+            cardGrid = g;
+            BuildBudsPanel();
         }
 
         void ShowCard(ImageSource img, string glyph, string title, string sub, Action act) { ShowCardEx(img, glyph, title, sub, act, null, null, false); }
 
         Border cardNo;
         Action cardNoAction;
+        PetView cardPet;
+
+        // Показать на текущей карточке зверька вместо значка
+        void CardPet(string mood)
+        {
+            if (cardPet == null || state != 3) return;
+            cardGlyph.Text = "";
+            cardThumb.Background = Brushes.Transparent;
+            cardPet.Root.Visibility = Visibility.Visible;
+            cardPet.Mood(mood);
+        }
+
+        Path cardRingTrack, cardRing;
+        ScaleTransform cardGlyphScale = new ScaleTransform(1, 1);
+        DispatcherTimer cardRingTimer;
+
+        // ---- крупная карточка наушников: нарисованные наушники слева, модель, проценты и полоса заряда справа
+        const double BudsH = 92, BudsW = 268, BudsBarW = 118;
+        bool cardTall;
+        Grid cardGrid, budsPanel;
+        Canvas budsOver, budsIn;                 // рисунки: накладные наушники и вкладыши
+        ScaleTransform budsScale = new ScaleTransform(1, 1);
+        TranslateTransform budsFloat = new TranslateTransform();
+        TextBlock budsName, budsPct, budsNote;
+        Image budsSpin, budsSpin2;
+        BitmapSource[] budsFrames;
+        bool budsFramesTried;
+
+        // Кадры оборота лежат внутри программы одним листом 10×6; режем его на отдельные картинки при первом показе
+        BitmapSource[] BudsFrames()
+        {
+            if (budsFramesTried) return budsFrames;
+            budsFramesTried = true;
+            // Свои картинки наушников можно положить в папку «headphones» рядом с настройками (f_00.png, f_01.png…):
+            // Kapsula покажет их в карточке, плавно переходя от одной к другой. В саму программу они не входят.
+            try
+            {
+                string dir = System.IO.Path.Combine(Store.Dir, "headphones");
+                if (System.IO.Directory.Exists(dir))
+                {
+                    string[] files = System.IO.Directory.GetFiles(dir, "*.png");
+                    Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                    var own = new List<BitmapSource>();
+                    foreach (string f in files)
+                    {
+                        if (own.Count >= 120 || new System.IO.FileInfo(f).Length > 4 * 1024 * 1024) continue;
+                        var bi = new BitmapImage();
+                        bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad; bi.UriSource = new Uri(f); bi.DecodePixelWidth = 260; bi.EndInit(); bi.Freeze();
+                        own.Add(bi);
+                    }
+                    if (own.Count > 0) { budsFrames = own.ToArray(); return budsFrames; }
+                }
+            }
+            catch (Exception ex) { Store.LogError("свои картинки наушников", ex); }
+            try
+            {
+                using (var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("Kapsula.headphones.png"))
+                {
+                    if (s == null) return null;
+                    var sheet = new BitmapImage();
+                    sheet.BeginInit(); sheet.CacheOption = BitmapCacheOption.OnLoad; sheet.StreamSource = s; sheet.EndInit(); sheet.Freeze();
+                    int cols = 10, rows = 6, fw = sheet.PixelWidth / cols, fh = sheet.PixelHeight / rows;
+                    var list = new BitmapSource[cols * rows];
+                    for (int i = 0; i < list.Length; i++)
+                    {
+                        var c = new CroppedBitmap(sheet, new Int32Rect((i % cols) * fw, (i / cols) * fh, fw, fh));
+                        c.Freeze();
+                        list[i] = c;
+                    }
+                    budsFrames = list;
+                }
+            }
+            catch (Exception ex) { Store.LogError("кадры наушников", ex); }
+            return budsFrames;
+        }
+        Border budsBarFill, budsBarTrack;
+
+        static LinearGradientBrush Metal(byte a, byte b, double angle)
+        {
+            return new LinearGradientBrush(Color.FromRgb(a, a, (byte)Math.Min(255, a + 6)), Color.FromRgb(b, b, (byte)Math.Min(255, b + 8)), angle);
+        }
+
+        static void Put(Canvas c, UIElement e, double x, double y) { Canvas.SetLeft(e, x); Canvas.SetTop(e, y); c.Children.Add(e); }
+
+        // Накладные наушники спереди: дужка, стойки, две чашки с амбушюрами и бликом. Рисунок свой, из простых фигур.
+        static Canvas DrawOverEar()
+        {
+            var c = new Canvas { Width = 100, Height = 104 };
+            // дужка: тёмная основа и светлая полоса сверху, как сетчатое оголовье
+            c.Children.Add(new Path { Data = Geometry.Parse("M 20,56 C 20,4 80,4 80,56"), Stroke = Metal(0x8E, 0x5E, 90), StrokeThickness = 9, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+            c.Children.Add(new Path { Data = Geometry.Parse("M 27,34 C 34,13 66,13 73,34"), Stroke = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)), StrokeThickness = 2.2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+            // стойки
+            Put(c, new Rectangle { Width = 4.5, Height = 16, RadiusX = 2.2, RadiusY = 2.2, Fill = Metal(0xC8, 0x8A, 0) }, 17.8, 46);
+            Put(c, new Rectangle { Width = 4.5, Height = 16, RadiusX = 2.2, RadiusY = 2.2, Fill = Metal(0xC8, 0x8A, 0) }, 77.7, 46);
+            for (int i = 0; i < 2; i++)
+            {
+                double x = i == 0 ? 6 : 68;
+                // амбушюр выглядывает с внутренней стороны
+                Put(c, new Rectangle { Width = 12, Height = 40, RadiusX = 6, RadiusY = 6, Fill = Metal(0x4A, 0x2C, 90) }, i == 0 ? x + 20 : x - 6, 58);
+                // чашка
+                Put(c, new Rectangle { Width = 26, Height = 46, RadiusX = 12, RadiusY = 12, Fill = Metal(0xEE, 0xA6, i == 0 ? 25 : 155) }, x, 55);
+                // блик по внешнему краю
+                Put(c, new Rectangle { Width = 3.2, Height = 26, RadiusX = 1.6, RadiusY = 1.6, Fill = new SolidColorBrush(Color.FromArgb(0x8C, 0xFF, 0xFF, 0xFF)) }, i == 0 ? x + 4.5 : x + 18.3, 63);
+            }
+            return c;
+        }
+
+        // Вкладыши: два наушника с ножками
+        static Canvas DrawInEar()
+        {
+            var c = new Canvas { Width = 100, Height = 104 };
+            for (int i = 0; i < 2; i++)
+            {
+                double x = i == 0 ? 18 : 56;
+                Put(c, new Rectangle { Width = 8, Height = 44, RadiusX = 4, RadiusY = 4, Fill = Metal(0xF2, 0xB4, 90) }, x + (i == 0 ? 15 : 3), 44);
+                Put(c, new Ellipse { Width = 26, Height = 28, Fill = Metal(0xFA, 0xC0, i == 0 ? 35 : 145) }, x, 26);
+                Put(c, new Ellipse { Width = 9, Height = 12, Fill = Metal(0x50, 0x30, 90) }, x + (i == 0 ? 2 : 15), 33);
+                Put(c, new Ellipse { Width = 6, Height = 4, Fill = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF)) }, x + 10, 30);
+            }
+            return c;
+        }
+
+        void BuildBudsPanel()
+        {
+            budsPanel = new Grid { Margin = new Thickness(22, 6, 22, 12), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            budsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
+            budsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var stage = new Grid { Width = 70, Height = 72, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransformOrigin = new Point(0.5, 0.6) };
+            var tg = new TransformGroup(); tg.Children.Add(budsScale); tg.Children.Add(budsFloat);
+            stage.RenderTransform = tg;
+            budsOver = DrawOverEar(); budsIn = DrawInEar();
+            stage.Children.Add(budsOver); stage.Children.Add(budsIn);
+            // Объёмные наушники: 60 кадров оборота собственной модели, сменяются по кругу. Нет кадров — остаётся рисунок.
+            budsSpin = new Image { Width = 74, Height = 74, Margin = new Thickness(-2, -1, -2, -1), Visibility = Visibility.Collapsed };
+            RenderOptions.SetBitmapScalingMode(budsSpin, BitmapScalingMode.HighQuality);
+            stage.Children.Add(budsSpin);
+            // второй слой — следующий ракурс: он проявляется поверх текущего, и поворот выглядит плавным даже при четырёх картинках
+            budsSpin2 = new Image { Width = 74, Height = 74, Margin = new Thickness(-2, -1, -2, -1), Visibility = Visibility.Collapsed, Opacity = 0 };
+            RenderOptions.SetBitmapScalingMode(budsSpin2, BitmapScalingMode.HighQuality);
+            stage.Children.Add(budsSpin2);
+            budsPanel.Children.Add(stage);
+            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            budsName = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            budsNote = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), Visibility = Visibility.Collapsed, TextTrimming = TextTrimming.CharacterEllipsis };
+            budsPct = new TextBlock { Foreground = Fg, FontSize = 21, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 1, 0, 5) };
+            budsBarFill = new Border { Height = 5, CornerRadius = new CornerRadius(2.5), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+            budsBarTrack = new Border { Height = 5, Width = BudsBarW, CornerRadius = new CornerRadius(2.5), Background = Chip, HorizontalAlignment = HorizontalAlignment.Left, Child = budsBarFill };
+            right.Children.Add(budsName); right.Children.Add(budsNote); right.Children.Add(budsPct); right.Children.Add(budsBarTrack);
+            Grid.SetColumn(right, 1);
+            budsPanel.Children.Add(right);
+            cardHost.Children.Add(budsPanel);
+        }
+
+        // Наушники появились: рисунок вырастает и слегка покачивается, проценты отсчитываются, полоса заряда заполняется.
+        void ShowBudsCard(EarbudsState s)
+        {
+            ShowCardEx(null, BudsGlyph, s.Model, s.Text, delegate { }, null, null, false);
+            if (state != 3) return;
+            cardTall = true;
+            cardGrid.Visibility = Visibility.Collapsed;
+            budsPanel.Visibility = Visibility.Visible;
+            cardHost.Height = BudsH;
+            cardExtra = BudsW - CardW; cardHost.Width = BudsW;
+            bool over = s.Single >= 0 || s.Model.Contains("Max") || s.Model.StartsWith("Beats S");
+            BitmapSource[] spin = over ? BudsFrames() : null;
+            budsSpin.Visibility = spin != null ? Visibility.Visible : Visibility.Collapsed;
+            budsSpin2.Visibility = spin != null && spin.Length < 24 ? Visibility.Visible : Visibility.Collapsed;
+            budsSpin.Opacity = 1; budsSpin2.Opacity = 0;
+            budsOver.Visibility = over && spin == null ? Visibility.Visible : Visibility.Collapsed;
+            budsIn.Visibility = over ? Visibility.Collapsed : Visibility.Visible;
+            if (spin != null) budsSpin.Source = spin[0];
+            budsName.Text = s.Model;
+            int level = s.Lowest;
+            bool known = level >= 0;
+            budsNote.Text = !known ? "Подключены" : s.Single >= 0 ? (s.Charging ? "Заряжаются" : "Подключены") : s.Text;
+            budsPct.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
+            budsBarTrack.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
+            budsBarFill.Background = level > 50 ? ClaudeGreen : level > 20 ? (Brush)Amber : RecRed;
+            budsBarFill.Width = 0; budsPct.Text = "0%";
+            SetTargets();
+            cardUntil = Environment.TickCount + 7000;
+
+            var pop = new DoubleAnimation(0.5, 1, TimeSpan.FromMilliseconds(700)) { EasingFunction = new BackEase { Amplitude = 0.45, EasingMode = EasingMode.EaseOut } };
+            budsScale.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+            budsScale.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
+            budsPanel.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(320)));
+
+            int started = Environment.TickCount;
+            const double dur = 1300, delay = 380;
+            if (cardRingTimer != null) cardRingTimer.Stop();
+            cardRingTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+            DispatcherTimer mine = cardRingTimer;
+            mine.Tick += delegate
+            {
+                if (state != 3 || !cardTall) { mine.Stop(); return; }
+                int el = unchecked(Environment.TickCount - started);
+                if (spin != null && spin.Length == 1) { }   // одна картинка — стоит неподвижно
+                else if (spin != null && spin.Length < 24)
+                {
+                    // Мало ракурсов: каждый держится около секунды, затем плавно перетекает в следующий
+                    double per = 1500;
+                    double pos = el / per;
+                    int a = (int)pos % spin.Length, b = (a + 1) % spin.Length;
+                    double f = pos - Math.Floor(pos);
+                    double mix = f < 0.45 ? 0 : (f - 0.45) / 0.55;
+                    mix = mix * mix * (3 - 2 * mix);
+                    if (!ReferenceEquals(budsSpin.Source, spin[a])) budsSpin.Source = spin[a];
+                    if (!ReferenceEquals(budsSpin2.Source, spin[b])) budsSpin2.Source = spin[b];
+                    budsSpin.Opacity = 1 - mix; budsSpin2.Opacity = mix;
+                    budsFloat.Y = Math.Sin(el / 620.0) * 1.2;
+                }
+                else if (spin != null)
+                {
+                    // Оборот: сначала быстрый разворот, потом ровное медленное вращение (круг примерно за пять секунд)
+                    double turns = el / 5200.0 + 0.55 * (1 - Math.Exp(-el / 420.0));
+                    int frame = (int)(turns * spin.Length) % spin.Length;
+                    if (!ReferenceEquals(budsSpin.Source, spin[frame])) budsSpin.Source = spin[frame];
+                }
+                else budsFloat.Y = Math.Sin(el / 520.0) * 1.8;   // рисунок слегка «дышит», пока карточка на экране
+                if (!known) return;
+                double t = Math.Max(0, Math.Min(1, (el - delay) / dur));
+                double k = 1 - Math.Pow(1 - t, 3);          // быстро в начале, мягко в конце
+                budsPct.Text = Math.Round(level * k) + "%";
+                budsBarFill.Width = BudsBarW * level / 100.0 * k;
+            };
+            mine.Start();
+        }
+
+        void ShowBudsCardOld(EarbudsState s)
+        {
+            ShowCardEx(null, BudsGlyph, s.Model, s.Text, delegate { }, null, null, false);
+            if (state != 3) return;
+            HideCardButton();
+            int target = s.Lowest;
+            cardUntil = Environment.TickCount + 6500;
+            if (target < 0) return;
+            Brush col = target > 50 ? ClaudeGreen : target > 20 ? (Brush)Amber : RecRed;
+            cardThumb.Background = Brushes.Transparent;
+            cardRingTrack.Visibility = Visibility.Visible;
+            cardRing.Visibility = Visibility.Visible;
+            cardRing.Stroke = col;
+            cardRing.Data = null;
+            bool single = s.Single >= 0;
+            string tail = s.Charging ? " · заряжаются" : "";
+            // значок появляется с лёгким «пружинящим» увеличением
+            var pop = new DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(520)) { EasingFunction = new BackEase { Amplitude = 0.55, EasingMode = EasingMode.EaseOut } };
+            cardGlyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+            cardGlyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
+            int started = Environment.TickCount;
+            const double dur = 1250, delay = 220;
+            if (cardRingTimer != null) cardRingTimer.Stop();
+            cardRingTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+            DispatcherTimer mine = cardRingTimer;
+            mine.Tick += delegate
+            {
+                double t = (unchecked(Environment.TickCount - started) - delay) / dur;
+                if (state != 3 || cardRing.Visibility != Visibility.Visible) { mine.Stop(); return; }
+                if (t < 0) return;
+                if (t > 1) t = 1;
+                double k = 1 - Math.Pow(1 - t, 3);   // быстро в начале, мягко в конце
+                double shown = target * k;
+                cardRing.Data = shown < 0.5 ? null : ArcGeometry(26, 26, 22, 0, Math.Min(359.9, 3.6 * shown));
+                if (single) cardSub.Text = Math.Round(shown) + "%" + tail;
+                if (t >= 1) mine.Stop();
+            };
+            if (single) cardSub.Text = "0%" + tail;
+            mine.Start();
+        }
+
+        Border[] cardAlt = new Border[2];
+        TextBlock[] cardAltLabel = new TextBlock[2];
+        Action[] cardAltAction = new Action[2];
+
+        // Карточка с несколькими вариантами: до трёх кнопок с подписью и крестик.
+        void ShowCardOptions(string glyph, string title, string sub, string[] labels, Action[] acts, Action no, int holdMs)
+        {
+            ShowCardChoice(null, glyph, title, sub, labels[0], acts[0], no);
+            if (state != 3) return;
+            for (int i = 0; i < 2; i++)
+            {
+                bool on = i + 1 < labels.Length;
+                cardAlt[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                cardAltAction[i] = on ? acts[i + 1] : null;
+                if (on) cardAltLabel[i].Text = labels[i + 1];
+            }
+            FitCard();
+            cardUntil = Environment.TickCount + holdMs;
+        }
         Grid cardThumbBox;
         Border cardBadge;        // значок программы, от которой пришло уведомление (Discord, Steam…), в углу картинки
         double cardExtra;        // карточки с кнопками шире обычных, чтобы текст не обрезался
@@ -860,9 +1226,10 @@ namespace Kapsula
             if (cardHost == null || state != 3) return;
             double text = Math.Max(NaturalWidth(cardTitle), NaturalWidth(cardSub));
             text = Math.Max(70, Math.Min(330, Math.Ceiling(text) + 2));
-            double buttons = NaturalWidth(cardBtn) + NaturalWidth(cardNo);   // вместе со своими отступами
+            double buttons = NaturalWidth(cardBtn) + NaturalWidth(cardNo) + NaturalWidth(cardAlt[0]) + NaturalWidth(cardAlt[1]);   // вместе со своими отступами
+            if (buttons > 260) text = Math.Min(text, 200);   // много кнопок — тексту меньше места, иначе карточка не поместится
             double total = 18 + cardThumbBox.Width + 14 + text + buttons + 22;
-            total = Math.Max(220, Math.Min(620, total));
+            total = Math.Max(220, Math.Min(BaseW - 24, total));
             cardExtra = total - CardW;
             cardHost.Width = total;
             SetTargets();
@@ -891,6 +1258,24 @@ namespace Kapsula
         {
             cardNoAction = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
+            for (int i = 0; i < 2; i++) if (cardAlt[i] != null) { cardAlt[i].Visibility = Visibility.Collapsed; cardAltAction[i] = null; }
+            if (cardPet != null) cardPet.Root.Visibility = Visibility.Collapsed;
+            if (budsPanel != null)
+            {
+                // обычная карточка: крупная панель наушников спрятана, высота прежняя
+                cardTall = false;
+                budsPanel.Visibility = Visibility.Collapsed;
+                cardGrid.Visibility = Visibility.Visible;
+                cardHost.Height = CardH;
+            }
+            if (cardRing != null)
+            {
+                // у обычных карточек кольца заряда нет
+                if (cardRingTimer != null) cardRingTimer.Stop();
+                cardRing.Visibility = Visibility.Collapsed; cardRingTrack.Visibility = Visibility.Collapsed;
+                cardGlyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, null); cardGlyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                cardGlyphScale.ScaleX = 1; cardGlyphScale.ScaleY = 1;
+            }
             if (cardBadge != null) cardBadge.Visibility = Visibility.Collapsed;
             cardExtra = btnText != null ? 70 : 0;
             cardHost.Width = CardW + cardExtra;
@@ -1146,6 +1531,10 @@ namespace Kapsula
                 else if (e.Key == Key.Enter) { RunCmd(cmdSel); e.Handled = true; }
             };
             Grid.SetColumn(cmdBox, 1); top.Children.Add(cmdBox);
+            // Зверёк справа в строке: ждёт, пока вы печатаете, радуется, когда нашлось, и огорчается, когда нет
+            cmdPet = new PetView(1.6, Ink);
+            cmdPet.Root.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(cmdPet.Root, 1); top.Children.Add(cmdPet.Root);
             g.Children.Add(top);
             cmdList = new StackPanel { Margin = new Thickness(-8, 6, -8, 0) };
             Grid.SetRow(cmdList, 1);
@@ -1205,8 +1594,38 @@ namespace Kapsula
             ToggleCommand();
         }
 
+        // Та же строка ввода служит и для ответа Claude Code: по ключу «claude:…» находим, куда отправить текст.
+        Dictionary<string, Action<string>> replySends = new Dictionary<string, Action<string>>();
+        Dictionary<string, Action> replyCancels = new Dictionary<string, Action>();
+
+        void StartReplyTo(string key, string name, Action<string> send, Action cancel)
+        {
+            replySends[key] = send; replyCancels[key] = cancel;
+            StartReply(key, name);
+        }
+
+        // Строку ввода закрыли. Если ответ так и не отправили — сообщаем об отмене (чуть позже: отправка идёт первой).
+        void ReplyClosed(string key)
+        {
+            if (!replyCancels.ContainsKey(key)) return;
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                Action c;
+                if (!replyCancels.TryGetValue(key, out c)) return;
+                replyCancels.Remove(key); replySends.Remove(key);
+                if (c != null) c();
+            }), DispatcherPriority.Background);
+        }
+
         void SendSteamReply(string steamid, string text)
         {
+            Action<string> custom;
+            if (replySends.TryGetValue(steamid, out custom))
+            {
+                replySends.Remove(steamid); replyCancels.Remove(steamid);
+                custom(text);
+                return;
+            }
             string json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(text);
             SteamBridge.Send("{\"cmd\":\"reply\",\"steamid\":\"" + steamid + "\",\"text\":" + json + "}");
         }
@@ -1260,6 +1679,16 @@ namespace Kapsula
         {
             string q = cmdBox.Text.Trim();
             cmdItems.Clear();
+            if (choice != null)
+            {
+                // Режим выбора: варианты ответа на вопрос Claude Code
+                if (cmdSel < 0) cmdSel = 0;
+                FillChoice(q);
+                if (cmdSel >= cmdItems.Count) cmdSel = cmdItems.Count - 1;
+                RenderCmd();
+                if (state == 4) SetTargets();
+                return;
+            }
             cmdSel = 0;
             if (replySteamId != null)
             {
@@ -1273,6 +1702,38 @@ namespace Kapsula
                 if (state == 4) SetTargets();
                 return;
             }
+            if (q.Length >= 4)
+            {
+                string pq = q.ToLowerInvariant();
+                if (pq.StartsWith("календ") || pq.StartsWith("событи") || pq.StartsWith("calend")) { FillCalendar(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (pq.StartsWith("наушн") || pq.StartsWith("airpods") || pq.StartsWith("аирпод") || pq.StartsWith("эирпод")) { FillEarbuds(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (pq.StartsWith("не бесп") || pq.StartsWith("тихо") || pq.StartsWith("тишин") || pq == "dnd") { FillQuiet(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (pq.StartsWith("уведомл") || pq.StartsWith("истори")) { FillHistory(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (pq.StartsWith("ошибк") || pq.StartsWith("сообщить") || pq.StartsWith("баг")) AddCmd("Сообщить об ошибке", "сведения скопируются, откроется страница на GitHub", "", null, delegate { ReportBug(); });
+                // Закреплённые в буфере фразы находятся по любому слову из них и вставляются одним нажатием
+                foreach (ClipItem ci in clips)
+                {
+                    if (!ci.Pinned || ci.Image != null || string.IsNullOrEmpty(ci.Text) || ci.Text.ToLowerInvariant().IndexOf(pq, StringComparison.Ordinal) < 0) continue;
+                    ClipItem pin = ci;
+                    string one = pin.Text.Replace("\r", " ").Replace("\n", " ").Trim();
+                    AddCmd("Вставить: " + (one.Length > 54 ? one.Substring(0, 53) + "…" : one), "закреплено в буфере", "", null, delegate { PasteText(pin.Text); });
+                    if (cmdItems.Count >= 3) break;
+                }
+                if (pq.StartsWith("помод") || pq.StartsWith("pomod"))
+                {
+                    if (pomoPhase != 0) AddCmd("Остановить помодоро", "кругов сделано: " + pomoRounds, "", null, delegate { PomodoroStop(); });
+                    else AddCmd("Помодоро: 25 минут работы, 5 отдыха", "отсчёт в капсуле", "", null, delegate { PomodoroStart(); });
+                }
+            }
+            if (q.Length > 0 && ClaudeBridge.Enabled)
+            {
+                // «стоп claude» — остановить Claude Code, не переключаясь в его окно
+                string ql = q.ToLowerInvariant();
+                bool named = ql.Contains("claude") || ql.Contains("клод");
+                if (named && (ql.Contains("стоп") || ql.Contains("stop") || ql.Contains("останов")))
+                    AddCmd("Остановить Claude Code", ClaudeBridge.Busy ? "все работающие сессии, перед следующим действием" : "Сейчас он, похоже, ничего не делает", ClaudeGlyph, null, delegate { ClaudeStop(null, null); });
+                else if (ql == "claude" || ql == "клод" || ql == "claude code") { FillClaudeSessions(); RenderCmd(); if (state == 4) SetTargets(); return; }
+            }
             if (q.Length > 0)
             {
                 string r; TimeSpan ts;
@@ -1283,6 +1744,9 @@ namespace Kapsula
                     AddCmd("Вставить в активное окно", "Enter", "", null, delegate { PasteText(spoken); });
                     AddCmd("Только скопировать", "Буфер", "", null, delegate { CopyResult(spoken); });
                 }
+                // Надиктованное или набранное после слова «заметка» можно одним нажатием дописать в заметку
+                string noteText = dictating ? q : NoteCommandText(q);
+                if (noteText.Length > 0) { string nt = noteText; AddCmd("Сохранить в заметку", dictating ? "допишется в конец" : nt.Length > 40 ? nt.Substring(0, 40) + "…" : nt, "", null, delegate { AppendNote(nt); }); }
                 if (Calc.TryCalc(q, out r)) { string v = r; AddCmd("= " + v, "Enter — скопировать", "", null, delegate { CopyResult(v); }); }
                 if (Calc.TryConvert(q, out r)) { string v = r; AddCmd(v, "Enter — скопировать", "", null, delegate { CopyResult(v); }); }
                 if (Calc.TryTimer(q, out ts)) { TimeSpan t = ts; AddCmd("Запустить таймер на " + Fmt(t), "Таймер", "", null, delegate { AddTimerSpan(t); }); }
@@ -1294,7 +1758,7 @@ namespace Kapsula
                     if (HasKey(ql, "тема", "тёмн", "темн", "theme")) AddCmd("Переключить тёмную тему", "Система", "", null, delegate { SetDarkTheme(!IsDarkTheme()); });
                     if (HasKey(ql, "настр", "settings", "цвет остр")) AddCmd("Настройки Kapsula", "Цвет, размер, поведение", "", null, delegate { OpenSettings(); });
                     if (HasKey(ql, "светл", "light")) AddCmd("Светлая / тёмная тема острова", "Ctrl+Alt+T", "", null, delegate { ToggleLightDark(); });
-                    if (HasKey(ql, "чат", "claude", "клод", "ии ")) AddCmd("Открыть чат с Claude", "Ctrl+Alt+A", "", null, delegate { OpenChat(); });
+                    if (HasKey(ql, "чат", "claude", "клод", "ии ")) AddCmd("Открыть чат с нейросетью", "Ctrl+Alt+A", "", null, delegate { OpenChat(); });
                     if (!dictating && HasKey(ql, "диктов", "голос", "voice")) AddCmd("Диктовка: надиктовать и вставить", "Ctrl+Alt+D", "", null, delegate { Dictate(); });
                     if (HasKey(ql, "qr", "кьюар", "куар")) AddCmd("Прочитать QR-код с экрана", "Ctrl+Alt+Q", "", null, delegate { ScanQr(); });
                     if (HasKey(ql, "запис", "record", "видео")) AddCmd(Recorder.Active ? "Остановить запись экрана" : "Записать экран", "Ctrl+Alt+R", "", null, delegate { ToggleRecord(false); });
@@ -1380,12 +1844,29 @@ namespace Kapsula
         {
             if (i < 0 || i >= cmdItems.Count) return;
             Action run = cmdItems[i].Run;
+            if (cmdItems[i].Stay)
+            {
+                // Отметка в списке: строка остаётся открытой, список перерисовывается
+                if (run != null) run();
+                int keep = cmdSel;
+                UpdateCmd();
+                cmdSel = Math.Min(keep, cmdItems.Count - 1);
+                RenderCmd();
+                return;
+            }
             SetState(0);
             if (run != null) run();
         }
 
+        PetView cmdPet;
+
         void RenderCmd()
         {
+            if (cmdPet != null)
+            {
+                bool typed = cmdBox != null && cmdBox.Text.Trim().Length > 0;
+                cmdPet.Mood(choice != null ? "ask" : !typed ? "idle" : cmdItems.Count > 0 ? "happy" : "think");
+            }
             cmdList.Children.Clear();
             for (int i = 0; i < cmdItems.Count; i++)
             {
@@ -1533,7 +2014,12 @@ namespace Kapsula
             cCover = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             cGlyph = new TextBlock { FontFamily = Icons, FontSize = 14, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(micDot);
-            cDlIcon = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(5), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            claudeDot = BuildClaudePet();
+            left.Children.Add(claudeDot);
+            unreadText = new TextBlock { Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            unreadBadge = new Border { MinWidth = 16, Height = 16, CornerRadius = new CornerRadius(8), Padding = new Thickness(4, 0, 4, 1), Background = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0), Visibility = Visibility.Collapsed, Child = unreadText };
+            left.Children.Add(unreadBadge);
+            cDlIcon =new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(5), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlIcon);
             cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 104, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlName);
@@ -1566,14 +2052,19 @@ namespace Kapsula
         {
             var g = new Grid { Margin = new Thickness(18, 12, 18, 16) };
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+            gapRow = new RowDefinition { Height = new GridLength(12) };
+            g.RowDefinitions.Add(gapRow);
             pageRow = new RowDefinition { Height = new GridLength(PageH) };
             g.RowDefinitions.Add(pageRow);
+            // Строка разделов открытой группы — под значками
+            subRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 0, 0) };
+            Grid.SetRow(subRow, 1);
+            g.Children.Add(subRow);
 
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система" };
+            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система", "Claude Code" };
             // Вкладки — значки; подпись видна только у активной.
-            string[] glyphs = { "", "", "", "", "", "", "", "" };
+            string[] glyphs = { "", "", "", "", "", "", "", "", ClaudeGlyph };
             tabs = new Border[names.Length];
             tabLabels = new TextBlock[names.Length];
             tabGlyphs = new TextBlock[names.Length];
@@ -1585,13 +2076,41 @@ namespace Kapsula
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 row.Children.Add(gl); row.Children.Add(tb);
                 var b = new Border { Child = row, Padding = new Thickness(12, 0, 12, 0), Height = 30, CornerRadius = new CornerRadius(15), Background = Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(2, 0, 2, 0), ToolTip = names[i] };
-                b.MouseLeftButtonDown += delegate { ShowPage(idx); };
+                b.MouseLeftButtonDown += delegate { ShowPage(TabTarget(idx)); };
                 tabs[i] = b; tabLabels[i] = tb; tabGlyphs[i] = gl;
-                tabRow.Children.Add(b);
             }
-            g.Children.Add(tabRow);
+            // В строке вкладки идут по группам; у закрытой группы виден один значок
+            foreach (int i in TabOrder) tabRow.Children.Add(tabs[i]);
+            tabs[PClip].ToolTip = "Буфер, полка и текст";
+            tabs[PChat].ToolTip = "Чат и Claude Code";
+            tabs[PWeather].ToolTip = "Погода и система";
+            // Подсветка активной вкладки — отдельная плашка под значками: она скользит между ними, а не перескакивает.
+            tabGlow = new Border { Height = 30, CornerRadius = new CornerRadius(15), Background = TabOn, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tabGlowX, IsHitTestVisible = false };
+            tabHost = new Grid { HorizontalAlignment = HorizontalAlignment.Center, Background = Brushes.Transparent };
+            tabRow.HorizontalAlignment = HorizontalAlignment.Left;
+            tabHost.Children.Add(tabGlow); tabHost.Children.Add(tabRow);
+            // Колёсико мыши над вкладками листает их
+            tabHost.MouseWheel += delegate(object s, MouseWheelEventArgs e) { e.Handled = true; StepPage(e.Delta < 0 ? 1 : -1); };
+            g.Children.Add(tabHost);
+            // Заряд подключённых Bluetooth-наушников — справа в строке вкладок
+            // Без плашки, в одном стиле со значками вкладок и шестерёнкой: картинка наушников и процент.
+            budsChipText = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 1) };
+            var budsRow = new StackPanel { Orientation = Orientation.Horizontal };
+            budsChipGlyph = new TextBlock { Text = BudsGlyph, FontFamily = Icons, FontSize = 14, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center };
+            // если в папке headphones лежит своя картинка наушников, показываем её вместо общего значка
+            budsChipImage = new Image { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            RenderOptions.SetBitmapScalingMode(budsChipImage, BitmapScalingMode.HighQuality);
+            budsRow.Children.Add(budsChipGlyph); budsRow.Children.Add(budsChipImage);
+            budsRow.Children.Add(budsChipText);
+            budsChip = new Border { Height = 30, Margin = new Thickness(0, 0, 40, 0), Background = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Child = budsRow, Visibility = Visibility.Collapsed };
+            g.Children.Add(budsChip);
+            // Настройки — отдельной кнопкой в правом углу, на любой вкладке
+            var gear = IconBtn(((char)0xE713).ToString(), 30, delegate { OpenSettings(); });
+            gear.HorizontalAlignment = HorizontalAlignment.Right; gear.VerticalAlignment = VerticalAlignment.Center;
+            gear.ToolTip = "Настройки";
+            g.Children.Add(gear);
 
-            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage() };
+            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage() };
             foreach (var p in pages) { Grid.SetRow(p, 2); g.Children.Add(p); }
             expandedHost.Children.Add(g);
             ShowPage(0);
@@ -1605,9 +2124,10 @@ namespace Kapsula
 
         void ApplyPageExtra()
         {
-            double ex = PageExtra();
+            double ex = PageExtra(), sub = SubExtra();
             pageRow.Height = new GridLength(PageH + ex);
-            expandedHost.Height = EH + ex;
+            if (gapRow != null) gapRow.Height = new GridLength(12 + sub);
+            expandedHost.Height = EH + ex + sub;
             if (state == 2) SetTargets();
         }
 
@@ -1625,24 +2145,132 @@ namespace Kapsula
             }), DispatcherPriority.Loaded);
         }
 
+        // ---- плавная смена вкладок: страницы съезжают вбок, подсветка скользит от значка к значку
+        Border tabGlow;
+        TranslateTransform tabGlowX = new TranslateTransform();
+        Grid tabHost;
+        int pageSlide;   // номер последней смены: по нему запоздавшая анимация понимает, что она уже не нужна
+
+        static readonly IEasingFunction SlideEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        // Подсветка переезжает под активную вкладку и растягивается до её ширины
+        void MoveTabGlow(bool animate)
+        {
+            if (tabGlow == null || tabHost == null) return;
+            tabHost.UpdateLayout();
+            Border t = tabs[TabGroups[GroupOf(page)][0]];
+            if (t.ActualWidth <= 0) return;
+            double x = t.TranslatePoint(new Point(0, 0), tabHost).X, w = t.ActualWidth;
+            if (!animate || tabGlow.ActualWidth <= 0 || state != 2)
+            {
+                tabGlowX.BeginAnimation(TranslateTransform.XProperty, null); tabGlow.BeginAnimation(FrameworkElement.WidthProperty, null);
+                tabGlowX.X = x; tabGlow.Width = w;
+                return;
+            }
+            var dur = TimeSpan.FromMilliseconds(260);
+            tabGlowX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(x, dur) { EasingFunction = SlideEase });
+            tabGlow.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(w, dur) { EasingFunction = SlideEase });
+        }
+
+        // ---- вкладки собраны в группы, чтобы в строке было пять значков, а не девять:
+        // Главная · Буфер (буфер, полка, текст) · Заметка · ИИ (чат, Claude) · Сводка (погода, система)
+        static readonly int[][] TabGroups = { new int[] { PHome }, new int[] { PClip, PShelf, PText }, new int[] { PNote }, new int[] { PChat, PClaude }, new int[] { PWeather, PSystem } };
+        static readonly int[] TabOrder = { PHome, PClip, PShelf, PText, PNote, PChat, PClaude, PWeather, PSystem };
+        int[] lastInGroup = { PHome, PClip, PNote, PChat, PWeather };   // на какой вкладке группы были в прошлый раз
+
+        static int GroupOf(int p) { for (int g = 0; g < TabGroups.Length; g++) if (Array.IndexOf(TabGroups[g], p) >= 0) return g; return 0; }
+
+        bool TabAvailable(int p) { return p != PClaude || ClaudeBridge.Enabled; }   // вкладка Claude есть только у тех, кто его подключил
+
+        // Клик по значку закрытой группы открывает ту её вкладку, на которой были в прошлый раз
+        int TabTarget(int p)
+        {
+            int g = GroupOf(p);
+            if (g == GroupOf(page)) return p;
+            int last = lastInGroup[g];
+            return TabAvailable(last) ? last : p;
+        }
+
+        // Сколько места занимает строка разделов (она есть только у групп из нескольких вкладок)
+        const double SubRowH = 30;
+        RowDefinition gapRow;
+        StackPanel subRow;
+
+        int GroupSize(int g) { int n = 0; foreach (int m in TabGroups[g]) if (TabAvailable(m)) n++; return n; }
+
+        double SubExtra() { return GroupSize(GroupOf(page)) > 1 ? SubRowH : 0; }
+
+        // Строка разделов открытой группы: «Буфер · Полка · Текст»
+        void RenderSubTabs(int idx)
+        {
+            if (subRow == null) return;
+            subRow.Children.Clear();
+            int g = GroupOf(idx);
+            if (GroupSize(g) < 2) return;
+            foreach (int m in TabGroups[g])
+            {
+                if (!TabAvailable(m)) continue;
+                int target = m;
+                bool on = m == idx;
+                var chip = new Border { Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(13, 0, 13, 1), Margin = new Thickness(2, 0, 2, 0), Background = on ? TabOn : Brushes.Transparent, Cursor = Cursors.Hand,
+                    Child = new TextBlock { Text = tabLabels[m].Text, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
+                chip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ShowPage(target); };
+                subRow.Children.Add(chip);
+            }
+        }
+
+        // Соседняя вкладка в порядке строки (для колёсика мыши)
+        void StepPage(int dir)
+        {
+            int at = Array.IndexOf(TabOrder, page);
+            for (int n = 0; n < TabOrder.Length; n++)
+            {
+                at += dir;
+                if (at < 0 || at >= TabOrder.Length) return;
+                if (TabAvailable(TabOrder[at])) { ShowPage(TabOrder[at]); return; }
+            }
+        }
+
         void ShowPage(int idx)
         {
+            int prev = page;
             page = idx;
             ApplyPageExtra();
             if (state == 2) SetTargets();   // у «Главной» своя высота
+            int slide = ++pageSlide;
+            bool moving = prev != idx && state == 2 && prev >= 0 && prev < pages.Length;
+            double dir = idx > prev ? 1 : -1;
             for (int i = 0; i < pages.Length; i++)
             {
                 bool on = i == idx;
                 pages[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-                tabs[i].Background = on ? TabOn : Brushes.Transparent;
-                tabLabels[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-                tabGlyphs[i].Foreground = on ? Fg : Dim;
+                // В верхней строке — по одному значку на группу, они всегда стоят на своих местах.
+                // Разделы открытой группы — отдельной строкой ниже (RenderSubTabs).
+                int grp = GroupOf(i);
+                tabs[i].Visibility = TabGroups[grp][0] == i ? Visibility.Visible : Visibility.Collapsed;
+                tabLabels[i].Visibility = Visibility.Collapsed;
+                tabGlyphs[i].Foreground = grp == GroupOf(idx) ? Fg : Dim;
+            }
+            lastInGroup[GroupOf(idx)] = idx;
+            RenderSubTabs(idx);
+            MoveTabGlow(true);
+            {
+                // Спокойный переход: прежняя страница исчезает сразу (две страницы друг на друге не видны),
+                // новая проявляется с коротким сдвигом на несколько точек.
+                FrameworkElement cur = pages[idx];
+                var curT = cur.RenderTransform as TranslateTransform;
+                if (curT == null) { curT = new TranslateTransform(); cur.RenderTransform = curT; }
+                cur.IsHitTestVisible = true;
+                cur.Visibility = Visibility.Visible;
+                if (moving) curT.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(dir * 14, 0, TimeSpan.FromMilliseconds(200)) { EasingFunction = SlideEase });
+                else { curT.BeginAnimation(TranslateTransform.XProperty, null); curT.X = 0; }
             }
             if (idx != PClip && idx != PNote && idx != PWeather && idx != PChat) { Keyboard.ClearFocus(); }
             if (idx == PChat) { RenderChatEmpty(); ChatGrow(); }
+            if (idx == PClaude) { RenderClaudePage(); ClaudeUsage.Refresh(); }
             if (idx == PShelf) RenderShelf();
             pages[idx].Opacity = 0;
-            var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(moving ? 280 : 180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
             pages[idx].BeginAnimation(UIElement.OpacityProperty, a);
             if (idx == PText) RenderTextPreview();
             if (idx == PSystem) { RenderSystem(); ShowBt(TestBt); RefreshControl(); }
@@ -1746,7 +2374,10 @@ namespace Kapsula
         }
 
         // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
-        double ExpandedH() { return EH - (page == 0 ? homeCut : 0) + PageExtra(); }
+        // Панель подстраивается под содержимое: у «Главной» и «Текста» его меньше, чем у остальных вкладок
+        double PageCut() { return page == 0 ? homeCut : page == PText ? 78 : 0; }
+
+        double ExpandedH() { return EH - PageCut() + PageExtra() + SubExtra(); }
 
         // Для окна настроек: оно рисует у себя живую копию острова, главной панели и мини-плеера.
         public Visual PreviewRoot { get { return root; } }
@@ -2024,7 +2655,8 @@ namespace Kapsula
             clipList.Children.Clear();
             if (clips.Count == 0)
             {
-                clipList.Children.Add(new TextBlock { Text = "Скопируйте что-нибудь — появится здесь", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 84, 0, 0) });
+                clipList.Children.Add(PetSpot("sleep", 58, 12));
+                clipList.Children.Add(new TextBlock { Text = "Скопируйте что-нибудь — появится здесь", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center });
                 return;
             }
             string filter = clipSearch == null ? "" : clipSearch.Text.Trim().ToLowerInvariant();
@@ -2149,10 +2781,10 @@ namespace Kapsula
         FrameworkElement BuildChatPage()
         {
             var dock = new DockPanel();
-            var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 8) };
-            chatModelLabel = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+            var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 16) };
+            chatModelLabel =new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             top.Children.Add(chatModelLabel);
-            var fresh = Btn("Новый чат", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); });
+            var fresh = Btn("Очистить", false, 0, 28, delegate { chatGen++; chatBusy = false; chatHistory.Clear(); chatList.Children.Clear(); RenderChatEmpty(); ChatGrow(); });
             fresh.HorizontalAlignment = HorizontalAlignment.Right;
             top.Children.Add(fresh);
             DockPanel.SetDock(top, Dock.Top);
@@ -2196,20 +2828,31 @@ namespace Kapsula
             return dock;
         }
 
+        // Зверёк для пустых мест интерфейса: стоит по центру над подписью, настроение — по ситуации
+        FrameworkElement PetSpot(string mood, double top, double bottom)
+        {
+            var pet = new PetView(2.6, Ink);
+            pet.Mood(mood);
+            pet.Root.HorizontalAlignment = HorizontalAlignment.Center;
+            pet.Root.Margin = new Thickness(pet.Root.Children.Count > 1 ? 14 : 0, top, 0, bottom);   // сдвиг вправо уравновешивает место под значок
+            return pet.Root;
+        }
+
         void RenderChatEmpty()
         {
-            bool key = Secrets.GetKey() != "";
-            chatModelLabel.Text = key ? "Claude · " + (ClaudeChat.Model() == "claude-sonnet-5-5" ? "Sonnet 5.5" : "Opus 5.5") : "Claude · ключ не задан";
+            bool key = Ai.Key() != "";
+            chatModelLabel.Text = key ? Ai.Label : Ai.ProviderName + " · ключ не задан";
             chatEmpty.Children.Clear();
             chatEmpty.Visibility = chatHistory.Count == 0 && chatList.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            chatEmpty.Children.Add(PetSpot(key ? "idle" : "sleep", 0, 12));
             if (key)
             {
-                chatEmpty.Children.Add(new TextBlock { Text = "Спросите о чём угодно — ответит Claude.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
-                chatEmpty.Children.Add(new TextBlock { Text = "Разговор хранится только в памяти и стирается кнопкой «Новый чат».", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
+                chatEmpty.Children.Add(new TextBlock { Text = "Спросите о чём угодно — ответит " + Ai.ProviderName + ".", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
+                chatEmpty.Children.Add(new TextBlock { Text = "Разговор хранится только в памяти и стирается кнопкой «Очистить».", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
             }
             else
             {
-                chatEmpty.Children.Add(new TextBlock { Text = "Чтобы чат заработал, добавьте свой ключ Claude API.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
+                chatEmpty.Children.Add(new TextBlock { Text = "Чтобы чат заработал, добавьте свой ключ " + Ai.ProviderName + " API.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
                 chatEmpty.Children.Add(new TextBlock { Text = "Ключ вводится в настройках и хранится зашифрованным на этом компьютере.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 12) });
                 var open = Btn("Открыть настройки", false, 0, 30, delegate { OpenSettings(); });
                 open.HorizontalAlignment = HorizontalAlignment.Center;
@@ -2228,6 +2871,11 @@ namespace Kapsula
             };
             b.MouseLeftButtonDown += delegate { try { Clipboard.SetText(tb.Text); Toast("", "Скопировано", null, -1, accent); } catch { } };
             chatList.Children.Add(b);
+            // сообщение появляется мягко: проявляется и чуть подъезжает снизу
+            var rise = new TranslateTransform(0, 10);
+            b.RenderTransform = rise;
+            b.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)));
+            rise.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             chatEmpty.Visibility = Visibility.Collapsed;
             ChatGrow();
             return tb;
@@ -2269,22 +2917,22 @@ namespace Kapsula
         void AiText(string task)
         {
             if (chatBusy) return;
-            string key = Secrets.GetKey();
-            if (key == "") { Toast("", "Нужен ключ Claude API — добавьте в настройках", null, -1, null); return; }
+            string key = Ai.Key();
+            if (key == "") { Toast("", "Нужен ключ нейросети — добавьте в настройках", null, -1, null); return; }
             string text;
             try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; } catch { return; }
             if (text.Trim().Length == 0) { Toast("", "В буфере нет текста", null, -1, null); return; }
             if (text.Length > 60000) { Toast("", "Текст слишком длинный для одного запроса", null, -1, null); return; }
             chatBusy = true;
-            textPreview.Text = "Claude работает…";
+            textPreview.Text = Ai.ProviderName + " работает…";
             textPreview.Foreground = Dim;
-            string model = ClaudeChat.Model();
+            string model = Ai.Model();
             var msgs = new List<ChatMsg> { new ChatMsg { Role = "user", Text = "Задача: " + task + "\n\nТекст:\n" + text } };
             const string sys = "Ты выполняешь одно преобразование текста. Верни только результат — без пояснений, вступлений, кавычек и разметки. Сохраняй абзацы и переносы строк исходного текста.";
             var sb = new StringBuilder();
             ThreadPool.QueueUserWorkItem(delegate
             {
-                string err = ClaudeChat.Send(key, model, msgs, sys, delegate(string piece) { lock (sb) sb.Append(piece); });
+                string err = Ai.Send(key, model, msgs, sys, delegate(string piece) { lock (sb) sb.Append(piece); });
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     chatBusy = false;
@@ -2302,40 +2950,69 @@ namespace Kapsula
         {
             string q = chatBox.Text.Trim();
             if (q.Length == 0 || chatBusy) return;
-            string key = Secrets.GetKey();
-            if (key == "") { RenderChatEmpty(); Toast("", "Сначала добавьте ключ Claude API", null, -1, null); return; }
+            string key = Ai.Key();
+            if (key == "") { RenderChatEmpty(); Toast("", "Сначала добавьте ключ нейросети", null, -1, null); return; }
             chatBox.Text = "";
             string image = pendingImage;
             SetAttachment(null);
             chatHistory.Add(new ChatMsg { Role = "user", Text = q, ImageB64 = image });
             AddBubble(true, image != null ? "[картинка] " + q : q);
-            TextBlock answer = AddBubble(false, "Думаю…");
+            TextBlock answer = AddBubble(false, "Думаю");
             answer.Foreground = Dim;
             chatBusy = true;
             int gen = chatGen;
-            string model = ClaudeChat.Model();
+            string model = Ai.Model();
             var snapshot = new List<ChatMsg>(chatHistory);
             var sb = new StringBuilder();
+            // Ответ появляется плавно, как будто его печатают, — даже если нейросеть прислала весь текст одним куском.
+            // Пока ответа нет, после «Думаю» бегут точки.
+            int shown = 0;
+            bool finished = false;
+            // Зверёк сидит в сообщении и думает, пока нейросеть не начала отвечать
+            var thinker = new PetView(1.5, Ink);
+            thinker.Mood("think");
+            thinker.Root.Margin = new Thickness(0, 0, 4, 0);
+            var bubble = answer.Parent as Border;
+            if (bubble != null)
+            {
+                var waitRow = new StackPanel { Orientation = Orientation.Horizontal };
+                bubble.Child = null;
+                waitRow.Children.Add(thinker.Root); waitRow.Children.Add(answer);
+                bubble.Child = waitRow;
+            }
+            var type = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+            type.Tick += delegate
+            {
+                if (gen != chatGen) { type.Stop(); return; }
+                if (sb.Length == 0) { if (finished) type.Stop(); return; }   // пока ответа нет, в сообщении думает зверёк
+                if (thinker.Root.Visibility == Visibility.Visible) thinker.Root.Visibility = Visibility.Collapsed;
+                if (shown >= sb.Length) { if (finished) type.Stop(); return; }
+                // чем больше текста ждёт показа, тем быстрее печатаем: короткий ответ идёт по буквам, длинный не тянется
+                int left = sb.Length - shown;
+                shown += Math.Max(1, Math.Min(left, left / 14 + 1));
+                answer.Foreground = Fg;
+                answer.Text = sb.ToString(0, shown);
+                ChatGrow();
+            };
+            type.Start();
             ThreadPool.QueueUserWorkItem(delegate
             {
-                string err = ClaudeChat.Send(key, model, snapshot, null, delegate(string piece)
+                string err = Ai.Send(key, model, snapshot, null, delegate(string piece)
                 {
-                    Dispatcher.BeginInvoke(new Action(delegate
-                    {
-                        if (gen != chatGen) return;
-                        sb.Append(piece);
-                        answer.Foreground = Fg;
-                        answer.Text = sb.ToString();
-                        ChatGrow();
-                    }));
+                    Dispatcher.BeginInvoke(new Action(delegate { if (gen == chatGen) sb.Append(piece); }));
                 });
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     if (gen != chatGen) return;
                     chatBusy = false;
+                    finished = true;
                     if (err == null && sb.Length > 0) { chatHistory.Add(new ChatMsg { Role = "assistant", Text = sb.ToString() }); return; }
                     // Неудача: убираем вопрос из истории, чтобы следующий запрос не начинался с двух сообщений пользователя подряд.
+                    type.Stop();
                     chatHistory.RemoveAt(chatHistory.Count - 1);
+                    thinker.Root.Visibility = Visibility.Visible;
+                    thinker.Mood("sad");   // не получилось — зверёк огорчён
+                    thinker.Root.Margin = new Thickness(0, 0, 8, 0);
                     answer.Foreground = Dim;
                     answer.Text = (sb.Length > 0 ? sb + "\n\n" : "") + (err ?? "Пустой ответ.");
                     ChatGrow();
@@ -2420,10 +3097,15 @@ namespace Kapsula
             dock.Children.Add(top);
 
             var body = new Grid();
-            shelfEmpty = new TextBlock { Text = "Перетащите файлы на остров — они лягут на полку", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            shelfEmpty = new TextBlock { Text = "Перетащите файлы на остров — они лягут на полку", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 40, 0, 0) };
+            // над подписью пустой полки — зверёк; виден вместе с ней
+            var shelfPet = PetSpot("idle", 0, 44);
+            shelfPet.VerticalAlignment = VerticalAlignment.Center;
+            shelfEmpty.IsVisibleChanged += delegate { shelfPet.Visibility = shelfEmpty.Visibility; };
             var zone = new Rectangle { Stroke = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x40)), StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection(new double[] { 5, 4 }), RadiusX = 18, RadiusY = 18, Fill = Brushes.Transparent };
             body.Children.Add(zone);
             body.Children.Add(shelfEmpty);
+            body.Children.Add(shelfPet);
             shelfPanel = new WrapPanel { Margin = new Thickness(10, 10, 2, 2) };
             body.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = shelfPanel });
             dock.Children.Add(body);
@@ -2585,7 +3267,7 @@ namespace Kapsula
         {
             var b = Btn("✦ " + name, false, 0, 30, delegate { AiText(task); });
             b.Margin = new Thickness(0, 0, 6, 6);
-            b.ToolTip = "Выполнит Claude; результат попадёт в буфер обмена";
+            b.ToolTip = "Выполнит нейросеть; результат попадёт в буфер обмена";
             ((TextBlock)b.Child).Foreground = accent;
             wrap.Children.Add(b);
         }
@@ -2734,7 +3416,11 @@ namespace Kapsula
             DockPanel.SetDock(ringRow, Dock.Top);
             right.Children.Add(ringRow);
 
-            var presets = new UniformGrid { Rows = 1, Columns = 5, Margin = new Thickness(-2, 8, -2, 0), Height = 26 };
+            // подпись над числами: без неё непонятно, что это минуты таймера
+            var presetsCaption = new TextBlock { Text = "Таймер, минут", Foreground = Faint, FontSize = 11, Margin = new Thickness(2, 8, 0, 0) };
+            DockPanel.SetDock(presetsCaption, Dock.Top);
+            right.Children.Add(presetsCaption);
+            var presets = new UniformGrid { Rows = 1, Columns = 5, Margin = new Thickness(-2, 4, -2, 0), Height = 26 };
             int[] mins = { 1, 5, 10, 15, 25 };
             presetChips = new Border[mins.Length];
             for (int i = 0; i < mins.Length; i++)
@@ -2794,6 +3480,28 @@ namespace Kapsula
                 new System.Windows.Documents.TextRange(a, b).Text = c == '☐' ? "☑" : "☐";
             }
             catch { }
+        }
+
+        // «заметка купить молоко» → «купить молоко»; для остальных запросов — пусто
+        public static string NoteCommandText(string q)
+        {
+            foreach (string k in new string[] { "заметка ", "в заметку ", "запиши ", "note " })
+                if (q.StartsWith(k, StringComparison.OrdinalIgnoreCase) && q.Length > k.Length) return q.Substring(k.Length).Trim();
+            return "";
+        }
+
+        // Дописать строку в конец текущей заметки (с временем) и сразу сохранить
+        void AppendNote(string text)
+        {
+            try
+            {
+                var p = new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run(DateTime.Now.ToString("d MMM, HH:mm") + " — " + text.Trim()));
+                p.Margin = new Thickness(0, 0, 0, 4);
+                noteRich.Document.Blocks.Add(p);
+                SaveNote();
+                Toast("", "Сохранено в заметку", null, -1, accent);
+            }
+            catch (Exception ex) { Store.LogError("запись в заметку", ex); Toast("", "Не удалось сохранить заметку", null, -1, null); }
         }
 
         string NoteFile(int folder) { return System.IO.Path.Combine(Store.Dir, "note-" + folder + ".xamlpkg"); }
@@ -3245,6 +3953,8 @@ namespace Kapsula
         }
 
         // ------------------------------------------------------ Система
+        Tile quietTile;
+
         FrameworkElement BuildSystemPage()
         {
             var sp = new StackPanel();
@@ -3286,16 +3996,22 @@ namespace Kapsula
                 ThreadPool.QueueUserWorkItem(delegate { Warp.Set(on); Thread.Sleep(2500); Dispatcher.BeginInvoke(new Action(RefreshControl)); });
             });
             var setTile = new Tile("", "Настройки", delegate { OpenSettings(); });
-            Tile[] ts = { netTile, btTile, vpnTile, themeTile, micTile, autoTile, lyrTile, setTile, lockTile, sleepTile, restartTile, offTile };
-            for (int i = 0; i < ts.Length; i++)
+            quietTile = new Tile(((char)0xE708).ToString(), "Не беспокоить", delegate { SetQuiet(QuietNow ? 0 : 60); RenderSystem(); });
+            // Плитки разложены по смыслу, у каждой группы подпись: что подключено, как ведёт себя Kapsula, питание компьютера.
+            // Плитки «Настройки» здесь больше нет — шестерёнка стоит в углу панели на любой вкладке.
+            GC.KeepAlive(setTile); GC.KeepAlive(tiles);
+            string[] captions = { "Подключения и звук", "Kapsula", "Питание" };
+            Tile[][] groups = { new Tile[] { netTile, btTile, vpnTile, micTile }, new Tile[] { themeTile, autoTile, lyrTile, quietTile }, new Tile[] { lockTile, sleepTile, restartTile, offTile } };
+            double[] heights = { 56, 56, 50 };   // вместе с подписями и нагрузкой всё должно уместиться в высоту вкладки
+            for (int gi = 0; gi < groups.Length; gi++)
             {
-                ts[i].Root.Margin = new Thickness(4);
-                tiles.Children.Add(ts[i].Root);
+                sp.Children.Add(new TextBlock { Text = captions[gi], Foreground = Faint, FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, gi == 0 ? 0 : 5, 0, 1) });
+                var rowGrid = new UniformGrid { Rows = 1, Columns = 4, Height = heights[gi], Margin = new Thickness(-4, 0, -4, 0) };
+                foreach (Tile tl in groups[gi]) { tl.Root.Margin = new Thickness(4, 3, 4, 3); tl.Label.Margin = new Thickness(0, 5, 0, 0); rowGrid.Children.Add(tl.Root); }
+                sp.Children.Add(rowGrid);
             }
-            tiles.Margin = new Thickness(-4);
-            sp.Children.Add(tiles);
 
-            var stats = new Border { Background = Card, CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 10, 16, 10), Margin = new Thickness(0, 10, 0, 0) };
+            var stats = new Border { Background = Card, CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 6, 0, 0) };
             var rows = new StackPanel();
             cpuBar = new Bar(PageW - 32 - 96 - 48, 5, accent, 22);
             ramBar = new Bar(PageW - 32 - 96 - 48, 5, new SolidColorBrush(Color.FromRgb(0x5A, 0xA9, 0xFF)), 22);
@@ -3716,6 +4432,7 @@ namespace Kapsula
                                 catch { logo = null; }
                                 Dispatcher.BeginInvoke(new Action(delegate
                                 {
+                                    if (Quiet(a.Length > 0 ? a : "Windows", a.Length > 0 ? a : "Уведомление", text)) return;
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", text, delegate { }, null, null, false);
                                     SetCardBadge(ImageFrom(logo));
                                     HideCardButton();
@@ -3759,12 +4476,882 @@ namespace Kapsula
         // Сообщение или звонок из Discord (приходит от плагина XSOverlay в Vencord)
         public void DiscordNotify(string title, string text, byte[] icon)
         {
+            if (TestDemoCard == null && Quiet("Discord", title, text)) { UnreadAdd(true); return; }
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             SetCardBadge(SourceIcon("discord"));
             HideCardButton();
             cardUntil = Environment.TickCount + 6000;
+            if (TestDemoCard == null) UnreadAdd(true);
         }
+
+        // ---- Claude Code: запрос разрешения карточкой, «ждёт ответа» и «закончил» — короткой надписью
+        public int TestPet;         // ключ --pet 1..4: настроение питомца для снимков
+        public string TestClaude;   // ключ --claudetest allow|deny|wait: что «нажать» на карточке в проверочном режиме
+
+        // Сейчас перед глазами сам Claude Code (приложение, терминал или редактор)? Тогда остров не вмешивается.
+        bool ClaudeInFront()
+        {
+            uint pid;
+            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid);
+            if (pid == 0) return false;
+            string n;
+            try { n = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { return false; }
+            foreach (string s in new string[] { "claude", "windowsterminal", "conhost", "powershell", "pwsh", "cmd", "code", "cursor", "wezterm", "alacritty" })
+                if (n == s || n.StartsWith(s + " ") || n.StartsWith(s + "-")) return true;
+            return false;
+        }
+
+        static readonly string ClaudeGlyph = ((char)0xE756).ToString();
+        int claudeSeq, claudeToastAt;
+
+        bool ClaudeAway() { return TestClaude != null || !ClaudeInFront(); }
+
+        void ClaudeAfter(int ms, Action a)
+        {
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+            t.Tick += delegate { t.Stop(); a(); };
+            t.Start();
+        }
+
+        // Открыто несколько сессий — в заголовке карточки видно, какая именно спрашивает.
+        string ClaudeTitle(ClaudeBridge.Pending p, string what)
+        {
+            bool many = ClaudeBridge.Sessions().Count > 1;
+            return (many && p.Project.Length > 0 ? "Claude · " + p.Project : "Claude Code") + (what.Length > 0 ? " · " + what : "");
+        }
+
+        // ---- очередь: запросы от разных сессий показываются по одному, следующий — когда ответили на предыдущий
+        class ClaudeItem { public ClaudeBridge.Pending P; public Action Show; }
+        List<ClaudeItem> claudeQueue = new List<ClaudeItem>();
+        ClaudeBridge.Pending claudeNow;   // запрос, чья карточка сейчас на острове
+        bool claudeBusy;                  // пользователь выбирает вариант или печатает ответ — не перебиваем
+
+        void ClaudeEnqueue(ClaudeBridge.Pending p, Action show)
+        {
+            if (!ClaudeAway() || QuietNow) { p.Pass(); return; }   // пользователь и так смотрит на Claude Code (или просил не беспокоить) — пусть спросит сам
+            claudeQueue.Add(new ClaudeItem { P = p, Show = show });
+            ClaudePump();
+        }
+
+        void ClaudePump()
+        {
+            claudeQueue.RemoveAll(delegate(ClaudeItem x) { return x.P.Answered; });
+            if (claudeQueue.Count == 0 || claudeBusy) return;
+            if (state == 3 && claudeNow != null && !claudeNow.Answered) return;   // на предыдущий ещё не ответили
+            if (state == 3 && claudeNow == null) return;                          // на острове чужая карточка — подождём
+            if (state == 1) return;
+            ClaudeItem it = claudeQueue[0];
+            claudeQueue.RemoveAt(0);
+            if (state == 2 || state == 4) { it.P.Pass(); return; }   // панель открыта, карточку показать некуда
+            claudeNow = it.P;
+            it.Show();
+            if (state == 3 && !(it.P is ClaudeBridge.Finished)) ClaudeSound();
+            if (state != 3) { it.P.Pass(); claudeNow = null; }
+        }
+
+        // Запрос разрешения: «Разрешить», «Всегда» (если Claude Code сам предложил такое правило) и крестик — отклонить.
+        void ClaudeAsk(ClaudeBridge.Ask ask)
+        {
+            ClaudeEnqueue(ask, delegate
+            {
+                string sub = ask.Detail.Length > 0 ? ask.Detail : "Просит разрешение";
+                string[] labels = ask.CanAlways ? new string[] { "Разрешить", "Всегда" } : new string[] { "Разрешить" };
+                Action[] acts = { delegate { ask.Allow(); }, delegate { ask.AllowAlways(); } };
+                ShowCardOptions(ClaudeGlyph, ClaudeTitle(ask, ask.Tool), sub, labels, acts, delegate { ask.Deny(); }, ClaudeBridge.WaitMs - 1500);
+                CardPet("ask");
+                if (TestClaude == "allow") ClaudeAfter(2500, delegate { ask.Allow(); });
+                else if (TestClaude == "always") ClaudeAfter(2500, delegate { ask.AllowAlways(); });
+                else if (TestClaude == "deny" || TestClaude == "queue") ClaudeAfter(2500, delegate { ask.Deny(); SetState(0); });
+            });
+        }
+
+        // Вопрос с вариантами. Простой (один вопрос, один ответ, до трёх вариантов) — сразу кнопками.
+        // Остальные — кнопка «Выбрать»: открывается список, где можно отметить несколько или вписать свой ответ.
+        void ClaudeQuestion(ClaudeBridge.Question q)
+        {
+            ClaudeEnqueue(q, delegate
+            {
+                ClaudeBridge.QItem first = q.Items[0];
+                string title = ClaudeTitle(q, first.Header.Length > 0 ? first.Header : "вопрос");
+                if (q.Items.Length == 1 && !first.Multi && first.Options.Length <= 3)
+                {
+                    var acts = new Action[first.Options.Length];
+                    for (int i = 0; i < acts.Length; i++)
+                    {
+                        string label = first.Options[i];
+                        acts[i] = delegate { var a = new Dictionary<string, string>(); a[first.Text] = label; q.Answer(a); };
+                    }
+                    ShowCardOptions(ClaudeGlyph, title, ClaudeBridge.Clean(first.Text, 160), first.Options, acts, delegate { q.Pass(); }, ClaudeBridge.WaitMs - 1500);
+                    CardPet("ask");
+                    if (TestClaude == "answer") ClaudeAfter(2500, acts[1]);
+                    return;
+                }
+                string sub = q.Items.Length > 1 ? "Вопросов: " + q.Items.Length + ". " + ClaudeBridge.Clean(first.Text, 120) : ClaudeBridge.Clean(first.Text, 160);
+                Action choose = delegate { q.Extend(ClaudeBridge.TypingWaitMs); ClaudeChoose(q, 0, new Dictionary<string, string>()); };
+                ShowCardOptions(ClaudeGlyph, title, sub, new string[] { "Выбрать" }, new Action[] { choose }, delegate { q.Pass(); }, ClaudeBridge.WaitMs - 1500);
+                CardPet("ask");
+                if (TestClaude == "choose") ClaudeAfter(1200, delegate { SetState(0); choose(); });
+            });
+        }
+
+        // Список вариантов для вопроса номер n; после ответа — следующий вопрос или отправка всех ответов.
+        void ClaudeChoose(ClaudeBridge.Question q, int n, Dictionary<string, string> answers)
+        {
+            ClaudeBridge.QItem it = q.Items[n];
+            claudeBusy = true;
+            StartChoice(new Choice
+            {
+                Title = (q.Items.Length > 1 ? (n + 1) + " из " + q.Items.Length + ". " : "") + ClaudeBridge.Clean(it.Text, 90),
+                Labels = it.Options, Notes = it.Notes, Multi = it.Multi,
+                Done = delegate(string answer)
+                {
+                    answers[it.Text] = answer;
+                    if (n + 1 < q.Items.Length) ClaudeAfter(180, delegate { ClaudeChoose(q, n + 1, answers); });
+                    else { claudeBusy = false; q.Answer(answers); Toast(ClaudeGlyph, "Ответ отправлен Claude Code", null, -1, accent); }
+                },
+                Cancel = delegate { claudeBusy = false; q.Pass(); }
+            });
+            // Проверочный режим: отмечаем первые два варианта и жмём «Готово», как это сделал бы пользователь.
+            if (TestClaude == "choose")
+                ClaudeAfter(1800, delegate
+                {
+                    if (choice == null) return;
+                    if (choice.Multi) { RunCmd(1); RunCmd(2); ClaudeAfter(1500, delegate { RunCmd(cmdItems.Count - 1); }); }
+                    else ClaudeAfter(1500, delegate { RunCmd(2); });
+                });
+        }
+
+        // ---- выбор из списка в строке ввода (варианты ответа, отметки, свой текст)
+        class Choice
+        {
+            public string Title; public string[] Labels, Notes; public bool Multi;
+            public HashSet<int> Picked = new HashSet<int>();
+            public Action<string> Done; public Action Cancel; public bool Finished;
+        }
+        Choice choice;
+
+        void StartChoice(Choice c)
+        {
+            if (state == 4) SetState(0);
+            choice = c;
+            cmdHint.Text = c.Multi ? "Отметьте нужное и нажмите «Готово» — или впишите свой ответ" : "Выберите вариант или впишите свой ответ";
+            ToggleCommand();
+            UpdateCmd();
+        }
+
+        // Строки списка для текущего вопроса
+        void FillChoice(string typed)
+        {
+            Choice c = choice;
+            AddCmd(c.Title, "", ClaudeGlyph, null, null);
+            cmdItems[0].Stay = true;
+            for (int i = 0; i < c.Labels.Length; i++)
+            {
+                int idx = i;
+                string label = c.Labels[i];
+                if (c.Multi)
+                {
+                    AddCmd((c.Picked.Contains(idx) ? "✓  " : "      ") + label, c.Notes[i], "", null, delegate { if (!c.Picked.Remove(idx)) c.Picked.Add(idx); });
+                    cmdItems[cmdItems.Count - 1].Stay = true;
+                }
+                else AddCmd(label, c.Notes[i], "", null, delegate { c.Finished = true; c.Done(label); });
+            }
+            if (typed.Length > 0) AddCmd("Свой ответ: " + (typed.Length > 50 ? typed.Substring(0, 50) + "…" : typed), "", "", null, delegate { c.Finished = true; c.Done(typed); });
+            else if (c.Multi && c.Picked.Count > 0)
+            {
+                var chosen = new List<string>();
+                for (int i = 0; i < c.Labels.Length; i++) if (c.Picked.Contains(i)) chosen.Add(c.Labels[i]);
+                string joined = string.Join(", ", chosen.ToArray());
+                AddCmd("Готово", "выбрано: " + c.Picked.Count, "", null, delegate { c.Finished = true; c.Done(joined); });
+            }
+            if (cmdSel == 0 && cmdItems.Count > 1) cmdSel = 1;   // первая строка — сам вопрос, выбирать её незачем
+        }
+
+        // Claude закончил: показываем начало ответа и кнопку «Ответить» — написать ему можно прямо отсюда.
+        void ClaudeDone(ClaudeBridge.Finished f)
+        {
+            ClaudeEnqueue(f, delegate
+            {
+                Action reply = delegate
+                {
+                    f.Extend(ClaudeBridge.TypingWaitMs);
+                    claudeBusy = true;
+                    StartReplyTo("claude:" + (++claudeSeq), "Claude Code",
+                        delegate(string text) { claudeBusy = false; f.Send(text); Toast(ClaudeGlyph, "Отправлено Claude Code", null, -1, accent); },
+                        delegate { claudeBusy = false; f.Pass(); });
+                };
+                ShowCardEx(null, ClaudeGlyph, ClaudeTitle(f, "закончил"), f.Text.Length > 0 ? f.Text : "Можно ответить прямо отсюда", delegate { f.Pass(); }, "Ответить", reply, false);
+                if (state != 3) return;
+                CardPet("done");
+                FitCard();
+                cardUntil = Environment.TickCount + ClaudeBridge.FinishWaitMs - 500;
+                if (TestClaude == "reply") ClaudeAfter(2500, delegate { f.Send("проверь ещё раз тесты"); });
+            });
+        }
+
+        // Что Claude Code делает сейчас — короткой надписью, не чаще раза в несколько секунд.
+        void ClaudeWorking(string tool, string detail, string project)
+        {
+            if (Store.Get("claudeActivity") == "0" || QuietNow || !ClaudeAway() || state != 0 || claudeQueue.Count > 0) return;
+            int now = Environment.TickCount;
+            if (claudeToastAt != 0 && unchecked(now - claudeToastAt) < 6000) return;
+            claudeToastAt = now | 1;
+            if (detail.Length > 44) detail = detail.Substring(0, 43) + "…";
+            bool many = ClaudeBridge.Sessions().Count > 1;
+            Toast(ClaudeGlyph, (many && project.Length > 0 ? project : "Claude") + " · " + tool + (detail.Length > 0 ? ": " + detail : ""), null, -1, accent);
+        }
+
+        void ClaudeWaiting(string project)
+        {
+            if (!ClaudeAway() || state != 0) return;
+            bool many = ClaudeBridge.Sessions().Count > 1;
+            Toast(ClaudeGlyph, (many && project.Length > 0 ? "Claude · " + project : "Claude Code") + " ждёт ответа", null, -1, accent);
+        }
+
+        // sessionId = null — остановить все сессии, которые сейчас работают
+        public void ClaudeStop(string sessionId, string name)
+        {
+            ClaudeBridge.RequestStop(sessionId);
+            Toast(ClaudeGlyph, (name != null ? "Claude · " + name : "Claude Code") + " остановится перед следующим действием", null, -1, accent);
+        }
+
+        // ---- вкладка «Claude»: открытые сессии, что делает каждая, и расход за сегодня
+        StackPanel claudeList;
+        TextBlock claudeUsage;
+        Border claudeStopAll;
+
+        FrameworkElement BuildClaudePage()
+        {
+            var dock = new DockPanel();
+            var top = new Grid { Height = 28, Margin = new Thickness(0, 0, 0, 8) };
+            claudeUsage = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 138, 0), TextTrimming = TextTrimming.CharacterEllipsis };   // справа место под кнопку
+            top.Children.Add(claudeUsage);
+            var stopAll = claudeStopAll = Btn("Остановить все", false, 0, 28, delegate { ClaudeStop(null, null); });
+            stopAll.HorizontalAlignment = HorizontalAlignment.Right;
+            stopAll.Visibility = Visibility.Collapsed;   // кнопка есть, только когда есть что останавливать
+            top.Children.Add(stopAll);
+            DockPanel.SetDock(top, Dock.Top);
+            dock.Children.Add(top);
+            claudeList = new StackPanel();
+            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList });
+            ClaudeUsage.Updated += delegate { Dispatcher.BeginInvoke(new Action(delegate { if (expanded && page == PClaude) RenderClaudeUsage(); })); };
+            return dock;
+        }
+
+        void RenderClaudeUsage()
+        {
+            if (!ClaudeUsage.Ready) { claudeUsage.Text = "Считаю расход за сегодня…"; return; }
+            if (ClaudeUsage.Replies == 0) { claudeUsage.Text = "Сегодня Claude Code ещё не отвечал"; return; }
+            // коротко и по делу; подробности (ввод, кэш, по дням и проектам) — в подсказке при наведении
+            claudeUsage.Text = "Сегодня: " + ClaudeUsage.Replies + " ответов · " + ClaudeUsage.Short(ClaudeUsage.Out) + " токенов";
+            var tip = new StringBuilder();
+            try
+            {
+                Dictionary<DateTime, long> byDay;
+                lock (ClaudeUsage.Days) byDay = new Dictionary<DateTime, long>(ClaudeUsage.Days);
+                var days = new List<DateTime>(byDay.Keys);
+                days.Sort();
+                tip.Append("\n\nНаписано по дням:");
+                foreach (DateTime d in days) tip.Append("\n" + d.ToString("ddd d MMM") + " — " + ClaudeUsage.Short(byDay[d]));
+                var projects = new List<KeyValuePair<string, long>>(ClaudeUsage.Projects);
+                projects.Sort(delegate(KeyValuePair<string, long> a, KeyValuePair<string, long> b) { return b.Value.CompareTo(a.Value); });
+                if (projects.Count > 0) tip.Append("\n\nСегодня по проектам:");
+                for (int i = 0; i < projects.Count && i < 6; i++) tip.Append("\n" + (projects[i].Key.Length > 34 ? projects[i].Key.Substring(0, 33) + "…" : projects[i].Key) + " — " + ClaudeUsage.Short(projects[i].Value));
+                claudeUsage.Text += " · неделя: " + ClaudeUsage.Short(ClaudeUsage.Week);
+            }
+            catch { }
+            claudeUsage.ToolTip = tip.Insert(0, ClaudeUsageTip()).ToString();
+        }
+
+        static string ClaudeUsageTip()
+        {
+            return "Токены за сегодня по журналам Claude Code на этом компьютере.\nНаписал (выход): " + ClaudeUsage.Out.ToString("N0") + "\nНовый ввод: " + ClaudeUsage.In.ToString("N0") + "\nЗаписано в кэш: " + ClaudeUsage.CacheWrite.ToString("N0") + "\nПрочитано из кэша: " + ClaudeUsage.CacheRead.ToString("N0");
+        }
+
+        void RenderClaudePage()
+        {
+            if (claudeList == null) return;
+            RenderClaudeUsage();
+            bool busy = ClaudeBridge.Busy;
+            claudeStopAll.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            claudeUsage.Margin = new Thickness(4, 0, busy ? 138 : 0, 0);
+            claudeList.Children.Clear();
+            List<ClaudeBridge.Session> list = ClaudeBridge.Sessions();
+            if (list.Count == 0)
+            {
+                claudeList.Children.Add(PetSpot("sleep", 48, 12));
+                claudeList.Children.Add(new TextBlock { Text = "Claude Code пока не давал о себе знать", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center });
+                claudeList.Children.Add(new TextBlock { Text = "Сессии появятся здесь, как только начнут работать. Уже открытые нужно перезапустить.", Foreground = Faint, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
+                return;
+            }
+            foreach (ClaudeBridge.Session s in list)
+            {
+                ClaudeBridge.Session ses = s;
+                bool working = ses.State == "работает" && unchecked(Environment.TickCount - ses.At) < 60000;
+                bool needs = ses.State == "ждёт разрешения" || ses.State == "спрашивает" || ses.State == "ждёт ответа";
+                string sub = ses.Detail.Length > 0 ? ses.Detail : (ses.State == "закончил" && ses.Last.Length > 0 ? ses.Last : Ago(ses.At));
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = needs ? ClaudeOrange : working ? (Brush)accent : Faint, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center });
+                var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                texts.Children.Add(new TextBlock { Text = ses.Name + " — " + ses.State, Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                texts.Children.Add(new TextBlock { Text = sub, Foreground = Dim, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                Grid.SetColumn(texts, 1); row.Children.Add(texts);
+                if (working)
+                {
+                    var stop = Btn("Стоп", false, 0, 28, delegate { ClaudeStop(ses.Id, ses.Name); RenderClaudePage(); });
+                    stop.Margin = new Thickness(10, 0, 0, 0); stop.VerticalAlignment = VerticalAlignment.Center;
+                    Grid.SetColumn(stop, 2); row.Children.Add(stop);
+                }
+                else
+                {
+                    var ago = new TextBlock { Text = Ago(ses.At), Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                    Grid.SetColumn(ago, 2); row.Children.Add(ago);
+                }
+                claudeList.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 9, 14, 10), Margin = new Thickness(0, 0, 0, 6), Child = row });
+            }
+        }
+
+        static readonly Brush ClaudeGreen = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
+        static readonly Brush ClaudeOrange =new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A));
+
+        // Значок в капсуле: 0 — нет, 1 — Claude Code работает, 2 — ждёт вас, 3 — только что закончил
+        int claudeState;
+        StackPanel claudeDot;
+
+        // ---- питомец Claude Code в капсуле: пиксельный зверёк, настроение зависит от того, чем занят Claude.
+        // Работает — смотрит вниз и подпрыгивает; ждёт вас — глаза круглые и мигает «!»; закончил — довольный, с галочкой;
+        // давно молчит — спит. Рисунок свой, из квадратиков; это не копия чужого персонажа.
+        static readonly Brush PetBody = new SolidColorBrush(Color.FromRgb(0xF0, 0x8A, 0x4B));
+        static readonly string[] PetShape =
+        {
+            ".B.......B.",
+            ".BB.....BB.",
+            ".BBBBBBBBB.",
+            "BBBBBBBBBBB",
+            "BBBBBBBBBBB",
+            "BBBBBBBBBBB",
+            "BBBBBBBBBBB",
+            ".BBBBBBBBB.",
+            ".B.B...B.B."
+        };
+        const double PetPx = 1.6;
+        TranslateTransform petShift = new TranslateTransform();
+        List<Rectangle>[] petEyes = new List<Rectangle>[5];   // 0 обычные, 1 смотрит вниз, 2 круглые, 3 довольные, 4 спит
+        TextBlock petMark;
+        int petMood = -1;
+
+        Rectangle PetPixel(Canvas c, int x, int y, int w, int h, Brush fill)
+        {
+            // +0.3: соседние квадратики чуть перекрываются, чтобы между ними не было щелей при масштабе
+            var r = new Rectangle { Width = w * PetPx + 0.3, Height = h * PetPx + 0.3, Fill = fill, SnapsToDevicePixels = true };
+            Canvas.SetLeft(r, x * PetPx); Canvas.SetTop(r, y * PetPx);
+            r.Tag = new double[] { x * PetPx, y * PetPx };   // исходное место — глаза потом сдвигаются за курсором
+            c.Children.Add(r);
+            return r;
+        }
+
+        StackPanel BuildClaudePet()
+        {
+            var c = new Canvas { Width = 11 * PetPx, Height = 9 * PetPx, RenderTransform = petShift, VerticalAlignment = VerticalAlignment.Center };
+            for (int y = 0; y < PetShape.Length; y++)
+            {
+                // подряд идущие клетки строки рисуем одним прямоугольником
+                int x = 0;
+                while (x < 11)
+                {
+                    if (PetShape[y][x] != 'B') { x++; continue; }
+                    int start = x;
+                    while (x < 11 && PetShape[y][x] == 'B') x++;
+                    PetPixel(c, start, y, x - start, 1, PetBody);
+                }
+            }
+            // Глаза — «вырезы» цвета острова. Каждая пара координат: левый глаз, правый — зеркально.
+            int[][][] eyes =
+            {
+                new int[][] { new int[] { 2, 4, 1, 2 } },                                                   // обычные
+                new int[][] { new int[] { 2, 5, 1, 2 } },                                                   // смотрит вниз
+                new int[][] { new int[] { 2, 3, 2, 3 } },                                                   // круглые
+                new int[][] { new int[] { 1, 5, 1, 1 }, new int[] { 2, 4, 1, 1 }, new int[] { 3, 5, 1, 1 } }, // довольные: дужкой
+                new int[][] { new int[] { 1, 5, 3, 1 } }                                                    // спит: чёрточки
+            };
+            for (int m = 0; m < eyes.Length; m++)
+            {
+                petEyes[m] = new List<Rectangle>();
+                foreach (int[] e in eyes[m])
+                {
+                    petEyes[m].Add(PetPixel(c, e[0], e[1], e[2], e[3], Ink));
+                    petEyes[m].Add(PetPixel(c, 11 - e[0] - e[2], e[1], e[2], e[3], Ink));
+                }
+            }
+            petMark = new TextBlock { FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2.5, -4, 0, 0), Width = 8 };
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 5, 0), Visibility = Visibility.Collapsed };
+            sp.Children.Add(c); sp.Children.Add(petMark);
+            PetFace(0, "", null);
+            return sp;
+        }
+
+        // Глаза: 0 обычные, 1 вниз, 2 круглые, 3 довольные, 4 закрытые. Значок справа от зверька — «!», «✓», «z», «…».
+        void PetMood(int state) { }   // настроение теперь считает PetAnimate — и по Claude Code, и по обычным событиям
+
+        void PetFace(int eyesKind, string mark, Brush markBrush)
+        {
+            if (petEyes[0] == null) return;
+            if (eyesKind != petMood)
+            {
+                petMood = eyesKind;
+                for (int m = 0; m < petEyes.Length; m++)
+                    foreach (Rectangle r in petEyes[m]) r.Visibility = m == eyesKind ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (petMark.Text != mark) petMark.Text = mark;
+            petMark.Foreground = markBrush ?? Faint;
+        }
+
+        // Зверёк — сам персонаж капсулы (а не только значок Claude Code)?
+        bool PetIsCharacter() { return Character == "pet" && (ShowEyes || TestCharacter != null) && (!(media.Has && media.Playing) || TestEyes); }
+
+        int petBlinkAt, petBlinkUntil;
+
+        // Настроение и движение зверька. Важное перебивает обычное: ждёт вас → тревога таймера → работает → думает →
+        // радуется → спит → просто смотрит за курсором и моргает.
+        void PetAnimate()
+        {
+            if (claudeDot == null || claudeDot.Visibility != Visibility.Visible) return;
+            int now = Environment.TickCount;
+            double t = now / 1000.0;
+            bool chr = PetIsCharacter();
+            bool asleep = Native.IdleMs() > 120000;
+            string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : unchecked(now - happyUntil) < 0 ? "happy" : asleep ? "sleep" : "");
+            if (!chr && TestMood == null) mood = "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
+            petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
+
+            if (claudeState == 2) { PetFace(2, "!", ClaudeOrange); petMark.Opacity = (now / 420) % 2 == 0 ? 1 : 0.25; }
+            else if (mood == "alarm") { PetFace(2, "!", RecRed); petShift.X = rnd.NextDouble() * 2.4 - 1.2; petShift.Y = rnd.NextDouble() * 1.6 - 0.8; }
+            else if (claudeState == 1) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 5.5)) * -2.2 * 2) / 2; }
+            else if (mood == "think") { PetFace(1, "…", Dim); petShift.Y = Math.Round(Math.Sin(t * 3) * 0.8 * 2) / 2; }
+            else if (claudeState == 3) PetFace(3, "✓", ClaudeGreen);
+            else if (mood == "happy") { PetFace(3, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; }
+            else if (chr && pomoPhase == 1 && timerEnd > DateTime.Now) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 2.2)) * -1.2 * 2) / 2; }   // помодоро, работа: сосредоточен
+            else if (chr && pomoPhase == 2 && timerEnd > DateTime.Now) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }       // помодоро, перерыв: отдыхает
+            else if (mood == "sleep" || (claudeState == 4 && !chr)) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }
+            else
+            {
+                // Обычное состояние: глаза сдвигаются на клетку в сторону курсора; раз в несколько секунд зверёк моргает
+                if (petBlinkAt == 0) petBlinkAt = now + 2500 + rnd.Next(4000);
+                if (unchecked(now - petBlinkAt) >= 0) { petBlinkUntil = now + 140; petBlinkAt = now + 2500 + rnd.Next(4500); }
+                if (unchecked(now - petBlinkUntil) < 0) { PetFace(4, "", null); return; }
+                PetFace(0, "", null);
+                Native.POINT pt;
+                int sx = 0, sy = 0;
+                if (Native.GetCursorPos(out pt))
+                {
+                    double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 12) * Scale, ey = Top + CH / 2 * Scale;
+                    double dx = pt.X / dpi - ex, dy = pt.Y / dpi - ey;
+                    sx = dx > 70 ? 1 : dx < -70 ? -1 : 0;
+                    sy = dy > 120 ? 1 : 0;
+                }
+                foreach (Rectangle r in petEyes[0])
+                {
+                    double[] home = (double[])r.Tag;
+                    Canvas.SetLeft(r, home[0] + sx * PetPx);
+                    Canvas.SetTop(r, home[1] + sy * PetPx);
+                }
+            }
+        }
+
+        int ClaudeStateNow()
+        {
+            if (!ClaudeBridge.Enabled) return 0;
+            int now = Environment.TickCount, best = 0;
+            if (TestPet != 0) return TestPet;
+            foreach (ClaudeBridge.Session s in ClaudeBridge.Sessions())
+            {
+                int age = unchecked(now - s.At);
+                if ((s.State == "ждёт разрешения" || s.State == "спрашивает" || s.State == "ждёт ответа") && age < 5 * 60000) return 2;
+                if (s.State == "работает" && age < 60000) best = 1;
+                else if (s.State == "закончил" && age < 45000 && best == 0) best = 3;
+            }
+            // Сессии были, но сейчас тихо — питомец спит (пока о Claude Code слышно хоть что-то за последние полчаса)
+            if (best == 0 && ClaudeBridge.Sessions().Count > 0) best = 4;
+            return best;
+        }
+
+        // ---- «Не беспокоить» и история уведомлений (история живёт только в памяти, до закрытия программы)
+        class Seen { public DateTime At; public string Source, Title, Text; }
+        List<Seen> seenNotes = new List<Seen>();
+        DateTime quietUntil = DateTime.MinValue;
+
+        public bool QuietNow { get { return quietUntil > DateTime.Now; } }
+
+        // Запоминает уведомление в истории. true — сейчас «Не беспокоить», показывать карточку не нужно.
+        bool Quiet(string source, string title, string text)
+        {
+            seenNotes.Add(new Seen { At = DateTime.Now, Source = source, Title = title ?? "", Text = text ?? "" });
+            if (seenNotes.Count > 60) seenNotes.RemoveAt(0);
+            return QuietNow;
+        }
+
+        public void SetQuiet(int minutes)
+        {
+            quietUntil = minutes > 0 ? DateTime.Now.AddMinutes(minutes) : DateTime.MinValue;
+            Toast("", minutes > 0 ? "Не беспокоить: " + (minutes >= 60 ? (minutes / 60) + " ч" : minutes + " мин") : "Уведомления снова показываются", null, -1, minutes > 0 ? (Brush)accent : null);
+        }
+
+        void FillQuiet()
+        {
+            if (QuietNow)
+            {
+                int left = (int)Math.Ceiling((quietUntil - DateTime.Now).TotalMinutes);
+                AddCmd("Выключить «Не беспокоить»", "осталось " + left + " мин", "", null, delegate { SetQuiet(0); });
+                return;
+            }
+            AddCmd("Не беспокоить 1 час", "карточки не появляются, всё попадает в историю", "", null, delegate { SetQuiet(60); });
+            AddCmd("Не беспокоить 3 часа", "", "", null, delegate { SetQuiet(180); });
+            AddCmd("Не беспокоить 20 минут", "", "", null, delegate { SetQuiet(20); });
+        }
+
+        void FillHistory()
+        {
+            if (seenNotes.Count == 0) { AddCmd("Уведомлений пока не было", "история хранится до закрытия Kapsula", "", null, null); return; }
+            for (int i = seenNotes.Count - 1; i >= 0 && cmdItems.Count < 6; i--)
+            {
+                Seen s = seenNotes[i];
+                string line = s.Title + (s.Text.Length > 0 ? " — " + s.Text : "");
+                AddCmd(line.Length > 70 ? line.Substring(0, 69) + "…" : line, s.Source + " · " + s.At.ToString("H:mm"), "", null, delegate { CopyResult(s.Title + (s.Text.Length > 0 ? " — " + s.Text : "")); });
+            }
+        }
+
+        // ---- сообщение об ошибке: собираем сведения в буфер обмена и открываем страницу, куда их вставить
+        public static string Scrub(string text)
+        {
+            // В журнале встречаются пути с именем пользователя Windows — заменяем их, чтобы имя не утекло.
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(home)) text = System.Text.RegularExpressions.Regex.Replace(text, System.Text.RegularExpressions.Regex.Escape(home), "%USERPROFILE%", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            string user = Environment.UserName;
+            if (!string.IsNullOrEmpty(user) && user.Length >= 3) text = System.Text.RegularExpressions.Regex.Replace(text, "(?<![A-Za-zА-Яа-я0-9_])" + System.Text.RegularExpressions.Regex.Escape(user) + "(?![A-Za-zА-Яа-я0-9_])", "<user>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return text;
+        }
+
+        public void ReportBug()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("**Что случилось:** (опишите здесь)").AppendLine();
+            sb.AppendLine("**Сведения**");
+            sb.AppendLine("- Kapsula " + Updater.CurrentText);
+            sb.AppendLine("- " + Environment.OSVersion.VersionString + (Environment.Is64BitOperatingSystem ? ", 64-bit" : ", 32-bit"));
+            sb.AppendLine("- Экран: " + (int)SystemParameters.PrimaryScreenWidth + "×" + (int)SystemParameters.PrimaryScreenHeight + ", масштаб " + Math.Round(dpi * 100) + "%, размер острова " + Math.Round(Scale * 100) + "%");
+            try
+            {
+                string log = System.IO.Path.Combine(Store.Dir, "error.log");
+                if (System.IO.File.Exists(log))
+                {
+                    string[] lines = System.IO.File.ReadAllLines(log, Encoding.UTF8);
+                    int from = Math.Max(0, lines.Length - 25);
+                    sb.AppendLine().AppendLine("**Последние строки журнала ошибок**").AppendLine("```");
+                    for (int i = from; i < lines.Length; i++) sb.AppendLine(lines[i].Length > 300 ? lines[i].Substring(0, 300) : lines[i]);
+                    sb.AppendLine("```");
+                }
+            }
+            catch { }
+            try { Clipboard.SetText(Scrub(sb.ToString())); } catch { Toast("", "Не удалось скопировать сведения", null, -1, null); return; }
+            Toast("", "Сведения скопированы — вставьте их на открывшейся странице", null, -1, accent);
+            try { System.Diagnostics.Process.Start("https://github.com/" + Updater.Repo + "/issues/new"); } catch { }
+        }
+
+        // Первые двадцать секунд после запуска остров молчит о том, что и так было: микрофон уже занят, Steam уже
+        // подключён, наушники уже разряжены. Иначе при каждом запуске и обновлении подряд идут три-четыре надписи.
+        readonly int bootAt = Environment.TickCount;
+        bool StartingUp() { return unchecked(Environment.TickCount - bootAt) < 20000; }
+
+        // ---- наушники AirPods и Beats: заряд при появлении, предупреждение о низком заряде, пауза, когда сняли
+        bool budsSeen, budsWorn, budsPausedByUs;
+        int budsCardAt, budsWarned = 101;
+        static readonly string BudsGlyph = ((char)0xE7F6).ToString();
+
+        int budsAnnounceUntil;                 // до какого момента ждём заряд, чтобы показать карточку подключения
+        bool budsWasConnected, budsConnKnown;
+
+        // Карточка «наушники подключены»: крупная, если есть свои картинки (папка headphones), иначе обычная
+        void BudsAnnounce(EarbudsState s)
+        {
+            if (QuietNow || s.Lowest < 0) return;
+            budsCardAt = Environment.TickCount | 1;
+            bool overEar = s.Single >= 0 || s.Model.Contains("Max");
+            if (overEar && BudsFrames() != null) { ShowBudsCard(s); return; }
+            ShowCardEx(null, BudsGlyph, s.Model, s.Text, delegate { }, null, null, false);
+            HideCardButton();
+            cardUntil = Environment.TickCount + 5000;
+        }
+
+        // Вызывается, когда обновился список подключённых Bluetooth-наушников
+        void BudsConnection(bool connected, string name, int pct)
+        {
+            if (!budsConnKnown) { budsConnKnown = true; budsWasConnected = connected; return; }   // при запуске Kapsula карточку не показываем
+            if (connected == budsWasConnected) return;
+            budsWasConnected = connected;
+            if (!connected) { budsAnnounceUntil = 0; return; }
+            // Заряд от Windows известен сразу — показываем сразу. Иначе ждём до пятнадцати секунд сигнал самих наушников.
+            if (pct >= 0 && Earbuds.Current == null && state == 0)
+            {
+                string clean = System.Text.RegularExpressions.Regex.Replace(name, "\\s*\\(.*?\\)", "").Trim();
+                BudsAnnounce(new EarbudsState { Model = clean.Length > 0 ? clean : "Наушники", Single = pct, At = Environment.TickCount });
+            }
+            else { budsAnnounceUntil = Environment.TickCount + 15000; if (budsAnnounceUntil == 0) budsAnnounceUntil = 1; }
+        }
+
+        void EarbudsTick()
+        {
+            EarbudsState s = Earbuds.Current;
+            if (s == null) { budsSeen = false; return; }
+            int now = Environment.TickCount;
+            if (!budsSeen) { budsSeen = true; budsWorn = s.InEar; }
+            // Наушники только что подключились к компьютеру, и их заряд уже известен — показываем карточку
+            if (budsAnnounceUntil != 0)
+            {
+                if (unchecked(now - budsAnnounceUntil) > 0) budsAnnounceUntil = 0;
+                else if (s.Lowest >= 0 && state == 0 && !toastOn) { budsAnnounceUntil = 0; BudsAnnounce(s); }
+            }
+            int low = s.Lowest;
+            if (low > 25) budsWarned = 101;
+            else if (low >= 0)
+                foreach (int mark in new int[] { 10, 20 })
+                    if (low <= mark && budsWarned > mark)
+                    {
+                        budsWarned = mark;
+                        if (StartingUp()) break;   // при запуске не предупреждаем: заряд и так виден в панели
+                        Toast(BudsGlyph, s.Model + ": заряд " + low + "%", null, -1, low <= 10 ? RecRed : (Brush)accent);
+                        break;
+                    }
+            // Сняли наушники — ставим музыку на паузу; надели обратно — продолжаем (только если паузу поставили мы)
+            if (Store.Get("earbudsPause") == "1" && s.InEar != budsWorn)
+            {
+                budsWorn = s.InEar;
+                if (!s.InEar && media.Has && media.Playing) { watcher.Command(0xB3); budsPausedByUs = true; }
+                else if (s.InEar && budsPausedByUs && media.Has && !media.Playing) { watcher.Command(0xB3); budsPausedByUs = false; }
+                else if (s.InEar) budsPausedByUs = false;
+            }
+        }
+
+        // ---- заряд подключённых наушников в раскрытой панели (справа от вкладок)
+        Border budsChip;
+        TextBlock budsChipText, budsChipGlyph;
+        Image budsChipImage;
+        string budsChipName = "";
+        int budsChipPct = -1, budsChipBusy;
+
+        // Раз в несколько секунд узнаём в фоне, какие Bluetooth-наушники подключены и сколько у них заряда.
+        // Заряд берём у Windows, а если она его не знает и это наушники Apple — из их собственного сигнала.
+        void BudsChipRefresh()
+        {
+            if (!Earbuds.Enabled) { budsChipPct = -1; return; }
+            if (System.Threading.Interlocked.Exchange(ref budsChipBusy, 1) != 0) return;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                string name = ""; int pct = -1;
+                bool any = false; string anyName = "";
+                try
+                {
+                    foreach (BtBattery.Device d in BtBattery.Connected())
+                    {
+                        if (!any) { any = true; anyName = d.Name; }
+                        int p = d.Battery;
+                        if (p < 0 && (d.Name.IndexOf("AirPods", StringComparison.OrdinalIgnoreCase) >= 0 || d.Name.IndexOf("Beats", StringComparison.OrdinalIgnoreCase) >= 0))
+                        {
+                            EarbudsState s = Earbuds.Current;
+                            if (s != null) p = s.Lowest;
+                        }
+                        if (p >= 0) { name = d.Name; pct = p; break; }
+                    }
+                }
+                catch { }
+                finally { budsChipBusy = 0; }
+                Dispatcher.BeginInvoke(new Action(delegate { budsChipName = name; budsChipPct = pct; BudsChipRender(); BudsConnection(any, anyName, pct); }));
+            });
+        }
+
+        void BudsChipRender()
+        {
+            if (budsChip == null) return;
+            int pct = TestChip >= 0 ? TestChip : TestBuds >= 0 ? TestBuds : budsChipPct;
+            budsChip.Visibility = pct >= 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (pct < 0) return;
+            budsChipText.Text = pct + "%";
+            budsChipText.Foreground = pct <= 10 ? RecRed : pct <= 20 ? (Brush)Amber : Dim;
+            BitmapSource[] own = BudsFrames();
+            bool pic = own != null && own.Length > 0;
+            if (pic && budsChipImage.Source == null) budsChipImage.Source = own[0];
+            budsChipImage.Visibility = pic ? Visibility.Visible : Visibility.Collapsed;
+            budsChipGlyph.Visibility = pic ? Visibility.Collapsed : Visibility.Visible;
+            budsChip.ToolTip = (TestBuds >= 0 || TestChip >= 0 ? "AirPods Max" : budsChipName) + ": заряд " + pct + "%";
+        }
+
+        void FillEarbuds()
+        {
+            EarbudsState s = Earbuds.Current;
+            if (s == null) { AddCmd(Earbuds.Error != null ? "Наушники: " + Earbuds.Error : "Наушников AirPods или Beats рядом не слышно", "наденьте их или откройте футляр", BudsGlyph, null, null); return; }
+            AddCmd(s.Model + " — " + s.Text, s.InEar ? "надеты" : "не надеты", BudsGlyph, null, null);
+        }
+
+        // ---- батарея ноутбука: предупреждаем на 20% и 10%, пока он не на зарядке
+        int batteryWarned = 101;
+
+        void BatteryTick()
+        {
+            try
+            {
+                WF.PowerStatus ps = WF.SystemInformation.PowerStatus;
+                if ((ps.BatteryChargeStatus & WF.BatteryChargeStatus.NoSystemBattery) != 0 || ps.BatteryLifePercent > 1) return;
+                int pct = (int)Math.Round(ps.BatteryLifePercent * 100);
+                if (ps.PowerLineStatus != WF.PowerLineStatus.Offline) { batteryWarned = 101; return; }
+                foreach (int mark in new int[] { 10, 20 })
+                    if (pct <= mark && batteryWarned > mark)
+                    {
+                        batteryWarned = mark;
+                        Toast(((char)0xE850).ToString(), "Батарея " + pct + "% — пора на зарядку", null, -1, pct <= 10 ? RecRed : (Brush)accent);
+                        return;
+                    }
+            }
+            catch { }
+        }
+
+        // Звук, когда Claude Code ждёт решения: карточку можно не заметить, если вы отвернулись от экрана
+        void ClaudeSound()
+        {
+            if (Store.Get("claudeSound") == "0" || TestClaude != null) return;
+            try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
+        }
+
+        // ---- календарь Windows: напоминание за десять минут до события и список по команде «календарь»
+        HashSet<string> calAnnounced = new HashSet<string>();
+
+        void CalendarTick()
+        {
+            if (Store.Get("calendar") == "0") return;
+            Calendar.Refresh(false);
+            DateTime now = DateTime.Now;
+            foreach (CalEvent e in Calendar.Events())
+            {
+                if (e.AllDay) continue;
+                double min = (e.Start - now).TotalMinutes;
+                if (min > 10 || min < -1) continue;
+                string key = e.Subject + "|" + e.Start.Ticks;
+                if (!calAnnounced.Add(key)) continue;
+                ShowCardEx(null, ((char)0xE787).ToString(), e.Subject, Calendar.In(e.Start, now) + (e.Location.Length > 0 ? " · " + e.Location : ""), delegate { }, null, null, false);
+                HideCardButton();
+                cardUntil = Environment.TickCount + 12000;
+                return;
+            }
+        }
+
+        void FillCalendar()
+        {
+            Calendar.Refresh(false);
+            DateTime now = DateTime.Now;
+            List<CalEvent> list = Calendar.Events();
+            if (list.Count == 0)
+            {
+                AddCmd(Calendar.Failed ? "Календарь Windows не открылся" : "На ближайшие два дня событий нет", "календарь Windows", ((char)0xE787).ToString(), null, null);
+                return;
+            }
+            foreach (CalEvent e in list)
+                AddCmd(e.Subject, Calendar.When(e, now) + (!e.AllDay && e.Start > now && e.Start.Date == now.Date ? " · " + Calendar.In(e.Start, now) : ""), ((char)0xE787).ToString(), null, null);
+        }
+
+        // ---- непрочитанное: сообщения из Discord и Steam, пришедшие, пока вы не смотрели в эти программы
+        int unreadDiscord, unreadSteam;
+        Border unreadBadge;
+        TextBlock unreadText;
+
+        void UnreadAdd(bool discord)
+        {
+            if (Store.Get("unread") == "0") return;
+            if (discord) unreadDiscord++; else unreadSteam++;
+            if (!toastOn) RenderCompact();
+            SetTargets();
+        }
+
+        // Открыли Discord или Steam — их счётчик сбрасывается
+        void UnreadTick()
+        {
+            if (unreadDiscord == 0 && unreadSteam == 0) return;
+            uint pid;
+            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid);
+            if (pid == 0) return;
+            string n;
+            try { n = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { return; }
+            bool changed = false;
+            if (unreadDiscord > 0 && (n.StartsWith("discord") || n == "vesktop")) { unreadDiscord = 0; changed = true; }
+            if (unreadSteam > 0 && n.StartsWith("steam")) { unreadSteam = 0; changed = true; }
+            if (changed) { if (!toastOn) RenderCompact(); SetTargets(); }
+        }
+
+        // ---- помодоро: 25 минут работы, 5 отдыха; после четырёх кругов — длинный перерыв
+        int pomoPhase, pomoRounds;   // 0 — выключено, 1 — работа, 2 — перерыв
+
+        void PomodoroStart()
+        {
+            pomoPhase = 1; pomoRounds = 0;
+            timerRinging = false;
+            timerEnd = DateTime.Now.AddMinutes(25);
+            RenderCompact(); SetTargets();
+            Toast("", "Помодоро: 25 минут работы", null, -1, accent);
+        }
+
+        void PomodoroStop()
+        {
+            pomoPhase = 0;
+            timerEnd = DateTime.MinValue; timerRinging = false;
+            RenderCompact(); SetTargets();
+            Toast("", "Помодоро остановлен", null, -1, null);
+        }
+
+        // Таймер дошёл до нуля. true — это был круг помодоро, и следующий отрезок уже запущен.
+        bool PomodoroNext()
+        {
+            if (pomoPhase == 0) return false;
+            System.Media.SystemSounds.Exclamation.Play();
+            if (pomoPhase == 1)
+            {
+                pomoRounds++;
+                int rest = pomoRounds % 4 == 0 ? 15 : 5;
+                pomoPhase = 2;
+                timerEnd = DateTime.Now.AddMinutes(rest);
+                Toast("", "Перерыв " + rest + " минут · кругов: " + pomoRounds, null, -1, accent);
+            }
+            else
+            {
+                pomoPhase = 1;
+                timerEnd = DateTime.Now.AddMinutes(25);
+                Toast("", "За работу: 25 минут", null, -1, accent);
+            }
+            RenderCompact(); SetTargets();
+            return true;
+        }
+
+        static string Ago(int at)
+        {
+            int sec = Math.Max(0, unchecked(Environment.TickCount - at) / 1000);
+            return sec < 60 ? "только что" : (sec / 60) + " мин назад";
+        }
+
+        // «claude» в строке ввода: все открытые сессии и что каждая делает; Enter на работающей — остановить её.
+        void FillClaudeSessions()
+        {
+            List<ClaudeBridge.Session> list = ClaudeBridge.Sessions();
+            if (list.Count == 0) { AddCmd("Claude Code пока не давал о себе знать", "новые сессии появятся здесь", ClaudeGlyph, null, null); return; }
+            foreach (ClaudeBridge.Session s in list)
+            {
+                ClaudeBridge.Session ses = s;
+                bool working = ses.State == "работает" && unchecked(Environment.TickCount - ses.At) < 60000;
+                string detail = ses.Detail.Length > 46 ? ses.Detail.Substring(0, 45) + "…" : ses.Detail;
+                AddCmd(ses.Name + " — " + ses.State + (detail.Length > 0 ? " · " + detail : ""), working ? "Enter — остановить" : Ago(ses.At), ClaudeGlyph, null,
+                    working ? (Action)delegate { ClaudeStop(ses.Id, ses.Name); } : null);
+            }
+        }
+
 
         public bool TestSteam;   // ключ --steamtest
         public string TestDemoCard;   // ключ --democard message|invite|discord: карточка с выдуманными данными для снимков
@@ -3789,6 +5376,34 @@ namespace Kapsula
         // ---- подсказки про интеграции: один раз предлагаем то, что можно подключить на этом компьютере
         public bool Plain;        // обычный запуск без проверочных ключей
         public string TestHint;   // ключ --hinttest steam|discord|steamdone
+
+        // Текущее сочетание клавиш для действия (например «Alt+Space»)
+        public string HotkeyText(string key)
+        {
+            foreach (Hot h in Hots) if (h.Key == key) return HotText(h.Mods, h.Vk);
+            return "задаётся в настройках";
+        }
+
+        public bool TestWelcome;   // ключ --welcome
+        public bool TestSlide;     // ключ --slidetest
+        public int TestChip = -1;   // ключ --chiptest N: только значок заряда в панели
+        public int TestBuds = -1;  // ключ --budstest N: карточка наушников с зарядом N%
+
+        // Первый запуск на этом компьютере — один раз показываем короткое приветствие.
+        void StartWelcome()
+        {
+            if (!(TestWelcome || Plain && Store.Fresh && Store.Get("welcomed") != "1")) return;
+            if (!TestWelcome) Store.Set("welcomed", "1");
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+            t.Tick += delegate
+            {
+                t.Stop();
+                var w = new WelcomeWindow(this);
+                if (TestWelcome) { w.Topmost = true; w.WindowStartupLocation = WindowStartupLocation.Manual; w.Top = 70; w.Left = (SystemParameters.PrimaryScreenWidth - 520) / 2; }
+                w.Show();
+            };
+            t.Start();
+        }
 
         void StartIntegrationHints()
         {
@@ -3841,12 +5456,14 @@ namespace Kapsula
         // Всплывающее уведомление Steam (приходит от плагина Kapsula для Millennium)
         public void SteamNotify(string title, string text, byte[] icon, Action open, string replyTo)
         {
+            if (TestDemoCard == null && Quiet("Steam", title, text)) { if (replyTo != null) UnreadAdd(false); return; }
             // У сообщения друга есть кнопка «Ответить»: ответ набирается прямо на острове.
             if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             // Значок Steam — только на сообщениях: там важно, откуда пишут. У достижений и «друг в игре» источник и так понятен.
             if (replyTo != null) SetCardBadge(SourceIcon("steam")); else HideCardButton();
             cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
+            if (replyTo != null && TestDemoCard == null) UnreadAdd(false);
             if (TestReply && replyTo != null && !replyShown)
             {
                 // Проверочный режим: один раз показываем поле ответа с набранным текстом. Ничего не отправляется.
@@ -3909,6 +5526,7 @@ namespace Kapsula
         // Приглашение в игру: «Принять» открывает ссылку входа из самого приглашения, крестик отклоняет его в Steam.
         public void SteamInvite(string title, string text, byte[] icon, string url, string steamid)
         {
+            if (TestDemoCard == null && Quiet("Steam", title, text)) return;
             Action accept = delegate { try { System.Diagnostics.Process.Start(url); } catch { } };
             Action decline = delegate
             {
@@ -4083,6 +5701,9 @@ namespace Kapsula
             else if (ForceOpen == -2) SetState(1);
             else if (ForceOpen == -3) SetTargets();
             StartIntegrationHints();
+            StartWelcome();
+            if (TestBuds >= 0) ClaudeAfter(2500, delegate { ShowBudsCard(new EarbudsState { Model = "AirPods Max", Single = TestBuds, At = Environment.TickCount }); });
+            if (TestSlide) { ClaudeAfter(3000, delegate { ShowPage(PText); }); ClaudeAfter(5200, delegate { ShowPage(PSystem); }); }   // проверочный режим: смена вкладки без нажатий
             if (Demo)
             {
                 TestLyrics = true;   // не искать текст выдуманной песни в сети
@@ -4160,23 +5781,9 @@ namespace Kapsula
         void BuildTray()
         {
             tray = new WF.NotifyIcon();
-            using (var bmp = new System.Drawing.Bitmap(32, 32))
+            // Значок у часов — зверёк
+            using (var bmp = PetView.Bitmap(32))
             {
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
-                {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.Clear(System.Drawing.Color.Transparent);
-                    using (var p = new System.Drawing.Pen(System.Drawing.Color.Black, 12))
-                    {
-                        p.StartCap = System.Drawing.Drawing2D.LineCap.Round; p.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                        g.DrawLine(p, 8, 16, 24, 16);
-                    }
-                    using (var p2 = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0x4C, 0xD9, 0x7B), 4))
-                    {
-                        p2.StartCap = System.Drawing.Drawing2D.LineCap.Round; p2.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                        g.DrawLine(p2, 22, 16, 23, 16);
-                    }
-                }
                 IntPtr hi = bmp.GetHicon();
                 tray.Icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hi).Clone();
                 Native.DestroyIcon(hi);
@@ -4200,6 +5807,15 @@ namespace Kapsula
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
             menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
+            var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
+            quiet.Click += delegate { SetQuiet(QuietNow ? 0 : 60); };
+            menu.Items.Add(quiet);
+            menu.Opening += delegate { quiet.Text = QuietNow ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
+            menu.Items.Add("Сообщить об ошибке…", null, delegate { ReportBug(); });
+            var stopClaude = new WF.ToolStripMenuItem("Остановить Claude Code");
+            stopClaude.Click += delegate { ClaudeStop(null, null); };
+            menu.Items.Add(stopClaude);
+            menu.Opening += delegate { stopClaude.Visible = ClaudeBridge.Enabled && ClaudeBridge.Listening; stopClaude.Enabled = ClaudeBridge.Busy; };
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add("Выход", null, delegate { tray.Visible = false; Application.Current.Shutdown(); });
             tray.ContextMenuStrip = menu;
@@ -4215,7 +5831,7 @@ namespace Kapsula
             if (steamDlApp != null) return 360 + steamDlNameW;
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
-            double sec = ShowSeconds ? 24 : 0;
+            double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
             if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270) + sec;
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
@@ -4240,7 +5856,7 @@ namespace Kapsula
 
         double StateH()
         {
-            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return CardH; case 4: return CmdH(); default: return CH; }
+            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return cardTall ? BudsH : CardH; case 4: return CmdH(); default: return CH; }
         }
 
         double CmdH() { return 60 + (cmdItems.Count > 0 ? cmdItems.Count * 42 + 10 : 0); }
@@ -4351,6 +5967,79 @@ namespace Kapsula
 
         static double Clamp01(double v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
+        // ---- «Матовое стекло». Windows умеет размывать фон только прямоугольником — из-под скруглённой панели торчали
+        // бы углы. Поэтому Kapsula сама снимает то, что находится за панелью, сильно уменьшает снимок (это и даёт
+        // размытие) и рисует его фоном острова по его же форме. Снимок никуда не сохраняется.
+        public bool GlassOn;       // настройка «Матовое стекло»
+        Path glassLayer;
+        ImageBrush glassBrush;
+        int glassShotAt, glassHideAt;
+        bool glassFailed, glassHide;
+        const double GlassPad = 24;
+
+        public void SetGlass(bool on)
+        {
+            GlassOn = on;
+            Store.Set("glass", on ? "1" : "0");
+            ApplyEffectiveTheme();   // у подписей на стекле другой контраст
+            Wake();
+        }
+
+        public string TestGlassDump;   // ключ --glassdump: складывать снимки фона в папку, чтобы проверить, что они живые
+        int glassDumpN;
+
+        // Снимок фона обновляется около десяти раз в секунду, пока панель открыта. Вызывается и из отрисовки, и по
+        // обычному таймеру: когда панель открыта и неподвижна, отрисовка останавливается, а фон должен жить дальше.
+        void GlassTick()
+        {
+            if (!GlassOn || glassFailed || !glassHide || glassLayer.Visibility != Visibility.Visible) return;
+            int now = Environment.TickCount;
+            // первый снимок — чуть позже, когда система уже убрала остров из снимков экрана
+            bool ready = Capturable || unchecked(now - glassHideAt) > 70;
+            if (ready && (glassShotAt == 0 || unchecked(now - glassShotAt) > 100)) GlassShot();
+        }
+
+        void GlassShot()
+        {
+            int now = Environment.TickCount;
+            // В проверочном режиме (--capturable) остров виден на снимках и попал бы сюда сам. Тогда фон
+            // снимается один раз, в момент открытия, и дальше не обновляется.
+            bool selfVisible = Capturable;
+            if (selfVisible && glassShotAt != 0) return;
+            glassShotAt = now | 1;
+            try
+            {
+                double bx = BaseW / 2 - EW / 2 - GlassPad, bw = EW + 2 * GlassPad, bh = BaseH - 20;
+                double k = Scale * dpi;
+                int sx = (int)Math.Round((Left + bx * Scale) * dpi), sy0 = (int)Math.Round((Top + sy.X * Scale) * dpi);
+                int sw0 = Math.Max(16, (int)Math.Round(bw * k)), sh0 = Math.Max(16, (int)Math.Round(bh * k));
+                using (var full = new System.Drawing.Bitmap(sw0, sh0, System.Drawing.Imaging.PixelFormat.Format32bppRgb))
+                {
+                    using (var gfx = System.Drawing.Graphics.FromImage(full)) gfx.CopyFromScreen(sx, sy0, 0, 0, full.Size);
+                    // два уменьшения подряд: вчетверо и ещё вчетверо — получается мягкое ровное размытие
+                    // чем сильнее уменьшение, тем сильнее размытие: при 1/46 мелкий узор и текст сливаются в ровные пятна
+                    int w1 = Math.Max(8, sw0 / 6), h1 = Math.Max(8, sh0 / 6), w2 = Math.Max(4, sw0 / 46), h2 = Math.Max(4, sh0 / 46);
+                    using (var mid = new System.Drawing.Bitmap(w1, h1, System.Drawing.Imaging.PixelFormat.Format32bppRgb))
+                    using (var small = new System.Drawing.Bitmap(w2, h2, System.Drawing.Imaging.PixelFormat.Format32bppRgb))
+                    {
+                        using (var g1 = System.Drawing.Graphics.FromImage(mid)) { g1.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear; g1.DrawImage(full, 0, 0, w1, h1); }
+                        using (var g2 = System.Drawing.Graphics.FromImage(small)) { g2.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear; g2.DrawImage(mid, 0, 0, w2, h2); }
+                        if (TestGlassDump != null && glassDumpN < 60) { try { small.Save(System.IO.Path.Combine(TestGlassDump, "g_" + (glassDumpN++).ToString("00") + ".png")); } catch { } }
+                        var data = small.LockBits(new System.Drawing.Rectangle(0, 0, w2, h2), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                        try
+                        {
+                            var src = BitmapSource.Create(w2, h2, 96, 96, PixelFormats.Bgr32, null, data.Scan0, data.Stride * h2, data.Stride);
+                            src.Freeze();
+                            glassBrush.ImageSource = src;
+                        }
+                        finally { small.UnlockBits(data); }
+                    }
+                }
+                glassBrush.Viewport = new Rect(bx, 0, bw, bh);
+            }
+            catch (Exception ex) { glassFailed = true; Store.LogError("матовое стекло", ex); }
+        }
+
         void ApplyFrame()
         {
             double w = Math.Max(60, sw.X), h = Math.Max(20, sh.X);
@@ -4387,6 +6076,25 @@ namespace Kapsula
             shape.Data = g;
             clipHost.Clip = g;
             slide.Y = sy.X;
+
+            // «Матовое стекло»: раскрытая панель и строка команд становятся полупрозрачными, а фон за ними размывается.
+            // Капсула и карточки остаются плотными чёрными.
+            double glassAmt = GlassOn && !glassFailed ? Clamp01(Math.Max(so[2].X, so[4].X)) : 0;
+            shape.Opacity = IslandOpacity * (1 - 0.26 * glassAmt);   // стекло тёмное: фон просвечивает на четверть, текст остаётся читаемым
+            if (glassAmt > 0.03)
+            {
+                glassLayer.Data = g;   // та же форма, что у острова: скругления и край совпадают точно
+                glassLayer.Opacity = glassAmt;
+                glassLayer.Visibility = Visibility.Visible;
+                if (!glassHide) { glassHide = true; glassHideAt = Environment.TickCount; ApplyCapture(); }
+                GlassTick();
+            }
+            else if (glassLayer.Visibility == Visibility.Visible)
+            {
+                glassLayer.Visibility = Visibility.Collapsed; glassShotAt = 0;
+                glassBrush.ImageSource = null;   // следующий раз начнём с чистого фона, а не со старой картинки
+                if (glassHide) { glassHide = false; ApplyCapture(); }
+            }
 
             if (edgeAmt > 0.004)
             {
@@ -4436,12 +6144,22 @@ namespace Kapsula
             if (wasCmd && s != 4)
             {
                 dictating = false;
-                if (replySteamId != null) { replySteamId = null; cmdHint.Text = CmdHintDefault; cmdGlyph.Text = cmdGlyphDefault; cmdGlyph.Foreground = Dim; }
+                if (choice != null)
+                {
+                    // Список вариантов закрыли. Если так ничего и не выбрали — отмена (чуть позже: выбор срабатывает первым).
+                    Choice gone = choice;
+                    choice = null;
+                    cmdHint.Text = CmdHintDefault;
+                    Dispatcher.BeginInvoke(new Action(delegate { if (!gone.Finished && gone.Cancel != null) gone.Cancel(); }), DispatcherPriority.Background);
+                }
+                if (replySteamId != null) { ReplyClosed(replySteamId); replySteamId = null; cmdHint.Text = CmdHintDefault; cmdGlyph.Text = cmdGlyphDefault; cmdGlyph.Foreground = Dim; }
                 if (prevFg != IntPtr.Zero) { Native.SetForegroundWindow(prevFg); prevFg = IntPtr.Zero; }
             }
             for (int i = 1; i < layers.Length; i++) layers[i].IsHitTestVisible = s == i;
             if (s == 2)
             {
+                BudsChipRender(); BudsChipRefresh();
+                Dispatcher.BeginInvoke(new Action(delegate { MoveTabGlow(false); }), DispatcherPriority.Loaded);   // панель открылась — ставим подсветку на место без анимации
                 if (timerRinging) timerRinging = false;
                 RenderSystem(); RenderHomeLive(); RenderTextPreview();
             }
@@ -4487,7 +6205,7 @@ namespace Kapsula
             else if (state == 3)
             {
                 // Карточка события держится, пока на ней курсор, и уходит сама по истечении времени.
-                bool inside = Math.Abs(x - cx) <= (CardW + cardExtra) / 2 + 12 && y <= CardH + 16;
+                bool inside = Math.Abs(x - cx) <= (CardW + cardExtra) / 2 + 12 && y <= (cardTall ? BudsH : CardH) + 16;
                 if (inside) { if (unchecked(cardUntil - now) < 1200) cardUntil = now + 1200; }
                 else if (unchecked(now - cardUntil) >= 0) SetState(0);
             }
@@ -4522,6 +6240,15 @@ namespace Kapsula
             cText.MaxWidth = 1000;
             cDlIcon.Visibility = Visibility.Collapsed;
             cDlName.Visibility = Visibility.Collapsed;
+            // Точка Claude Code: цветная — работает, оранжевая — ждёт вас, зелёная — только что закончил
+            bool plain = !toastOn && !Recorder.Active && steamDlApp == null && dlActive == null;
+            claudeDot.Visibility = (claudeState != 0 || PetIsCharacter()) && plain ? Visibility.Visible : Visibility.Collapsed;
+            PetMood(claudeState);
+            int unread = unreadDiscord + unreadSteam;
+            unreadBadge.Visibility = unread > 0 && plain ? Visibility.Visible : Visibility.Collapsed;
+            unreadText.Text = unread > 99 ? "99+" : unread.ToString();
+            unreadBadge.ToolTip = "Непрочитанные сообщения: Discord — " + unreadDiscord + ", Steam — " + unreadSteam;
+            claudeDot.ToolTip = claudeState == 2 ? "Claude Code ждёт вас" : claudeState == 3 ? "Claude Code закончил" : claudeState == 4 ? "Claude Code отдыхает" : "Claude Code работает";
             // Steam перестал сообщать о загрузке (закрыт или плагин выгружен) — убираем полосу
             if (steamDlApp != null && unchecked(Environment.TickCount - steamDlAt) > 20000) steamDlApp = null;
 
@@ -4586,13 +6313,16 @@ namespace Kapsula
 
             cGlyph.Visibility = Visibility.Collapsed;
             micDot.Visibility = micInUse && !playing ? Visibility.Visible : Visibility.Collapsed;
-            eyes.Visibility = (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
+            // Зверёк рисуется отдельно (он же показывает, чем занят Claude Code), остальные персонажи — в «глазах»
+            eyes.Visibility = Character != "pet" && (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
             if (TestEyes) cCover.Visibility = Visibility.Collapsed;
             cCover.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
             eq.Visibility = playing && !timing && !timerRinging ? Visibility.Visible : Visibility.Collapsed;
 
             if (timerRinging) { cText.Text = "Время вышло"; cRight.Visibility = Visibility.Collapsed; return; }
-            SetClock(cText);
+            // Без музыки и таймера: часы по центру, погода — справа, а не одной строкой посередине
+            bool weatherRight = !playing && !timing && weather != null && weather.Error == null;
+            if (weatherRight) cText.Text = DateTime.Now.ToString(ShowSeconds ? "HH:mm:ss" : "HH:mm"); else SetClock(cText);
             if (playing && PillMode != 0)
             {
                 string title = string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
@@ -4615,6 +6345,13 @@ namespace Kapsula
             if (state == 1) SetClock(nClock);
 
             if (timing) { cRight.Visibility = Visibility.Visible; cRight.Text = Fmt(timerEnd - DateTime.Now); cRight.Foreground = accent; }
+            else if (weatherRight)
+            {
+                cRight.Visibility = Visibility.Visible; cRight.Foreground = Fg;
+                cRight.Inlines.Clear();
+                cRight.Inlines.Add(new System.Windows.Documents.Run(Weather.Symbol(weather.Code) + " ") { FontFamily = Symbols, Foreground = Amber });
+                cRight.Inlines.Add(new System.Windows.Documents.Run(Weather.Temp(weather.Temp)));
+            }
             else cRight.Visibility = Visibility.Collapsed;
         }
 
@@ -4850,6 +6587,7 @@ namespace Kapsula
             micTile.Label.Text = muted ? "Микрофон выкл" : "Микрофон";
             autoTile.SetActive(Autostart.IsOn());
             lyrTile.SetActive(LyricsOn());
+            if (quietTile != null) quietTile.SetActive(QuietNow);
             if (armedTile != null && unchecked(Environment.TickCount - armedAt) > 3000) { armedTile.Label.Text = armedLabel; armedTile = null; }
             if (sleepArmedAt != 0 && unchecked(Environment.TickCount - sleepArmedAt) > 3000) { sleepArmedAt = 0; sleepTile.Label.Text = "Сон"; }
         }
@@ -5219,6 +6957,8 @@ namespace Kapsula
                 }
             }
             if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
+            if (state == 0) PetAnimate();
+            GlassTick();
             if ((expanded && page == 0 || state == 1) && pollN % 6 == 0) RenderHomeLive();
             if ((expanded && page == 0 || state == 1 || state == 0 && PillMode == 2) && pollN % 2 == 0) UpdateLyrics();
             if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
@@ -5231,6 +6971,16 @@ namespace Kapsula
             tick++;
             bool fs = FullscreenAppInFront();
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
+            if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
+            if (tick % 60 == 7) BatteryTick();
+            if (tick % 4 == 2) EarbudsTick();
+            if (tick % 4 == 1) BudsChipRefresh();   // раз в две секунды: так подключение наушников замечается почти сразу
+            UnreadTick();
+            int cs = ClaudeStateNow();
+            if (cs != claudeState) { claudeState = cs; if (!toastOn) RenderCompact(); SetTargets(); }
+            if (expanded && page == PClaude) { RenderClaudePage(); if (tick % 30 == 0) ClaudeUsage.Refresh(); }
+            if (claudeQueue.Count > 0) ClaudePump();
+            if (state != 3 && claudeNow != null && claudeNow.Answered) claudeNow = null;
             bool ah = HideAppInFront();
             if (ah != appHide) { appHide = ah; if (!ah) revealUntil = Environment.TickCount + 600; }
             if (!fs && tick % 6 == 0 && hwnd != IntPtr.Zero && !snipActive)
@@ -5248,10 +6998,11 @@ namespace Kapsula
             if (tick % 4 == 0)
             {
                 bool mic = MicBusy();
-                if (mic != micInUse) { micInUse = mic; if (mic) Toast("", "Микрофон используется", null, -1, new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A))); }
+                if (mic != micInUse) { micInUse = mic; if (mic && !StartingUp()) Toast("", "Микрофон используется", null, -1, new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A))); }
             }
 
-            if (timerEnd != DateTime.MinValue && timerEnd <= DateTime.Now)
+            if (timerEnd != DateTime.MinValue && timerEnd <= DateTime.Now && PomodoroNext()) { }
+            else if (timerEnd != DateTime.MinValue && timerEnd <= DateTime.Now)
             {
                 timerEnd = DateTime.MinValue;
                 timerRinging = true;

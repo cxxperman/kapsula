@@ -33,6 +33,7 @@ $refs = @(
     "$fw\System.Xml.dll",
     "$fw\System.Runtime.WindowsRuntime.dll",
     (Facade 'System.Runtime'),
+    (Facade 'System.Runtime.InteropServices.WindowsRuntime'),
     "$meta\Windows.Foundation.winmd",
     "$meta\Windows.Media.winmd",
     "$meta\Windows.Storage.winmd",
@@ -50,6 +51,8 @@ $args2 += (Get-ChildItem "$here\src\*.cs" | ForEach-Object { $_.FullName })
 
 $args2 += $verFile
 # Плагин для Millennium лежит внутри exe: Kapsula сама кладёт его в папку Steam по кнопке «Подключить»
+# Значок файла программы — зверёк (assets\kapsula.ico собран из того же рисунка, что и в интерфейсе)
+if (Test-Path "$here\assets\kapsula.ico") { $args2 += "/win32icon:$here\assets\kapsula.ico" }
 $args2 += "/resource:$here\integrations\millennium\kapsula\plugin.json,Kapsula.millennium.plugin.json"
 $args2 += "/resource:$here\integrations\millennium\kapsula\.millennium\Dist\index.js,Kapsula.millennium.index.js"
 

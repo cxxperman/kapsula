@@ -215,5 +215,127 @@ for ($i = 1; $i -lt 512; $i++) { $v = [Math]::Sqrt($fre[$i] * $fre[$i] + $fim[$i
 T 'спектр: пик тона' $best 37
 T 'спектр: высота пика' ([Math]::Round($bestV)) 512
 
+# --- быстрая заметка из строки ввода
+$iw = $asm.GetType('Kapsula.IslandWindow')
+$nc = $iw.GetMethod('NoteCommandText')
+T 'заметка: текст после слова' $nc.Invoke($null, @('заметка купить молоко')) 'купить молоко'
+T 'заметка: «запиши»' $nc.Invoke($null, @('Запиши позвонить в 5')) 'позвонить в 5'
+T 'заметка: обычный запрос' $nc.Invoke($null, @('notepad')) ''
+T 'заметка: одно слово без текста' $nc.Invoke($null, @('заметка ')) ''
+
+# --- Gemini: тело запроса и разбор потока ответа
+Add-Type -AssemblyName System.Web.Extensions
+$gc = $asm.GetType('Kapsula.GeminiChat'); $cm = $asm.GetType('Kapsula.ChatMsg')
+function Msg($role, $text) { $m = [Activator]::CreateInstance($cm); $cm.GetField('Role').SetValue($m, $role); $cm.GetField('Text').SetValue($m, $text); return $m }
+$hist = [Activator]::CreateInstance(([System.Collections.Generic.List`1]).MakeGenericType($cm)); $hist.Add((Msg 'user' 'привет')); $hist.Add((Msg 'assistant' 'здравствуйте')); $hist.Add((Msg 'user' 'как дела?'))
+$ga = New-Object object[] 3; $ga[0] = 'gemini-3.8-flash'; $ga[1] = $hist; $ga[2] = $null
+$gbody = $gc.GetMethod('Body').Invoke($null, $ga)
+$gjson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($gbody) | ConvertFrom-Json
+T 'gemini: модель' $gjson.model 'gemini-3.8-flash'
+T 'gemini: разговор не сохраняется' $gjson.store $false
+T 'gemini: шаги по ролям' (($gjson.input | ForEach-Object { $_.type }) -join ',') 'user_input,model_output,user_input'
+T 'gemini: текст шага' $gjson.input[2].content[0].text 'как дела?'
+$pa = New-Object object[] 2; $pa[0] = 'data: {"delta":{"type":"text","text":"Привет"},"event_type":"step.delta","index":0}'; $pa[1] = $null
+T 'gemini: кусок текста из потока' $gc.GetMethod('Piece').Invoke($null, $pa) 'Привет'
+$pa[0] = 'data: {"event_type":"step.start","index":0,"step":{"type":"model_output"}}'; $pa[1] = $null
+T 'gemini: служебное событие без текста' ($null -eq $gc.GetMethod('Piece').Invoke($null, $pa)) $true
+$pa[0] = 'data: {"error":{"code":"not_found","message":"нет такой модели"},"event_type":"error"}'; $pa[1] = $null
+[void]$gc.GetMethod('Piece').Invoke($null, $pa)
+T 'gemini: ошибка из потока' $pa[1] 'нет такой модели'
+$pa[0] = '{"error":{"message":"gemini-3.8-flash is currently experiencing high demand","code":"service_unavailable"}}'; $pa[1] = $null
+[void]$gc.GetMethod('Piece').Invoke($null, $pa)
+T 'gemini: ошибка перегрузки отдельной строкой' $pa[1] 'gemini-3.8-flash is currently experiencing high demand'
+
+# --- наушники: разбор сигнала о заряде
+$ebT = $asm.GetType('Kapsula.Earbuds'); $parse = $ebT.GetMethod('Parse')
+function Buds([string]$hex) { $b = [byte[]]($hex.Split(' ') | ForEach-Object { [Convert]::ToByte($_, 16) }); $a = New-Object object[] 2; $a[0] = $b; $a[1] = -50; return $parse.Invoke($null, $a) }
+function BF($o, $n) { $o.GetType().GetField($n).GetValue($o) }
+$pro = Buds '07 19 01 0E 20 2B 97 8F 01 00 00'
+T 'наушники: модель' (BF $pro 'Model') 'AirPods Pro'
+T 'наушники: левый' (BF $pro 'Left') 70
+T 'наушники: правый' (BF $pro 'Right') 90
+T 'наушники: футляр неизвестен' (BF $pro 'Case') -1
+T 'наушники: самый низкий заряд' $pro.GetType().GetProperty('Lowest').GetValue($pro) 70
+$max = Buds '07 19 01 0A 20 02 F8 80 00 00 00'
+T 'наушники: Max — модель' (BF $max 'Model') 'AirPods Max'
+T 'наушники: Max — одна батарея' (BF $max 'Single') 80
+T 'наушники: Max — подпись' $max.GetType().GetProperty('Text').GetValue($max) '80%'
+$usbc = Buds '07 19 01 1F 20 2B 00 80 05 12 C5 0D'
+T 'наушники: Max USB-C — точный процент из соседнего байта' (BF $usbc 'Single') 5
+$usbc2 = Buds '07 19 01 1F 20 2B 07 80 4A 12 C5 0D'
+T 'наушники: Max USB-C — 74%' (BF $usbc2 'Single') 74
+$usbc3 = Buds '07 19 01 1F 20 2B 07 80 05 12 C5 0D'
+T 'наушники: Max USB-C — байт не сходится с десятками, берём десятки' (BF $usbc3 'Single') 70
+T 'наушники: чужой сигнал Apple' ($null -eq (Buds '10 05 01 18 44 00 00 00 00')) $true
+T 'наушники: неизвестная модель' ($null -eq (Buds '07 19 01 FF FF 00 99 00 00')) $true
+
+# --- календарь: подписи времени
+$cal = $asm.GetType('Kapsula.Calendar'); $ce = $asm.GetType('Kapsula.CalEvent')
+$nowT = [DateTime]::new(2026, 3, 10, 14, 0, 0)
+function Ev($start, $allDay) { $e = [Activator]::CreateInstance($ce); $ce.GetField('Start').SetValue($e, $start); $ce.GetField('AllDay').SetValue($e, $allDay); $ce.GetField('Subject').SetValue($e, 'x'); return $e }
+T 'календарь: сегодня' $cal.GetMethod('When').Invoke($null, @((Ev $nowT.AddHours(1) $false), $nowT)) 'сегодня в 15:00'
+T 'календарь: завтра' $cal.GetMethod('When').Invoke($null, @((Ev $nowT.AddDays(1).AddMinutes(-270) $false), $nowT)) 'завтра в 9:30'
+T 'календарь: весь день' $cal.GetMethod('When').Invoke($null, @((Ev $nowT.Date $true), $nowT)) 'сегодня, весь день'
+T 'календарь: через минуты' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(10), $nowT)) 'через 10 мин'
+T 'календарь: через часы' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(65), $nowT)) 'через 1 ч 5 мин'
+T 'календарь: уже началось' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(-1), $nowT)) 'сейчас'
+
+# --- расход Claude Code: из строки журнала берутся только числа токенов; один ответ считается один раз, вчерашние не считаются
+$cu = $asm.GetType('Kapsula.ClaudeUsage')
+$cu.GetMethod('Reset').Invoke($null, @())
+$today = [DateTime]::Now.Date
+$stamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+$old = [DateTime]::UtcNow.AddDays(-3).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+function UsageLine($id, $ts) { '{"parentUuid":"x","message":{"model":"m","id":"' + $id + '","type":"message","role":"assistant","content":[],"usage":{"input_tokens":2,"cache_creation_input_tokens":300,"cache_read_input_tokens":4000,"output_tokens":150,"iterations":[{"input_tokens":2,"output_tokens":150}]}},"type":"assistant","uuid":"u","timestamp":"' + $ts + '"}' }
+$cnt = $cu.GetMethod('Count')
+T 'расход: новый ответ' $cnt.Invoke($null, @((UsageLine 'msg_a1' $stamp), $today)) $true
+T 'расход: та же запись второй строкой' $cnt.Invoke($null, @((UsageLine 'msg_a1' $stamp), $today)) $false
+T 'расход: вчерашний ответ' $cnt.Invoke($null, @((UsageLine 'msg_b2' $old), $today)) $false
+$userLine = '{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"' + $stamp + '"}'
+T 'расход: строка пользователя' $cnt.Invoke($null, @($userLine, $today)) $false
+[void]$cnt.Invoke($null, @((UsageLine 'msg_c3' $stamp), $today))
+T 'расход: выход' $cu.GetField('Out').GetValue($null) 300
+T 'расход: ввод' $cu.GetField('In').GetValue($null) 4
+T 'расход: кэш' ("$($cu.GetField('CacheRead').GetValue($null))/$($cu.GetField('CacheWrite').GetValue($null))") '8000/600'
+T 'расход: ответов' $cu.GetField('Replies').GetValue($null) 2
+T 'расход: сокращение' $cu.GetMethod('Short').Invoke($null, @([long]1234567)) '1,2 млн'
+T 'расход: за неделю вместе с прошлыми днями' $cu.GetProperty('Week').GetValue($null) 450
+$cu.GetMethod('Reset').Invoke($null, @())
+
+# --- сведения для сообщения об ошибке: имя пользователя Windows в них не попадает
+$scrub = $iw.GetMethod('Scrub')
+$sample = "в файле $env:USERPROFILE\AppData\Roaming\Kapsula\x.txt"
+T 'ошибка: путь к профилю скрыт' $scrub.Invoke($null, @($sample)) 'в файле %USERPROFILE%\AppData\Roaming\Kapsula\x.txt'
+if ($env:USERNAME.Length -ge 3) { T 'ошибка: имя пользователя скрыто' ($scrub.Invoke($null, @("C:\Users\$env:USERNAME\file")) -notmatch [regex]::Escape($env:USERNAME)) $true }
+
+# --- Claude Code: наши хуки добавляются и убираются, чужие настройки и чужие хуки остаются как были
+$cb = $asm.GetType('Kapsula.ClaudeBridge')
+$tmpSet = Join-Path ([IO.Path]::GetTempPath()) "kapsula-test-settings-$PID.json"
+$orig = '{"autoUpdatesChannel":"latest","hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}'
+[IO.File]::WriteAllText($tmpSet, $orig)
+$cb.GetField('SettingsOverride').SetValue($null, $tmpSet)
+T 'claude: до подключения' $cb.GetProperty('Installed').GetValue($null) $false
+T 'claude: подключение' $cb.GetMethod('Install').Invoke($null, @()) $null
+$after = Get-Content $tmpSet -Raw | ConvertFrom-Json
+T 'claude: подключено' $cb.GetProperty('Installed').GetValue($null) $true
+T 'claude: чужая настройка цела' $after.autoUpdatesChannel 'latest'
+T 'claude: чужой хук цел' $after.hooks.Stop[0].hooks[0].command 'echo hi'
+T 'claude: наш хук разрешений' $after.hooks.PermissionRequest[0].hooks[0].url 'http://127.0.0.1:42072/claude/permission'
+T 'claude: вид хука' $after.hooks.PermissionRequest[0].hooks[0].type 'http'
+T 'claude: копия прежнего файла' ([IO.File]::ReadAllText("$tmpSet.kapsula-bak")) $orig
+[void]$cb.GetMethod('Install').Invoke($null, @())
+$twice = Get-Content $tmpSet -Raw | ConvertFrom-Json
+T 'claude: повторное подключение не дублирует' @($twice.hooks.PermissionRequest).Count 1
+T 'claude: отключение' $cb.GetMethod('Remove').Invoke($null, @()) $null
+$gone = Get-Content $tmpSet -Raw | ConvertFrom-Json
+T 'claude: после отключения' $cb.GetProperty('Installed').GetValue($null) $false
+T 'claude: чужой хук остался' $gone.hooks.Stop[0].hooks[0].command 'echo hi'
+T 'claude: наших событий нет' ($gone.hooks.PSObject.Properties.Name -join ',') 'Stop'
+[IO.File]::WriteAllText($tmpSet, '{ это не json')
+T 'claude: битый файл не трогаем' ([string]$cb.GetMethod('Install').Invoke($null, @()) -ne '') $true
+T 'claude: битый файл цел' ([IO.File]::ReadAllText($tmpSet)) '{ это не json'
+Remove-Item $tmpSet, "$tmpSet.kapsula-bak" -ErrorAction SilentlyContinue
+$cb.GetField('SettingsOverride').SetValue($null, $null)
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }
