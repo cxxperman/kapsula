@@ -4922,7 +4922,7 @@ namespace Kapsula
         // Зверёк — сам персонаж капсулы (а не только значок Claude Code)?
         bool PetIsCharacter() { return Character == "pet" && (ShowEyes || TestCharacter != null) && (!(media.Has && media.Playing) || TestEyes); }
 
-        // Играет музыка — зверёк встаёт справа от обложки и танцует.
+        // Играет музыка — зверёк встаёт справа в капсуле, вместо мини-эквалайзера, и танцует.
         bool PetDancing() { return Character == "pet" && ShowEyes && media.Has && media.Playing && !TestEyes; }
         bool petByCover;
         int petMove = -1, petMoveUntil;
@@ -4932,10 +4932,10 @@ namespace Kapsula
             bool by = PetDancing();
             if (by == petByCover) return;
             petByCover = by;
-            var p = (Panel)claudeDot.Parent;
-            p.Children.Remove(claudeDot);
-            p.Children.Insert(by ? p.Children.IndexOf(cCover) + 1 : 1, claudeDot);
-            claudeDot.Margin = by ? new Thickness(9, 0, 0, 0) : new Thickness(9, 0, 5, 0);
+            // Танцует он справа, на месте мини-эквалайзера; без музыки возвращается влево, к точке микрофона.
+            ((Panel)claudeDot.Parent).Children.Remove(claudeDot);
+            if (by) ((Panel)eq.Parent).Children.Add(claudeDot); else ((Panel)micDot.Parent).Children.Insert(1, claudeDot);
+            claudeDot.Margin = by ? new Thickness(8, 0, -6, 0) : new Thickness(9, 0, 5, 0);
         }
 
         int petBlinkAt, petBlinkUntil;
@@ -5908,8 +5908,8 @@ namespace Kapsula
             if (steamDlApp != null) return 360 + steamDlNameW;
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
-            double sec = (ShowSeconds ? 24 : 0) + ((claudeState != 0 && !PetIsCharacter()) || PetDancing() ? 40 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
-            if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 + (PetDancing() ? 40 : 0) : (w ? 310 : 270) + sec;
+            double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() && !PetDancing() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
+            if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270) + sec;
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
         }
@@ -6395,7 +6395,7 @@ namespace Kapsula
             eyes.Visibility = Character != "pet" && (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
             if (TestEyes) cCover.Visibility = Visibility.Collapsed;
             cCover.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
-            eq.Visibility = playing && !timing && !timerRinging ? Visibility.Visible : Visibility.Collapsed;
+            eq.Visibility = playing && !timing && !timerRinging && !PetDancing() ? Visibility.Visible : Visibility.Collapsed;
 
             if (timerRinging) { cText.Text = "Время вышло"; cRight.Visibility = Visibility.Collapsed; return; }
             // Без музыки и таймера: часы по центру, погода — справа, а не одной строкой посередине
