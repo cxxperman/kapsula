@@ -1,16 +1,17 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: CallCard.cs
-// Карточка звонка на «Главной» — в духе iPhone. Сверху звонок: зелёный кружок с трубкой (вокруг него расходится
-// волна, когда в разговоре звучит голос), канал и сервер, зелёный таймер. Под ним круглые кнопки с подписями:
-// микрофон, звук, устройства и красная «положить трубку»; включённая кнопка становится белой, как на iPhone.
-// Если играет музыка, внизу компактный плеер — обложка, трек, «назад / пауза / вперёд», — а фон всей карточки
-// становится мягким размытым отсветом обложки. Звонок и музыка в одной карточке, ничего не прячется.
+// Карточка звонка на «Главной»: как голосовая панель самого Discord, но в духе iPhone. Сверху — канал, сервер и
+// зелёный таймер. Ниже — кто в канале: аватарки, у говорящего зелёное кольцо (как в Discord), у того, кто выключил
+// микрофон или звук, — значок. Потом круглые кнопки: микрофон, полный мут, настройки звука и красная «отключиться»;
+// включённая кнопка становится белой, а значок — красным и перечёркнутым, как в Discord. Когда вы показываете экран или включили камеру — рядом
+// метки «LIVE» и камеры. Если играет музыка, внизу тонкая строка плеера: обложка, трек, «назад / пауза / вперёд».
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using WF = System.Windows.Forms;
 
@@ -20,113 +21,147 @@ namespace Kapsula
     {
         static readonly SolidColorBrush AppleGreen = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
         static readonly SolidColorBrush AppleRed = new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A));
-        static readonly SolidColorBrush GlassKey = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+        static readonly SolidColorBrush GlassKey = new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush Secondary = new SolidColorBrush(Color.FromArgb(0x9E, 0xFF, 0xFF, 0xFF));
-        static readonly SolidColorBrush KeyDark = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1E));
-        static readonly Brush CallGlow = new RadialGradientBrush(Color.FromArgb(0x66, 0x30, 0xD1, 0x58), Color.FromArgb(0x00, 0x30, 0xD1, 0x58))
-            { Center = new Point(0.12, 0.18), GradientOrigin = new Point(0.12, 0.18), RadiusX = 0.85, RadiusY = 1.3 };
+        static readonly SolidColorBrush Hairline = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
+        static readonly SolidColorBrush BadgeBack = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1E));
+        // нет аватарки — буква на цветном круге, как в контактах iPhone
+        static readonly Brush[] FaceTones = { new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A)), new SolidColorBrush(Color.FromRgb(0x30, 0xB0, 0x50)), new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)), new SolidColorBrush(Color.FromRgb(0xBF, 0x5A, 0xF2)), new SolidColorBrush(Color.FromRgb(0xFF, 0x37, 0x5F)), new SolidColorBrush(Color.FromRgb(0x40, 0xA8, 0xD8)), new SolidColorBrush(Color.FromRgb(0x5E, 0x5C, 0xE6)) };
 
-        Rectangle callBackdrop;
-        Ellipse callRing;
-        ScaleTransform callRingScale;
-        bool callRinging;
-        TextBlock callTitle, callMusicTitle, callMusicArtist;
+        const int Faces = 6;   // аватарок в ряд, остальные — «+N»
+        TextBlock callTitle, callMusicTitle, callMusicArtist, callMore;
         readonly Border[] callKeys = new Border[4];
         readonly TextBlock[] callKeyGlyphs = new TextBlock[4];
-        readonly FrameworkElement[] callKeyCells = new FrameworkElement[4];
-        Border callMusic, callMusicArt;
-        FrameworkElement callMusicPlay, callMusicPause;
+        readonly FrameworkElement[] keyStrike = new FrameworkElement[2];   // красная косая черта на микрофоне и наушниках
+        readonly Grid[] faceSlots = new Grid[Faces];
+        readonly Ellipse[] faceRings = new Ellipse[Faces], facePics = new Ellipse[Faces];
+        readonly TextBlock[] faceLetters = new TextBlock[Faces], faceBadgeGlyphs = new TextBlock[Faces];
+        readonly Border[] faceBadges = new Border[Faces];
+        StackPanel callFaces;
+        Border callLive, callCam, callMusicArt;
+        FrameworkElement callMusicRow, callMusicPlay, callMusicPause;
+        Rectangle callDivider;
 
         void EnsureCallCard()
         {
             if (homeCallCard != null || homeGrid == null) return;
-            var root = new Grid();
-            root.SizeChanged += delegate(object s, SizeChangedEventArgs e) { root.Clip = new RectangleGeometry(new Rect(e.NewSize), 21, 21); };
-            // фон: размытая обложка, а без музыки — зелёный отсвет звонка; сверху — затемнение, чтобы читался текст
-            callBackdrop = new Rectangle { Fill = CallGlow, Opacity = 0.6, Margin = new Thickness(-36), IsHitTestVisible = false, CacheMode = new BitmapCache() };
-            root.Children.Add(callBackdrop);
-            root.Children.Add(new Rectangle { IsHitTestVisible = false, Fill = new LinearGradientBrush(Color.FromArgb(0x30, 0, 0, 0), Color.FromArgb(0x9A, 0, 0, 0), 90) });
-
             var stack = new StackPanel { Margin = new Thickness(16, 12, 16, 12), VerticalAlignment = VerticalAlignment.Center };
 
-            // 1. Звонок: значок с волной, канал и сервер, таймер
-            var head = new Grid { Height = 42 };
-            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            // 1. Канал, сервер, таймер
+            var head = new Grid();
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var badge = new Grid { Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center };
-            callRingScale = new ScaleTransform(1, 1, 20, 20);
-            callRing = new Ellipse { Stroke = AppleGreen, StrokeThickness = 2, Opacity = 0, RenderTransform = callRingScale, IsHitTestVisible = false };
-            badge.Children.Add(callRing);
-            badge.Children.Add(new Ellipse { Fill = AppleGreen });
-            badge.Children.Add(new TextBlock { Text = ((char)0xE717).ToString(), FontFamily = Icons, FontSize = 17, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-            head.Children.Add(badge);
-            var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 10, 0) };
+            var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
             callTitle = new TextBlock { Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
             callAppText = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
             names.Children.Add(callTitle); names.Children.Add(callAppText);
-            Grid.SetColumn(names, 1); head.Children.Add(names);
-            callTimeText = new TextBlock { Foreground = AppleGreen, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            System.Windows.Documents.Typography.SetNumeralAlignment(callTimeText, FontNumeralAlignment.Tabular);   // цифры не прыгают, пока идёт время
-            Grid.SetColumn(callTimeText, 2); head.Children.Add(callTimeText);
+            head.Children.Add(names);
+            callTimeText = new TextBlock { Foreground = AppleGreen, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) };
+            System.Windows.Documents.Typography.SetNumeralAlignment(callTimeText, FontNumeralAlignment.Tabular);   // цифры не прыгают
+            Grid.SetColumn(callTimeText, 1); head.Children.Add(callTimeText);
             stack.Children.Add(head);
 
-            // 2. Круглые кнопки с подписями
-            var keys = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
-            string[] glyphs = { "", "", "", "" };
-            string[] labels = { "Микрофон", "Звук", "Устройства", "Выйти" };
+            // 2. Кто в канале
+            callFaces = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(-2, 9, 0, 0), Visibility = Visibility.Collapsed };
+            for (int i = 0; i < Faces; i++) callFaces.Children.Add(FaceSlot(i));
+            callMore = new TextBlock { Foreground = Secondary, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+            callFaces.Children.Add(callMore);
+            stack.Children.Add(callFaces);
+
+            // 3. Кнопки, как в голосовой панели Discord: микрофон, звук, настройки; справа — красная «отключиться»
+            var row = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            string[] glyphs = { "\uE720", "\uE7F6", "\uE713", "\uE778" };
+            string[] tips = { "Микрофон", "Полный мут: не слышать никого", "Микрофон и динамики", "Отключиться" };
             for (int i = 0; i < 4; i++)
             {
                 int k = i;
-                var glyph = callKeyGlyphs[i] = new TextBlock { Text = glyphs[i], FontFamily = Icons, FontSize = 16, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                var key = callKeys[i] = new Border { Width = 42, Height = 42, CornerRadius = new CornerRadius(21), Background = i == 3 ? (Brush)AppleRed : GlassKey, Child = glyph, Cursor = Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Center };
+                var g = callKeyGlyphs[i] = new TextBlock { Text = glyphs[i], FontFamily = Icons, FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                UIElement face = i < 2 ? Strike(g, 18, 1.8, Brushes.White, out keyStrike[i]) : (UIElement)g;   // микрофон и наушники перечёркиваются, как в Discord
+                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? (Brush)AppleRed : GlassKey, Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i < 2 ? 10 : 0, 0) };
                 key.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; CallKey(k); };
                 Fx.Press(key, 0.9);
-                var cell = new StackPanel { Width = 72 };
-                cell.Children.Add(key);
-                cell.Children.Add(new TextBlock { Text = labels[i], Foreground = Secondary, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) });
-                callKeyCells[i] = cell;
-                keys.Children.Add(cell);
+                if (i < 3) left.Children.Add(key);
             }
-            callKeys[3].ToolTip = "Выйти из звонка";
-            callKeys[2].ToolTip = "Микрофон и динамики";
-            stack.Children.Add(keys);
+            // метки «показываю экран» и «камера включена» — как в Discord
+            // одной высоты: красная «LIVE» и зелёная камера (зелёный — как точка камеры на iPhone)
+            callLive = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleRed, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Вы показываете экран",
+                Child = new TextBlock { Text = "LIVE", Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 1) } };
+            callCam = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleGreen, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Камера включена",
+                Child = new TextBlock { Text = "\uE714", FontFamily = Icons, FontSize = 11, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            left.Children.Add(callLive); left.Children.Add(callCam);
+            row.Children.Add(left);
+            Grid.SetColumn(callKeys[3], 1); row.Children.Add(callKeys[3]);
+            stack.Children.Add(row);
 
-            // 3. Музыка — компактный плеер внизу
-            callMusic = new Border { CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF)), Padding = new Thickness(6), Margin = new Thickness(0, 10, 0, 0), Visibility = Visibility.Collapsed };
-            var mg = new Grid();
+            // 4. Музыка — тонкой строкой под чертой
+            callDivider = new Rectangle { Height = 1, Fill = Hairline, Margin = new Thickness(0, 11, 0, 7), Visibility = Visibility.Collapsed };
+            stack.Children.Add(callDivider);
+            var mg = new Grid { Visibility = Visibility.Collapsed };
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            callMusicArt = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(8), Background = Chip };
+            callMusicArt = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(7), Background = Chip };
             mg.Children.Add(callMusicArt);
             var mt = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0) };
-            callMusicTitle = new TextBlock { Foreground = Brushes.White, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            callMusicArtist = new TextBlock { Foreground = Secondary, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis };
+            callMusicTitle = new TextBlock { Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            callMusicArtist = new TextBlock { Foreground = Secondary, FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis };
             mt.Children.Add(callMusicTitle); mt.Children.Add(callMusicArtist);
             Grid.SetColumn(mt, 1); mg.Children.Add(mt);
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            ctl.Children.Add(MusicKey(MediaShape("prev", 13, Brushes.White), 0xB1));
-            callMusicPlay = MediaShape("play", 15, Brushes.White);
-            callMusicPause = MediaShape("pause", 15, Brushes.White);
+            ctl.Children.Add(MusicKey(MediaShape("prev", 12, Brushes.White), 0xB1));
+            callMusicPlay = MediaShape("play", 14, Brushes.White);
+            callMusicPause = MediaShape("pause", 14, Brushes.White);
             var pp = new Grid();
             pp.Children.Add(callMusicPlay); pp.Children.Add(callMusicPause);
             ctl.Children.Add(MusicKey(pp, 0xB3));
-            ctl.Children.Add(MusicKey(MediaShape("next", 13, Brushes.White), 0xB0));
+            ctl.Children.Add(MusicKey(MediaShape("next", 12, Brushes.White), 0xB0));
             Grid.SetColumn(ctl, 2); mg.Children.Add(ctl);
-            callMusic.Child = mg;
-            stack.Children.Add(callMusic);
+            callMusicRow = mg;
+            stack.Children.Add(mg);
 
-            root.Children.Add(stack);
-            homeCallCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(22), Child = root, Visibility = Visibility.Collapsed };
+            homeCallCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(22), Child = stack, Visibility = Visibility.Collapsed };
             Grid.SetRow(homeCallCard, 0);
             homeGrid.Children.Add(homeCallCard);
             PaintMute();
         }
 
+        // Аватарка участника: картинка (или буква на цветном круге), зелёное кольцо, пока говорит, значок мута
+        FrameworkElement FaceSlot(int i)
+        {
+            var g = faceSlots[i] = new Grid { Width = 34, Height = 34, Margin = new Thickness(0, 0, 2, 0), Visibility = Visibility.Collapsed };
+            faceRings[i] = new Ellipse { Stroke = AppleGreen, StrokeThickness = 2, Opacity = 0 };
+            facePics[i] = new Ellipse { Width = 28, Height = 28 };
+            faceLetters[i] = new TextBlock { Foreground = Brushes.White, FontSize = 12.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            faceBadgeGlyphs[i] = new TextBlock { FontFamily = Icons, FontSize = 7.5, Foreground = AppleRed, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            FrameworkElement strike;
+            faceBadges[i] = new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(7), Background = BadgeBack, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Child = Strike(faceBadgeGlyphs[i], 10, 1.1, BadgeBack, out strike), Visibility = Visibility.Collapsed };
+            strike.Visibility = Visibility.Visible;   // значок появляется, только когда микрофон или звук выключен
+            g.Children.Add(faceRings[i]); g.Children.Add(facePics[i]); g.Children.Add(faceLetters[i]); g.Children.Add(faceBadges[i]);
+            return g;
+        }
+
+        // Значок с косой красной чертой сверху вниз — как перечёркнутые микрофон и наушники в Discord и на iPhone.
+        // Под чертой — прорезь цвета фона, чтобы черта не сливалась со значком. Черта видна, когда strike показан.
+        Grid Strike(TextBlock glyph, double box, double thick, Brush back, out FrameworkElement strike)
+        {
+            var g = new Grid { Width = box, Height = box, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            glyph.HorizontalAlignment = HorizontalAlignment.Center; glyph.VerticalAlignment = VerticalAlignment.Center;
+            g.Children.Add(glyph);
+            double a = box * 0.12, b = box * 0.88;
+            var lines = new Grid { Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            lines.Children.Add(new Line { X1 = a, Y1 = a, X2 = b, Y2 = b, Stroke = back, StrokeThickness = thick + 2.4, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+            lines.Children.Add(new Line { X1 = a, Y1 = a, X2 = b, Y2 = b, Stroke = AppleRed, StrokeThickness = thick, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+            g.Children.Add(lines);
+            strike = lines;
+            return g;
+        }
+
         Border MusicKey(FrameworkElement shape, byte command)
         {
-            var b = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = shape };
+            var b = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(14), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = shape };
             shape.HorizontalAlignment = HorizontalAlignment.Center; shape.VerticalAlignment = VerticalAlignment.Center;
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; watcher.Command(command); };
             Fx.Press(b, 0.86);
@@ -146,7 +181,7 @@ namespace Kapsula
             else if (k == 3 && live) DiscordCommand("leave");
         }
 
-        // «Устройства»: микрофон и динамики в одном меню
+        // Настройки звука: микрофон и динамики в одном меню
         void CallDevices(FrameworkElement anchor)
         {
             var menu = new WF.ContextMenuStrip();
@@ -170,33 +205,57 @@ namespace Kapsula
             menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
         }
 
-        // Кнопка-переключатель: включённая — белая с тёмным значком, как на iPhone
-        void CallKeyState(int i, bool on, string glyph, string tip)
+        // Включённая кнопка — белая с красным значком: так и на iPhone видно, и в Discord привычно
+        void CallKeyState(int i, bool on, string tip)
         {
             callKeys[i].Background = on ? Brushes.White : GlassKey;
-            callKeyGlyphs[i].Foreground = on ? KeyDark : Brushes.White;
-            if (callKeyGlyphs[i].Text != glyph) callKeyGlyphs[i].Text = glyph;
+            callKeyGlyphs[i].Foreground = on ? AppleRed : Brushes.White;
+            keyStrike[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             callKeys[i].ToolTip = tip;
         }
 
-        // Обновить карточку: звонок, кнопки, музыку, волну вокруг значка (раз в полсекунды и при смене трека)
+        // Обновить карточку: звонок, кто говорит, кнопки, музыку (раз в полсекунды, при каждом сообщении Discord и смене трека)
         void PaintMute()
         {
             if (homeCallCard == null) return;
             bool live = DiscordLive;
             bool deaf = live && dvDeaf;
             bool muted = live ? dvMute || dvDeaf : Audio.MicMuted();
-            CallKeyState(0, muted, muted ? "" : "", muted ? "Микрофон выключен — нажмите, чтобы включить" : "Вас слышно — нажмите, чтобы выключить микрофон");
-            CallKeyState(1, deaf, deaf ? "" : "", deaf ? "Полный мут — нажмите, чтобы вернуть звук" : "Полный мут: не слышать никого");
-            callKeyCells[1].Visibility = live ? Visibility.Visible : Visibility.Collapsed;   // полный мут и выход — только для звонка Discord
-            callKeyCells[3].Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            CallKeyState(0, muted, muted ?"Микрофон выключен — нажмите, чтобы включить" : "Вас слышно — нажмите, чтобы выключить микрофон");
+            CallKeyState(1, deaf, deaf ?"Полный мут — нажмите, чтобы вернуть звук" : "Полный мут: не слышать никого");
+            callKeys[1].Visibility = live ? Visibility.Visible : Visibility.Collapsed;   // полный мут и «отключиться» — только для звонка Discord
+            callKeys[3].Visibility = live ? Visibility.Visible : Visibility.Collapsed;
             callTitle.Text = live ? (dvChannel.Length > 0 ? dvChannel : "Личный звонок") : "Звонок";
-            callAppText.Text = live ? (dvGuild.Length > 0 ? dvGuild + " · " : "") + (dvUsers > 1 ? Plural(dvUsers, "участник", "участника", "участников") : "Discord")
+            callAppText.Text = live ? (dvGuild.Length > 0 ? dvGuild : "Discord") + (dvUsers > 1 ? " · " + Plural(dvUsers, "участник", "участника", "участников") : "")
                 : (callApp ?? "") + (muted ? " · микрофон выключен" : "");
             if (callTimeText != null && callApp != null) callTimeText.Text = CallTime();
+            callLive.Visibility = live && dvStream ? Visibility.Visible : Visibility.Collapsed;
+            callCam.Visibility = live && dvVideo ? Visibility.Visible : Visibility.Collapsed;
+
+            // кто в канале
+            List<DvPerson> people = live ? dvPeople : null;
+            int n = people == null ? 0 : people.Count;
+            callFaces.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+            for (int i = 0; i < Faces; i++)
+            {
+                if (i >= n) { faceSlots[i].Visibility = Visibility.Collapsed; continue; }
+                DvPerson p = people[i];
+                bool pm = p.Me ? dvMute : p.Mute, pd = p.Me ? dvDeaf : p.Deaf;   // своё состояние — сразу, не дожидаясь Discord
+                faceSlots[i].Visibility = Visibility.Visible;
+                Brush pic = FaceImage(p.Avatar);
+                Brush fill = pic ?? FaceTones[(int)((uint)p.Id.GetHashCode() % (uint)FaceTones.Length)];
+                if (facePics[i].Fill != fill) facePics[i].Fill = fill;
+                faceLetters[i].Text = pic != null || p.Name.Length == 0 ? "" : p.Name.Substring(0, 1).ToUpper();
+                faceRings[i].Opacity = p.Speaking && !pm ? 1 : 0;   // говорит — зелёное кольцо, как в Discord
+                faceBadges[i].Visibility = pm || pd ? Visibility.Visible : Visibility.Collapsed;
+                faceBadgeGlyphs[i].Text = pd ? "\uE7F6" : "\uE720";   // \u043F\u0435\u0440\u0435\u0447\u0451\u0440\u043A\u043D\u0443\u0442\u044B\u0435 \u043D\u0430\u0443\u0448\u043D\u0438\u043A\u0438 \u0438\u043B\u0438 \u043C\u0438\u043A\u0440\u043E\u0444\u043E\u043D
+                faceSlots[i].ToolTip = (p.Name.Length > 0 ? p.Name : "Участник") + (p.Me ? " (вы)" : "") + (pd ? " · полный мут" : pm ? " · микрофон выключен" : p.Speaking ? " · говорит" : "") + (p.Stream ? " · показывает экран" : "");
+            }
+            callMore.Text = n > Faces ? "+" + (n - Faces) : "";
 
             bool music = media.Has;
-            callMusic.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
+            callDivider.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
+            callMusicRow.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
             if (music)
             {
                 if (callMusicTitle.Text != media.Title) callMusicTitle.Text = media.Title ?? "";
@@ -206,36 +265,48 @@ namespace Kapsula
                 callMusicPlay.Visibility = media.Playing ? Visibility.Collapsed : Visibility.Visible;
                 callMusicPause.Visibility = media.Playing ? Visibility.Visible : Visibility.Collapsed;
             }
-            Brush back = music && coverBrush != null ? (Brush)coverBrush : CallGlow;
-            if (callBackdrop.Fill != back)
-            {
-                callBackdrop.Fill = back;
-                // обложку размываем в мягкий отсвет; зелёному отсвету размытие не нужно
-                callBackdrop.Effect = back == CallGlow ? null : new BlurEffect { Radius = 44, RenderingBias = RenderingBias.Performance };
-                callBackdrop.Opacity = back == CallGlow ? 0.75 : 0.6;
-            }
+        }
 
-            // волна вокруг значка звонка — пока в разговоре звучит голос
-            bool voice = callApp != null && callVoiceAt != 0 && unchecked(Environment.TickCount - callVoiceAt) < 900 && !ReducedMotion;
-            if (voice != callRinging)
+        // Аватарки — только с сервера картинок Discord, в памяти, пока Kapsula открыта
+        readonly Dictionary<string, Brush> faceCache = new Dictionary<string, Brush>();
+        readonly HashSet<string> faceLoading = new HashSet<string>();
+
+        Brush FaceImage(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return null;
+            Brush img;
+            if (faceCache.TryGetValue(url, out img)) return img;
+            if (!url.StartsWith("https://cdn.discordapp.com/") && !url.StartsWith("https://media.discordapp.net/")) return null;
+            if (!faceLoading.Add(url)) return null;
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                callRinging = voice;
-                if (voice)
+                byte[] data = null;
+                try
                 {
-                    var dur = new Duration(TimeSpan.FromMilliseconds(1100));
-                    var grow = new DoubleAnimation(1, 1.55, dur) { RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-                    callRingScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
-                    callRingScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
-                    callRing.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.85, 0, dur) { RepeatBehavior = RepeatBehavior.Forever });
+                    System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;
+                    using (var wc = new System.Net.WebClient()) { wc.Headers["User-Agent"] = "Kapsula"; data = wc.DownloadData(url); }
                 }
-                else
+                catch { }
+                Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    callRingScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                    callRingScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                    callRing.BeginAnimation(UIElement.OpacityProperty, null);
-                    callRing.Opacity = 0;
-                }
-            }
+                    faceLoading.Remove(url);
+                    Brush bi = null;
+                    if (data != null)
+                        try
+                        {
+                            var b = new BitmapImage();
+                            b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.DecodePixelWidth = 64; b.StreamSource = new System.IO.MemoryStream(data); b.EndInit(); b.Freeze();
+                            var brush = new ImageBrush(b) { Stretch = Stretch.UniformToFill };
+                            brush.Freeze();
+                            bi = brush;
+                        }
+                        catch { }
+                    if (faceCache.Count > 200) faceCache.Clear();
+                    faceCache[url] = bi;   // не вышло — запоминаем пустоту: будет буква на цветном круге, без новых попыток
+                    PaintMute();
+                }));
+            });
+            return null;
         }
     }
 }

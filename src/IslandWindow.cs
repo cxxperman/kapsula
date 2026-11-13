@@ -8861,7 +8861,7 @@ namespace Kapsula
         void Toast(string glyph, string text, string right, double value, Brush glyphBrush)
         {
             if (TestCharacter != null) return;   // при съёмке персонажей надписи не нужны
-            toastBright = false; toastCharge = 0;   // надписи про яркость и зарядку отмечают себя сами, сразу после этого вызова
+            toastBright = false; toastCharge = 0; toastLive = false;   // надписи про яркость, зарядку и демку отмечают себя сами, сразу после этого вызова
             toastGlyph = glyph; toastText = text; toastRight = right; toastValue = value; toastBrush = glyphBrush;
             if (glyphBrush == accent && value < 0) Happy(3300);   // удачное действие — персонаж радуется, когда надпись уйдёт
             toastUntil = Environment.TickCount + 1800;
@@ -8908,7 +8908,7 @@ namespace Kapsula
                 if (toastValue >= 0) { cText.Visibility = Visibility.Collapsed; cBar.Root.Visibility = Visibility.Visible; cBar.Set(toastValue); }
                 else { cText.Text = toastText ?? ""; cText.MaxWidth = 210; }
                 cRight.Visibility = string.IsNullOrEmpty(toastRight) ? Visibility.Collapsed : Visibility.Visible;
-                cRight.Text = toastRight ?? ""; cRight.Foreground = Fg;
+                cRight.Text = toastRight ?? ""; cRight.Foreground = toastLive ? RecRed : Fg;
                 return;
             }
 
@@ -8978,9 +8978,10 @@ namespace Kapsula
                 bool live = DiscordLive;   // плагин в Discord: канал, мут, полный мут и демонстрация — точно
                 cText.Text = (live && dvChannel.Length > 0 ? dvChannel : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
                 bool mutedNow = live ? dvMute : Audio.MicMuted();
-                // Справа — значки, как в самом Discord: демонстрация, камера, микрофон (или полный мут)
-                cRight.Visibility = Visibility.Visible;
+                // Состояние звонка показывает зверёк. Значки справа — только когда его в капсуле нет
                 cRight.Inlines.Clear();
+                if (claudeDot != null && claudeDot.Visibility == Visibility.Visible) { cRight.Visibility = Visibility.Collapsed; cRight.ToolTip = null; eq.Visibility = Visibility.Collapsed; return; }
+                cRight.Visibility = Visibility.Visible;
                 var tip = new List<string>();
                 if (live && dvStream) { CallIcon(0xE7F4, RecRed); tip.Add("идёт демонстрация экрана"); }
                 if (live && dvVideo) { CallIcon(0xE714, ClaudeGreen); tip.Add("камера включена"); }

@@ -37,12 +37,64 @@ namespace Kapsula
             catch (Exception) { Error = "порт " + port + " занят другой программой"; return; }
             var t = new Thread(Loop) { IsBackground = true };
             t.Start(listener);
+            sweeper = new Timer(Sweep, null, 2000, 2000);
         }
 
-        // Команда плагину: уйдёт в ответе на его следующее сообщение (через полсекунды)
+        // Плагин держит открытым запрос «жду команду» — команда уходит в Discord сразу, без ожидания
+        static readonly List<KeyValuePair<System.Net.HttpListenerContext, int>> waiting = new List<KeyValuePair<System.Net.HttpListenerContext, int>>();
+        static Timer sweeper;
+
         public static void Command(string cmd)
         {
-            lock (commands) { if (commands.Count < 8) commands.Enqueue(cmd); }
+            List<System.Net.HttpListenerContext> now = null;
+            string body = null;
+            lock (commands)
+            {
+                if (commands.Count < 8) commands.Enqueue(cmd);
+                if (waiting.Count > 0)
+                {
+                    body = TakeCommands();
+                    now = new List<System.Net.HttpListenerContext>();
+                    foreach (var w in waiting) now.Add(w.Key);
+                    waiting.Clear();
+                }
+            }
+            if (now != null) foreach (var c in now) Reply(c, body);
+        }
+
+        // Все накопленные команды одним ответом (вызывать под замком)
+        static string TakeCommands()
+        {
+            var sb = new StringBuilder("{\"commands\":[");
+            bool first = true;
+            while (commands.Count > 0) { if (!first) sb.Append(','); sb.Append('"').Append(commands.Dequeue()).Append('"'); first = false; }
+            return sb.Append("]}").ToString();
+        }
+
+        static void Reply(System.Net.HttpListenerContext ctx, string body)
+        {
+            try
+            {
+                byte[] b = Encoding.UTF8.GetBytes(body);
+                ctx.Response.ContentType = "application/json";
+                ctx.Response.ContentLength64 = b.Length;
+                ctx.Response.OutputStream.Write(b, 0, b.Length);
+                ctx.Response.Close();
+            }
+            catch { try { ctx.Response.Abort(); } catch { } }
+        }
+
+        // Запросы «жду команду», которым больше двадцати секунд, — отпустить пустыми: плагин тут же пришлёт новый
+        static void Sweep(object o)
+        {
+            var late = new List<System.Net.HttpListenerContext>();
+            lock (commands)
+            {
+                int now = Environment.TickCount;
+                for (int i = waiting.Count - 1; i >= 0; i--)
+                    if (unchecked(now - waiting[i].Value) >= 0) { late.Add(waiting[i].Key); waiting.RemoveAt(i); }
+            }
+            foreach (var c in late) Reply(c, "{\"commands\":[]}");
         }
 
         static void Loop(object o)
@@ -62,26 +114,27 @@ namespace Kapsula
             {
                 var rq = ctx.Request;
                 // У браузерной страницы всегда есть Origin, у Discord (плагин шлёт из его основного процесса) — нет
-                if (rq.HttpMethod != "POST" || rq.Url.AbsolutePath != "/discord" || !string.IsNullOrEmpty(rq.Headers["Origin"]) || rq.ContentLength64 > 65536)
+                if (!string.IsNullOrEmpty(rq.Headers["Origin"]) || rq.ContentLength64 > 65536) { ctx.Response.StatusCode = 403; ctx.Response.Close(); return; }
+                if (rq.HttpMethod == "GET" && rq.Url.AbsolutePath == "/discord/wait")
                 {
-                    ctx.Response.StatusCode = 403; ctx.Response.Close(); return;
+                    // «жду команду»: ответим, как только на острове нажмут кнопку (или пустым через двадцать секунд)
+                    string ready = null;
+                    lock (commands)
+                    {
+                        if (commands.Count > 0) ready = TakeCommands();
+                        else waiting.Add(new KeyValuePair<System.Net.HttpListenerContext, int>(ctx, Environment.TickCount + 20000));
+                    }
+                    if (ready != null) Reply(ctx, ready);
+                    return;
                 }
+                if (rq.HttpMethod != "POST" || rq.Url.AbsolutePath != "/discord") { ctx.Response.StatusCode = 403; ctx.Response.Close(); return; }
                 string body;
                 using (var r = new System.IO.StreamReader(rq.InputStream, Encoding.UTF8)) body = r.ReadToEnd();
                 var h = Received;
                 if (h != null) h(body);
-                var sb = new StringBuilder("{\"commands\":[");
-                lock (commands)
-                {
-                    bool first = true;
-                    while (commands.Count > 0) { if (!first) sb.Append(','); sb.Append('"').Append(commands.Dequeue()).Append('"'); first = false; }
-                }
-                sb.Append("]}");
-                byte[] b = Encoding.UTF8.GetBytes(sb.ToString());
-                ctx.Response.ContentType = "application/json";
-                ctx.Response.ContentLength64 = b.Length;
-                ctx.Response.OutputStream.Write(b, 0, b.Length);
-                ctx.Response.Close();
+                string reply;
+                lock (commands) reply = TakeCommands();
+                Reply(ctx, reply);
             }
             catch { try { ctx.Response.Abort(); } catch { } }
         }
@@ -89,6 +142,8 @@ namespace Kapsula
 
     partial class IslandWindow
     {
+        class DvPerson { public string Id = "", Name = "", Avatar = ""; public bool Speaking, Mute, Deaf, Video, Stream, Me; }
+        List<DvPerson> dvPeople = new List<DvPerson>();
         bool dvInCall, dvMute, dvDeaf, dvStream, dvVideo, dvSpeaking;
         string dvChannel = "", dvGuild = "";
         int dvUsers, dvHeardAt;
@@ -109,10 +164,27 @@ namespace Kapsula
             try { d = new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>; } catch { return; }
             if (d == null) return;
             bool wasLive = DiscordLive;
-            dvHeardAt = Environment.TickCount;
-            dvInCall = DFlag(d, "inCall"); dvMute = DFlag(d, "mute"); dvDeaf = DFlag(d, "deaf");
+            int nowT = Environment.TickCount;
+            bool wasCall = dvInCall, wasStream = dvStream, wasVideo = dvVideo;
+            dvHeardAt = nowT;
+            // Нажатую на острове кнопку не откатываем, пока Discord не подтвердит (или полторы секунды)
+            bool inCall = DFlag(d, "inCall"), inMute = DFlag(d, "mute"), inDeaf = DFlag(d, "deaf");
+            if (!(dvMuteHold != 0 && unchecked(nowT - dvMuteHold) < 0 && inMute != dvMute)) { dvMute = inMute; dvMuteHold = 0; }
+            if (!(dvDeafHold != 0 && unchecked(nowT - dvDeafHold) < 0 && inDeaf != dvDeaf)) { dvDeaf = inDeaf; dvDeafHold = 0; }
+            if (!(dvLeaveHold != 0 && unchecked(nowT - dvLeaveHold) < 0 && inCall)) { dvInCall = inCall; dvLeaveHold = 0; }
             dvStream = DFlag(d, "stream"); dvVideo = DFlag(d, "video"); dvSpeaking = DFlag(d, "speaking");
             dvChannel = DText(d, "channel"); dvGuild = DText(d, "guild");
+            // кто в канале: имя, аватарка, говорит ли, выключен ли микрофон или звук — для карточки звонка
+            var people = new List<DvPerson>();
+            object po;
+            if (d.TryGetValue("people", out po) && po is object[])
+                foreach (object x in (object[])po)
+                {
+                    var p = x as Dictionary<string, object>;
+                    if (p == null) continue;
+                    people.Add(new DvPerson { Id = DText(p, "id"), Name = DText(p, "name"), Avatar = DText(p, "avatar"), Speaking = DFlag(p, "speaking"), Mute = DFlag(p, "mute"), Deaf = DFlag(p, "deaf"), Video = DFlag(p, "video"), Stream = DFlag(p, "stream"), Me = DFlag(p, "me") });
+                }
+            dvPeople = people;
             object o;
             dvUsers = d.TryGetValue("users", out o) && o is int ? (int)o : 0;
             double since = d.TryGetValue("since", out o) && o != null ? Convert.ToDouble(o) : 0;
@@ -120,6 +192,28 @@ namespace Kapsula
             if (dvSince > DateTime.Now) dvSince = DateTime.Now;
             if (!wasLive) Store.Set("discordPluginSeen", "1");   // в настройках: «плагин на связи»
             DiscordCallTick();   // не ждать полсекунды до следующего опроса
+            // Демку и камеру видно сразу: надпись на острове, как только Discord их включил или выключил
+            // (не при первом сообщении после запуска Kapsula и не при выходе из звонка — тогда это не новость)
+            if (wasLive && dvInCall)
+            {
+                if (dvStream != wasStream && (dvStream || wasCall)) DemoToast(dvStream);
+                else if (dvVideo != wasVideo && (dvVideo || wasCall)) CamToast(dvVideo);
+            }
+        }
+
+        // «Демка запущена» с красной меткой LIVE — дольше обычной надписи: важно знать, что ваш экран видят
+        bool toastLive;   // Toast() сбрасывает; правый край надписи — красный
+
+        void DemoToast(bool on)
+        {
+            if (on) { Toast("", "Демка запущена", "LIVE", -1, RecRed); toastLive = true; toastUntil = Environment.TickCount + 3000; RenderCompact(); }
+            else Toast("", "Демка остановлена", null, -1, null);
+        }
+
+        void CamToast(bool on)
+        {
+            if (on) { Toast("", "Камера включена", null, -1, AppleGreen); toastUntil = Environment.TickCount + 3000; }
+            else Toast("", "Камера выключена", null, -1, null);
         }
 
         static bool DFlag(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o is bool && (bool)o; }
@@ -153,12 +247,17 @@ namespace Kapsula
             cRight.Inlines.Add(new System.Windows.Documents.Run(((char)code).ToString()) { FontFamily = Icons, FontSize = 14, Foreground = brush });
         }
 
-        // Кнопки на острове: состояние меняем сразу (зверёк и капсула отзываются), Discord подтвердит через полсекунды
+        // Кнопки на острове: состояние меняем сразу — зверёк, капсула и кнопка отзываются мгновенно, — а Discord
+        // получает команду тут же (плагин держит открытым запрос «жду команду») и подтверждает доли секунды спустя
+        int dvMuteHold, dvDeafHold, dvLeaveHold;
+
         void DiscordCommand(string cmd)
         {
             DiscordVoiceServer.Command(cmd);
-            if (cmd == "mute") dvMute = !dvMute;
-            else if (cmd == "deaf") dvDeaf = !dvDeaf;
+            int until = Environment.TickCount + 1500;
+            if (cmd == "mute") { dvMute = !dvMute; dvMuteHold = until; }
+            else if (cmd == "deaf") { dvDeaf = !dvDeaf; dvDeafHold = until; }
+            else if (cmd == "leave") { dvInCall = false; dvLeaveHold = until; DiscordCallTick(); }
             callMuted = dvMute || dvDeaf;
             PaintMute();
             RenderCompact();
