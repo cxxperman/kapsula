@@ -114,6 +114,7 @@ namespace Kapsula
                 if (args[i] == "--notetest") w.TestNote = true;
                 if (args[i] == "--gamertest") w.TestGamer = true;
                 if (args[i] == "--edittab" && i + 1 < args.Length) w.TestEditTab = args[i + 1];
+                if (args[i] == "--ridertest" && i + 1 < args.Length) w.TestRider = args[i + 1];   // путь зверька-попутчика — в файл
                 if (args[i] == "--settings") w.TestSettings = true;
                 if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
                 if (args[i] == "--settingsscroll" && i + 1 < args.Length) double.TryParse(args[i + 1], out w.TestSettingsScroll);

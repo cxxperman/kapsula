@@ -66,6 +66,14 @@ namespace Kapsula
 
         public readonly StackPanel Root;
         readonly double px;
+        public double Px { get { return px; } }
+        // само тело (без значка рядом): по нему остров ставит попутчика точно на место этого зверька
+        public FrameworkElement Figure { get { return body; } }
+        Canvas body;
+        readonly List<Rectangle> legs = new List<Rectangle>();      // нижний ряд: четыре лапки слева направо
+        readonly List<UIElement> outfit = new List<UIElement>();    // сезонный наряд
+        List<Rectangle> hat;
+        bool seated, forced;
         readonly TranslateTransform shift = new TranslateTransform();
         readonly ScaleTransform squash = new ScaleTransform(1, 1);
         readonly RotateTransform tilt = new RotateTransform(0);
@@ -147,6 +155,10 @@ namespace Kapsula
             px = pixel;
             var tg = new TransformGroup(); tg.Children.Add(squash); tg.Children.Add(tilt); tg.Children.Add(shift);
             var c = new Canvas { Width = 11 * px, Height = 9 * px, RenderTransform = tg, RenderTransformOrigin = new Point(0.5, 1), VerticalAlignment = VerticalAlignment.Center };
+            body = c;
+            // Тело — одной фигурой: если рисовать ряд за рядом, при наклоне между рядами видны тонкие щели.
+            // Лапки — отдельно: они умеют свешиваться и болтаться.
+            var torso = new GeometryGroup { FillRule = FillRule.Nonzero };
             for (int y = 0; y < Shape.Length; y++)
             {
                 int x = 0;
@@ -155,9 +167,12 @@ namespace Kapsula
                     if (Shape[y][x] != 'B') { x++; continue; }
                     int start = x;
                     while (x < 11 && Shape[y][x] == 'B') x++;
-                    Pixel(c, start, y, x - start, 1, Body);
+                    if (y == Shape.Length - 1) legs.Add(Pixel(c, start, y, x - start, 1, Body));
+                    else torso.Children.Add(new RectangleGeometry(new Rect(start * px, y * px, (x - start) * px, px + (y < Shape.Length - 2 ? 0.3 : 0.15))));
                 }
             }
+            torso.Freeze();
+            c.Children.Insert(0, new Path { Data = torso, Fill = Body, SnapsToDevicePixels = true });
             int[][][] sets =
             {
                 new int[][] { new int[] { 2, 4, 1, 2 } },
@@ -175,10 +190,13 @@ namespace Kapsula
                     eyes[m].Add(Pixel(c, 11 - e[0] - e[2], e[1], e[2], e[3], eyeBrush));
                 }
             }
+            int dressed = c.Children.Count;
             Dress(c, px);
+            for (int i = dressed; i < c.Children.Count; i++) outfit.Add(c.Children[i]);
             mark = new TextBlock { FontSize = Math.Max(10, px * 6.5), FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(px * 1.4, -px * 2.2, 0, 0), MinWidth = px * 5 };
             Root = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
             Root.Children.Add(c); Root.Children.Add(mark);
+            Root.Tag = this;   // по метке остров находит зверьков на страницах
             Face(0, "", null);
             timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
             timer.Tick += delegate { Step(); };
@@ -190,6 +208,60 @@ namespace Kapsula
         // happy — радуется; done — доволен, с галочкой; sleep — спит; alarm — тревога; sad — огорчён
         public void Mood(string m) { if (m != mood) { mood = m; born = Environment.TickCount; } }
         public string CurrentMood { get { return mood; } }
+
+        // Сидит на краю острова, свесив лапки: две средние лапки длиннее и болтаются, крайние поджаты
+        public bool Seated
+        {
+            get { return seated; }
+            set
+            {
+                if (seated == value || legs.Count != 4) return;
+                seated = value;
+                for (int i = 0; i < legs.Count; i++)
+                {
+                    Rectangle r = legs[i];
+                    bool inner = i == 1 || i == 2;
+                    r.Visibility = !value || inner ? Visibility.Visible : Visibility.Collapsed;
+                    r.Height = (value && inner ? 2 : 1) * px + 0.3;
+                    Canvas.SetLeft(r, ((double[])r.Tag)[0]);
+                }
+            }
+        }
+
+        // Каска прораба — пока вкладку перестраивают (сезонный наряд на это время снимается)
+        static readonly Brush HatYellow = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x3D)), HatShade = new SolidColorBrush(Color.FromRgb(0xE0, 0x96, 0x1E));
+        bool hatOn;
+        public bool Hat
+        {
+            get { return hatOn; }
+            set
+            {
+                if (hatOn == value) return;
+                hatOn = value;
+                if (value && hat == null)
+                {
+                    hat = new List<Rectangle>();
+                    hat.Add(Pixel(body, 0, 1, 11, 1, HatShade));   // козырёк
+                    hat.Add(Pixel(body, 2, 0, 7, 1, HatYellow));
+                    hat.Add(Pixel(body, 3, -1, 5, 1, HatYellow));
+                    hat.Add(Pixel(body, 5, -2, 1, 2, HatShade));   // гребень
+                    hat.Add(Pixel(body, 4, -2, 3, 1, HatYellow));
+                    hat.Add(Pixel(body, 5, -2, 1, 1, HatShade));
+                }
+                if (hat != null) foreach (Rectangle r in hat) r.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+                foreach (UIElement o in outfit) o.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+
+        // Сценка по команде — прыжок, кружение, «нет», взмах; поверх любого настроения
+        public void Play(string e, int ms)
+        {
+            ev = e; lastEv = e; evAt = Environment.TickCount; evDur = Math.Max(200, ms); forced = true;
+            mark.RenderTransform = Transform.Identity;
+        }
+
+        // Посмотреть в сторону: −1 влево, 1 вправо, 0 прямо — на ms миллисекунд (в спокойном настроении)
+        public void Glance(int dir, int ms) { lookDir = Math.Max(-1, Math.Min(1, dir)); lookAt = Environment.TickCount + ms; }
         public string Prop = "";        // значок рядом со зверьком в спокойном состоянии: зонтик, снежинка…
         public Brush PropBrush;
 
@@ -251,14 +323,15 @@ namespace Kapsula
 
         bool EventTick(int now, double t, double hop)
         {
-            if (Context == "") return false;
+            if (Context == "" && !forced) return false;
             if (ev != null && unchecked(now - evAt) < evDur)
             {
                 double p = unchecked(now - evAt) / (double)evDur;
                 PlayEvent(ev, p, t, hop, now);
                 return true;
             }
-            if (ev != null) { ev = null; mark.RenderTransform = Transform.Identity; evNext = now + (Fast ? 200 : 6000 + rnd.Next(8000)); }
+            if (ev != null) { ev = null; forced = false; mark.RenderTransform = Transform.Identity; evNext = now + (Fast ? 200 : 6000 + rnd.Next(8000)); }
+            if (Context == "") return false;
             if (evNext == 0) evNext = now + (Fast ? 300 : 3000 + rnd.Next(7000));
             if (unchecked(now - evNext) >= 0)
             {
@@ -331,7 +404,24 @@ namespace Kapsula
                 case "peek":     // приоткрыл глаза, огляделся — и снова спать
                     if (p < 0.15 || p > 0.85) Face(4, "z", Grey); else { Face(0, "", null); LookEyes(p < 0.5 ? -1 : 1, 0); }
                     break;
-
+                case "peekclip": // во сне приоткрыл глаз — не скопировали ли что-нибудь
+                    if (p < 0.2 || p > 0.8) Face(4, "z", Grey); else { Face(0, "", null); LookEyes(0, 1); }
+                    break;
+                case "copydream": // снится, что копирует
+                    Face(4, "≡", Grey); mark.Opacity = 0.3 + 0.7 * bell; break;
+                case "codedream": // снится код
+                    Face(4, "{}", Grey); mark.Opacity = 0.3 + 0.7 * bell; break;
+                case "letter":   // снится письмо
+                    Face(4, "✉", Grey); mark.Opacity = 0.3 + 0.7 * bell; break;
+                case "mumble":   // бормочет во сне
+                    Face(4, "~", Grey); shift.Y = Math.Sin(p * Math.PI * 6) * px * 0.3; break;
+                case "bell":     // вздрогнул от «звонка» — и снова уснул
+                    Face(p < 0.35 ? 2 : 4, p < 0.35 ? "!" : "z", Grey); shift.Y = p < 0.2 ? -Math.Sin(p / 0.2 * Math.PI) * hop : 0; break;
+                case "no":       // «не выйдет»: мотает головой
+                    Face(1, "×", Brushes.OrangeRed); tilt.Angle = Math.Sin(p * Math.PI * 6) * 11 * (1 - p); break;
+                case "wow":      // «ого!»: глаза круглые, подскочил
+                    Face(2, "!", Yellow); shift.Y = -bell * hop * 0.7; break;
+                case "scratch":  // чешет затылок
                     Face(1, "?", Grey); tilt.Angle = Math.Sin(p * Math.PI * 8) * 5; break;
                 case "sweat":    // бежит изо всех сил, капля пота
                     Face(1, "·", Drop); shift.X = Math.Sin(t * 10) * hop * 0.8; shift.Y = -Math.Abs(Math.Sin(t * 20)) * hop * 0.7; break;
@@ -369,10 +459,29 @@ namespace Kapsula
             shift.X = 0; shift.Y = 0; mark.Opacity = 1;
             squash.ScaleX = squash.ScaleY = 1; tilt.Angle = 0;
             double hop = px * 1.4;
+            if (seated)
+            {
+                // свешенные лапки болтаются — под музыку быстрее
+                double a = Math.Sin(t * (mood == "dance" ? 7.4 : 3.1)) * px * 0.55;
+                Canvas.SetLeft(legs[1], ((double[])legs[1].Tag)[0] + a);
+                Canvas.SetLeft(legs[2], ((double[])legs[2].Tag)[0] - a);
+            }
             if (EventTick(now, t, hop)) return;   // случайная сценка поверх обычного поведения
             if (mood != "hello" && mark.RenderTransform != Transform.Identity) mark.RenderTransform = Transform.Identity;
             switch (mood)
             {
+                case "fly":     // в прыжке: глаза круглые
+                    Face(2, "", null);
+                    break;
+                case "dance":   // играет музыка: покачивается в такт, ноты мигают
+                {
+                    double beat = t * 2.1 * Math.PI;
+                    Face(3, (now / 1400) % 2 == 0 ? "♪" : "♫", Orange);
+                    shift.Y = -Math.Abs(Math.Sin(beat)) * hop * 0.55;
+                    tilt.Angle = Math.Sin(beat / 2) * 5;
+                    mark.Opacity = 0.45 + 0.55 * Math.Abs(Math.Cos(beat));
+                    break;
+                }
                 case "think":
                     Face(1, new string('.', 1 + (now / 380) % 3), Grey);
                     shift.Y = Math.Round(Math.Sin(t * 3) * hop * 0.35 * 2) / 2;

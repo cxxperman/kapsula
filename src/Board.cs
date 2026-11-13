@@ -36,6 +36,8 @@ namespace Kapsula
         public Action Changed;          // раскладка поменялась
         public Action<string> Say;      // короткая подсказка на острове
         public Action Done;             // правка закончилась
+        public Action<string> Event;    // для зверька-прораба: grab — взяли блок, ok — встал, bad — не помещается, hide, restore, reset
+        void Fire(string e) { if (Event != null) Event(e); }
         public Brush Accent = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));
         readonly Canvas overlayLayer = new Canvas();
         readonly Border tray, target;
@@ -143,6 +145,44 @@ namespace Kapsula
             Store.Set("board." + Key, "");
             Layout(true);
             if (Changed != null) Changed();
+            Fire("reset");
+        }
+
+        // Блоки появляются по очереди — сверху вниз и слева направо, как карточки на телефоне
+        public void Cascade(int startMs, int stepMs)
+        {
+            if (Editing) return;
+            var list = new List<Item>();
+            foreach (Item it in Items) if (!it.Hidden) list.Add(it);
+            double kc = Cols > 0 ? 0.5 * Rows / Cols : 0;   // столбец весит вдвое меньше строки: волна идёт вниз
+            list.Sort(delegate(Item a, Item b) { int d = (a.R + a.C * kc).CompareTo(b.R + b.C * kc); return d != 0 ? d : a.C.CompareTo(b.C); });
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            for (int i = 0; i < list.Count; i++)
+            {
+                FrameworkElement el = list[i].El;
+                var tt = el.RenderTransform as TranslateTransform;
+                if (tt == null) { tt = new TranslateTransform(); el.RenderTransform = tt; }
+                double wait = startMs + i * stepMs;
+                var fade = new DoubleAnimationUsingKeyFrames();
+                fade.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                fade.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(wait))));
+                fade.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(wait + 230)), ease));
+                el.BeginAnimation(UIElement.OpacityProperty, fade);
+                var rise = new DoubleAnimationUsingKeyFrames();
+                rise.KeyFrames.Add(new DiscreteDoubleKeyFrame(10, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                rise.KeyFrames.Add(new DiscreteDoubleKeyFrame(10, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(wait))));
+                rise.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(wait + 320)), ease));
+                tt.BeginAnimation(TranslateTransform.YProperty, rise);
+            }
+        }
+
+        // Показать спрятанный блок (например, «Ярлыки», когда в них бросили файл)
+        public bool ShowItem(string id)
+        {
+            Item it = Find(id);
+            if (it == null) return false;
+            if (it.Hidden) Restore(it);
+            return !it.Hidden;
         }
 
         // Высота до нижнего видимого блока; в режиме правки — вся сетка, чтобы было куда тащить
@@ -309,7 +349,7 @@ namespace Kapsula
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(-7, -7, 0, 0), Cursor = Cursors.Hand, ToolTip = "Спрятать «" + it.Name + "»",
                 Child = new Rectangle { Width = 9, Height = 1.8, RadiusX = 0.9, RadiusY = 0.9, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             };
-            close.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; it.Hidden = true; Layout(true); Save(); };
+            close.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; it.Hidden = true; Layout(true); Save(); Fire("hide"); };
             Fx.Press(close, 0.85);
             g.Children.Add(close);
             var line = Accent.Clone(); line.Opacity = 0.75;
@@ -334,6 +374,7 @@ namespace Kapsula
                 var up = new DoubleAnimation(1.04, TimeSpan.FromMilliseconds(140));
                 lift.BeginAnimation(ScaleTransform.ScaleXProperty, up); lift.BeginAnimation(ScaleTransform.ScaleYProperty, up);
                 ShowTarget(it, it.C, it.R, true);
+                Fire("grab");
             };
             ov.MouseMove += delegate(object s, MouseEventArgs e)
             {
@@ -357,8 +398,8 @@ namespace Kapsula
                 it.El.Effect = null; it.El.RenderTransform = it.Wiggle;
                 target.Visibility = Visibility.Collapsed;
                 bool moved = lastC != it.C || lastR != it.R;
-                if (plan != null) Apply(plan);
-                else if (moved && Say != null) Say("Сюда не помещается");
+                if (plan != null) { Apply(plan); Fire("ok"); }
+                else if (moved) { if (Say != null) Say("Сюда не помещается"); Fire("bad"); }
                 plan = null;
                 Layout(true);
             };
@@ -382,9 +423,10 @@ namespace Kapsula
         void Restore(Item it)
         {
             int[] spot = FreeSpot(it, Committed(), it.DefC, it.DefR);
-            if (spot == null) { if (Say != null) Say("Нет свободного места — сначала уберите что-нибудь"); return; }
+            if (spot == null) { if (Say != null) Say("Нет свободного места — сначала уберите что-нибудь"); Fire("bad"); return; }
             it.C = spot[0]; it.R = spot[1]; it.Hidden = false;
             Layout(true); Save();
+            Fire("restore");
         }
 
         void RenderTray()

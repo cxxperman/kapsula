@@ -239,6 +239,7 @@ namespace Kapsula
             GlassOn = Store.Get("glass") == "1";
             ShowLayout = Store.Get("layout") != "0";
             ShowEyes = Store.Get("eyes") != "0";
+            LoadMotion();   // характер анимаций, попутчик, кромка, тень
             { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
@@ -333,6 +334,10 @@ namespace Kapsula
                 case "autoHide": AutoHide = v; revealUntil = Environment.TickCount + 2500; SetTargets(); break;
                 case "layout": ShowLayout = v; break;
                 case "eyes": ShowEyes = v; RenderCompact(); break;
+                case "petRide": RideOn = v; if (!v) RiderReset(); else { RiderCapture(); RiderRetarget(); } break;
+                case "cascade": CascadeOn = v; break;
+                case "rim": RimOn = v; Wake(); break;
+                case "shadow": ShadowOn = v; Wake(); break;
                 case "notifications": ShowNotifications = v; if (v) StartNotifications(); else notifStop = true; break;
                 case "lyrics": Store.Set("lyrics", v ? "on" : "off"); lyricsKey = null; SetLyrics(null); RenderMedia(); break;
             }
@@ -363,11 +368,11 @@ namespace Kapsula
             if (settingsWin != null) { settingsWin.Activate(); if (openSection != null) settingsWin.ShowSection(openSection); openSection = null; return; }
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
-            if (TestSettings) { settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 840) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); if (TestSettingsScroll > 0) { var sw = settingsWin; double off = TestSettingsScroll; sw.Dispatcher.BeginInvoke(new Action(delegate { sw.ScrollTo(off); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); } }
+            if (TestSettings) { settingsWin.ShowActivated = false; settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 840) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); if (TestSettingsScroll > 0) { var sw = settingsWin; double off = TestSettingsScroll; sw.Dispatcher.BeginInvoke(new Action(delegate { sw.ScrollTo(off); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); } }
             if (openSection != null) settingsWin.ShowSection(openSection);
             openSection = null;
             settingsWin.Show();
-            settingsWin.Activate();
+            if (!TestSettings) settingsWin.Activate();   // проверочные снимки не отнимают фокус у ваших окон
         }
         static readonly Color DefaultAccent = Color.FromRgb(0x4C, 0xD9, 0x7B);
         static readonly FontFamily Icons = new FontFamily("Segoe MDL2 Assets");
@@ -752,6 +757,8 @@ namespace Kapsula
             root.Children.Add(clipHost);
             edge = new Path { Stroke = accent, StrokeThickness = 1.6, StrokeLineJoin = PenLineJoin.Round, IsHitTestVisible = false, Opacity = 0 };
             root.Children.Add(edge);
+            BuildDecor();   // светлая кромка и тень
+            BuildRider();   // зверёк-попутчик — поверх всего острова, чтобы лапки свисали за край
             Content = root;
         }
 
@@ -2529,6 +2536,7 @@ namespace Kapsula
 
             pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildDeckPage() };
             foreach (var p in pages) { Grid.SetRow(p, 2); g.Children.Add(p); }
+            BuildDropZones(g);   // «На полку», «В ярлыки», «В чат» — поверх страницы, пока над островом тащат файл
             expandedHost.Children.Add(g);
             ShowPage(0);
             UpdateShelfBadge();
@@ -2552,6 +2560,7 @@ namespace Kapsula
             b.Say = delegate(string s) { Toast(((char)0xE70F).ToString(), s, null, -1, null); };
             b.Done = delegate { if (b == homeBoard) ApplyHomeLayout(); SetTargets(); RefreshPencil(); };
             b.Changed = delegate { if (b == homeBoard) ApplyHomeLayout(); else if (state == 2) SetTargets(); };
+            b.Event = delegate(string ev) { RiderBoardEvent(ev); };   // зверёк-прораб радуется или огорчается
         }
 
         // Карандаш в углу панели: включает правку вкладки, если у неё есть конструктор
@@ -2702,6 +2711,7 @@ namespace Kapsula
         void ShowPage(int idx)
         {
             int prev = page;
+            RiderCapture();   // зверёк сидел на месте зверька прежней страницы — прыгнет оттуда
             if (prev != idx) { Board ob = BoardFor(prev); if (ob != null && ob.Editing) ob.SetEditing(false); }   // ушли с вкладки — правка закончена
             page = idx;
             RefreshPencil();
@@ -2746,10 +2756,13 @@ namespace Kapsula
             pages[idx].Opacity = 0;
             var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(moving ? 280 : 180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
             pages[idx].BeginAnimation(UIElement.OpacityProperty, a);
+            if (moving) CascadeBlocks(idx, 20);
             if (idx == PText) RenderTextPreview();
             if (idx == PSystem) { RenderSystem(); ShowBt(TestBt); RefreshControl(); }
             if (idx == PNote) UpdateRing();
             if (idx == PWeather && weather != null && weather.Error == null) { weatherAnimAt = Environment.TickCount | 1; AnimateWeather(); }
+            if (rider != null && state == 2 && RideOn) pages[idx].UpdateLayout();   // зверьки страницы уже на местах — прыгать сразу к ним
+            RiderRetarget();   // перескочить к новой вкладке или на место её зверька
         }
 
         Border Btn(string text, bool glyph, double w, double h, Action click)
@@ -3985,6 +3998,7 @@ namespace Kapsula
             e.Effects = DragDropEffects.Copy;
             if (page != PShelf) ShowPage(PShelf);
             if (state != 2) SetState(2);
+            DropOver(e);   // зоны «На полку», «В ярлыки», «В чат»
         }
 
         void OnFileDrop(object sender, DragEventArgs e)
@@ -3992,13 +4006,8 @@ namespace Kapsula
             e.Handled = true;
             if (selfDrag) return;
             var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-            if (files == null || files.Length == 0) return;
-            int added = 0;
-            foreach (string f in files)
-                if (!shelf.Contains(f)) { shelf.Add(f); added++; }
-            SaveShelf();
-            RenderShelf();
-            if (added > 0) Toast("", added == 1 ? "На полке: " + System.IO.Path.GetFileName(files[0]) : "На полке файлов: " + added, null, -1, accent);
+            if (files == null || files.Length == 0) { DropHide(); return; }
+            DropDone(files);
         }
 
         void SortClips()
@@ -6872,6 +6881,7 @@ namespace Kapsula
         // Пример для окна настроек: наведение на строку — остров показывает, как это выглядит
         public void ShowDemo(string kind)
         {
+            if (kind == "motion") { DemoMotion(); return; }   // характер анимаций и попутчик: раскрыться и свернуться
             if (state == 2 || state == 4) return;
             Action card = null;
             switch (kind)
@@ -8049,6 +8059,7 @@ namespace Kapsula
             if (ForceOpen >= 0) { ShowPage(Math.Min(ForceOpen, pages.Length - 1)); SetExpanded(true); }
             else if (ForceOpen == -2) SetState(1);
             else if (ForceOpen == -3) SetTargets();
+            if (TestRider != null) RiderTestScript();
             StartIntegrationHints();
             StartWelcome();
             if (TestBuds >= 0) ClaudeAfter(2500, delegate { ShowBudsCard(new EarbudsState { Model = "AirPods Max", Single = TestBuds, At = Environment.TickCount }); });
@@ -8387,17 +8398,19 @@ namespace Kapsula
             springs |= sr.Step(dt);
             springs |= sy.Step(dt);
             for (int i = 0; i < so.Length; i++) springs |= so[i].Step(dt);
+            bool riderBusy = RiderBusy();   // зверёк-попутчик в прыжке или пружинит после посадки
             // Пока движется форма острова, рисуем каждый кадр монитора. Когда пляшет только жидкий край,
             // хватает около 60 обновлений в секунду: глаз разницы не видит, а нагрузка падает в разы.
-            if (springs || t - appliedAt >= 0.0155)
+            if (springs || riderBusy || t - appliedAt >= 0.0155)
             {
                 liquidLive = StepLiquid(Math.Min(0.05, t - liquidAt));
                 liquidAt = t;
                 ApplyFrame();
+                RiderPlace();
                 if (springs && duck != null && state == 2 && page == PChat) DuckTick();
                 appliedAt = t;
             }
-            bool moving = springs || liquidLive;
+            bool moving = springs || liquidLive || riderBusy;
             if (!moving)
             {
                 CompositionTarget.Rendering -= OnFrame;
@@ -8516,6 +8529,8 @@ namespace Kapsula
             shape.Data = g;
             clipHost.Clip = g;
             slide.Y = sy.X;
+            rimTips = tips; rimH = h; rimBl = bl; rimBr = br;   // по этому краю ездит зверёк-попутчик
+            ApplyDecor(g);
 
             // «Матовое стекло»: раскрытая панель и строка команд становятся полупрозрачными, а фон за ними размывается.
             // Капсула и карточки остаются плотными чёрными.
@@ -8578,6 +8593,7 @@ namespace Kapsula
         void SetState(int s)
         {
             if (state == s) return;
+            RiderCapture();   // запомнить, где сейчас сидит зверёк: оттуда он и прыгнет
             if (s != 2) { Board eb = BoardFor(page); if (eb != null && eb.Editing) eb.SetEditing(false); RefreshPencil(); }   // панель закрылась — правка закончена
             if (s == 1) RenderMiniVolume();   // ползунок громкости — сразу с текущим значением
             bool wasFull = state == 2 || state == 4;
@@ -8615,17 +8631,19 @@ namespace Kapsula
             RenderCompact();
             SetTargets();
             DuckTick();
+            RiderRetarget();   // зверёк перебирается туда, где он теперь нужен
         }
 
-        // Панель открылась — содержимое страницы мягко «всплывает» снизу
+        // Панель открылась — содержимое страницы мягко «всплывает» снизу, блоки — по очереди
         void RisePage()
         {
             if (pages == null || page < 0 || page >= pages.Length) return;
             FrameworkElement cur = pages[page];
             var t = cur.RenderTransform as TranslateTransform;
             if (t == null) { t = new TranslateTransform(); cur.RenderTransform = t; }
-            t.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(12, 0, TimeSpan.FromMilliseconds(380)) { EasingFunction = SlideEase });
-            cur.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300)) { EasingFunction = SlideEase });
+            t.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(ReducedMotion ? 0 : 12, 0, TimeSpan.FromMilliseconds(380)) { EasingFunction = SlideEase });
+            cur.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(ReducedMotion ? 160 : 300)) { EasingFunction = SlideEase });
+            CascadeBlocks(page, 60);
         }
 
         Border pinBtn;
@@ -9629,7 +9647,7 @@ namespace Kapsula
             if (toastOn && unchecked(Environment.TickCount - toastUntil) >= 0) { toastOn = false; RenderCompact(); SetTargets(); }
             if (fsPeeking && unchecked(Environment.TickCount - fsPeekUntil) >= 0) { fsPeeking = false; SetTargets(); }
 
-            if (pollN % 3 == 0)
+            if (calm || pollN % 3 == 0)
             {
                 double v = Audio.GetVolume();
                 if (v >= 0)
@@ -9673,6 +9691,8 @@ namespace Kapsula
             if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
             if (expanded && page == PWeather && weatherAnimAt != 0) AnimateWeather();
             if (expanded && page == PNote && pollN % 4 == 0) UpdateRing();
+            RiderPoll();
+            CalmCheck();
         }
 
         void OnTick()
