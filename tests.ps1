@@ -397,17 +397,50 @@ foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-
 Set-Content (Join-Path $res 'app.asar') 'discord'
 $env:KAPSULA_TEST_APPDATA = $roam; $env:KAPSULA_TEST_LOCALAPPDATA = $loc; $env:KAPSULA_TEST_VENCORD_DIR = $src
 try {
-    # 1) Discord без Vencord: Kapsula встраивает сама
+    # 1) Discord без Vencord: Kapsula встраивает сама — как установщик Vencord: _app.asar и заглушка app.asar
     T 'discord: подключение без Vencord' ($di.GetMethod('Install').Invoke($null, @())) $null
     $dist = Join-Path $roam 'Vencord\dist'
     T 'discord: сборка на месте' (Get-Content (Join-Path $dist 'renderer.js') -Raw).Contains('kapsula build') $true
-    T 'discord: исходный app.asar сохранён' (Test-Path (Join-Path $res '_app.asar')) $true
-    T 'discord: загрузчик ведёт к patcher.js' ((Get-Content (Join-Path $res 'app\index.js') -Raw).Contains('patcher.js')) $true
-    T 'discord: старая версия Discord не тронута' (Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\app')) $false
+    T 'discord: исходный app.asar сохранён' ((Get-Content (Join-Path $res '_app.asar') -Raw).Trim()) 'discord'
+    T 'discord: папки app нет (с ней Discord не запускался)' (Test-Path (Join-Path $res 'app')) $false
+    $stub = [IO.File]::ReadAllBytes((Join-Path $res 'app.asar'))
+    $hs = [int][BitConverter]::ToUInt32($stub, 4); $jl = [int][BitConverter]::ToUInt32($stub, 12)
+    $hdr = [Text.Encoding]::UTF8.GetString($stub, 16, $jl) | ConvertFrom-Json
+    $ix = $hdr.files.'index.js'; $pk = $hdr.files.'package.json'; $base = 8 + $hs
+    $idxText = [Text.Encoding]::UTF8.GetString($stub, $base + [int]$ix.offset, [int]$ix.size)
+    $pkgText = [Text.Encoding]::UTF8.GetString($stub, $base + [int]$pk.offset, [int]$pk.size)
+    T 'discord: заглушка app.asar — архив asar' (([BitConverter]::ToUInt32($stub, 0) -eq 4) -and ($stub.Length -eq $base + [int]$ix.size + [int]$pk.size)) $true
+    T 'discord: заглушка загружает patcher.js Vencord' ($idxText.StartsWith('require(') -and $idxText.Contains('Vencord\\dist\\patcher.js')) $true
+    T 'discord: заглушка запускает index.js' (($pkgText | ConvertFrom-Json).main) 'index.js'
+    T 'discord: старая версия Discord не тронута' ((Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\_app.asar')) -or (Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\app'))) $false
+    # Discord обновился, и Vencord сам перенёс заглушку в новую версию — «Отключить» вернёт и её
+    $res2 = Join-Path $loc 'Discord\app-1.0.9300\resources'
+    New-Item -ItemType Directory -Force $res2 | Out-Null
+    Set-Content (Join-Path $res2 '_app.asar') 'discord new'; Copy-Item (Join-Path $res 'app.asar') (Join-Path $res2 'app.asar')
     T 'discord: отключение' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: app.asar вернулся' ((Test-Path (Join-Path $res 'app.asar')) -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
+    T 'discord: app.asar вернулся' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
+    T 'discord: и в новой версии Discord' (((Get-Content (Join-Path $res2 'app.asar') -Raw).Trim() -eq 'discord new') -and -not (Test-Path (Join-Path $res2 '_app.asar'))) $true
     T 'discord: нашей сборки не осталось' (Test-Path (Join-Path $dist 'renderer.js')) $false
-    # 2) Discord с Vencord: меняются только файлы Vencord, прежние возвращаются
+    Remove-Item (Join-Path $loc 'Discord\app-1.0.9300') -Recurse -Force
+    # 2) Discord, сломанный подключением из 0.6.1–0.6.2 (папка app рядом с _app.asar, а app.asar нет)
+    $broken = {
+        New-Item -ItemType Directory -Force $dist, (Join-Path $res 'app') | Out-Null
+        foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) ('// kapsula build ' + $f) }
+        Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar')
+        Set-Content (Join-Path $res 'app\index.js') 'require("C:\\Users\\u\\AppData\\Roaming\\Vencord\\dist\\patcher.js");'
+        Set-Content (Join-Path $res 'app\package.json') '{"name":"discord","main":"index.js"}'
+        Set-Content (Join-Path $dist 'kapsula.txt') ("Kapsula`r`nvencord=kapsula`r`ninjected=" + $res)
+    }
+    & $broken
+    T 'discord: починка при запуске' ($di.GetMethod('RepairBroken').Invoke($null, @())) $true
+    T 'discord: после починки — заглушка, рядом исходный Discord' ((-not (Test-Path (Join-Path $res 'app'))) -and ((Get-Content (Join-Path $res '_app.asar') -Raw).Trim() -eq 'discord') -and ([IO.File]::ReadAllBytes((Join-Path $res 'app.asar'))[0] -eq 4)) $true
+    T 'discord: повторная починка ничего не трогает' ($di.GetMethod('RepairBroken').Invoke($null, @())) $false
+    T 'discord: отключение после починки' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: после починки и отключения Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
+    & $broken
+    T 'discord: «Отключить» на сломанном' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: сломанный вернулся как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
+    # 3) Discord с Vencord: меняются только файлы Vencord, прежние возвращаются
     Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar'); Set-Content (Join-Path $res 'app.asar') 'vencord stub'
     New-Item -ItemType Directory -Force $dist | Out-Null
     foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) 'official vencord' }
@@ -423,6 +456,13 @@ try {
     Remove-Item Env:KAPSULA_TEST_APPDATA, Env:KAPSULA_TEST_LOCALAPPDATA, Env:KAPSULA_TEST_VENCORD_DIR -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# --- Команды острова плагину в Discord: несколько сразу, кавычки в имени экрана не ломают JSON
+$dvs = $asm.GetType('Kapsula.DiscordVoiceServer')
+$dvs.GetMethod('Command').Invoke($null, @('mute')); $dvs.GetMethod('Command').Invoke($null, @('stream:window:1"2\3'))
+$cmdJson = $dvs.GetMethod('TakeCommands', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @())
+T 'discord: команды острова — правильный JSON' ((($cmdJson | ConvertFrom-Json).commands) -join '|') 'mute|stream:window:1"2\3'
+T 'discord: после отправки очередь пуста' ($dvs.GetMethod('TakeCommands', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @())) '{"commands":[]}'
 
 # --- наряды за привычки: у каждого наряда есть название
 T 'наряды: названий столько же, сколько нарядов' ($iwT.GetField('OutfitNames').GetValue($null).Length) ($iwT.GetField('OutfitIds').GetValue($null).Length)

@@ -68,6 +68,92 @@ namespace Kapsula
 
         static string JsString(string s) { return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""; }
 
+        // Все версии Discord (обычный, PTB, Canary): Vencord сам переносит заглушку в новую версию после обновления
+        static List<string> AllResources()
+        {
+            var list = new List<string>();
+            foreach (string name in new[] { "Discord", "DiscordPTB", "DiscordCanary" })
+            {
+                string root = Path.Combine(LocalRoot, name);
+                if (!Directory.Exists(root)) continue;
+                foreach (string d in Directory.GetDirectories(root, "app-*"))
+                    if (Directory.Exists(Path.Combine(d, "resources"))) list.Add(Path.Combine(d, "resources"));
+            }
+            return list;
+        }
+
+        // Заглушка app.asar — точно как у установщика Vencord: крошечный архив asar, где index.js загружает Vencord из
+        // его папки. Настоящий Discord лежит рядом в _app.asar: Vencord находит его сам, а после обновления Discord сам
+        // переносит заглушку в новую версию. (Формат asar: заголовок-«pickle» с JSON-оглавлением, потом файлы подряд.)
+        public static byte[] StubAsar()
+        {
+            byte[] idx = System.Text.Encoding.UTF8.GetBytes("require(" + JsString(Path.Combine(Dist, "patcher.js")) + ")");
+            byte[] pkg = System.Text.Encoding.UTF8.GetBytes("{\n\t\"name\": \"discord\",\n\t\"main\": \"index.js\"\n}");
+            byte[] json = System.Text.Encoding.UTF8.GetBytes("{\"files\":{\"index.js\":{\"size\":" + idx.Length + ",\"offset\":\"0\"},\"package.json\":{\"size\":" + pkg.Length + ",\"offset\":\"" + idx.Length + "\"}}}");
+            int pad = (4 - json.Length % 4) % 4;
+            int payload = 4 + json.Length + pad;
+            using (var ms = new MemoryStream())
+            {
+                var w = new BinaryWriter(ms);
+                w.Write(4); w.Write(4 + payload); w.Write(payload); w.Write(json.Length);
+                w.Write(json); w.Write(new byte[pad]); w.Write(idx); w.Write(pkg);
+                w.Flush();
+                return ms.ToArray();
+            }
+        }
+
+        // app.asar — заглушка Vencord, а не сам Discord: маленький файл, который загружает patcher.js
+        static bool IsStub(string asar)
+        {
+            try
+            {
+                var fi = new FileInfo(asar);
+                return fi.Exists && fi.Length < 8192 && System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(asar)).Contains("patcher.js");
+            }
+            catch { return false; }
+        }
+
+        // Папка app с загрузчиком Vencord — так встраивала Kapsula 0.6.1–0.6.2. Рядом с переименованным _app.asar это
+        // не работает: Vencord из папки app ищет исходный Discord в app.asar, а его там нет — Discord не запускался
+        // («Cannot find module …\app.asar\package.json»). Узнаём только свою папку: index.js и package.json, и всё.
+        static bool OldLoader(string app)
+        {
+            try
+            {
+                if (!Directory.Exists(app) || Directory.GetDirectories(app).Length > 0) return false;
+                foreach (string f in Directory.GetFiles(app))
+                {
+                    string n = Path.GetFileName(f);
+                    if (n != "index.js" && n != "package.json") return false;
+                }
+                string idx = Path.Combine(app, "index.js");
+                return File.Exists(idx) && File.ReadAllText(idx).Contains("patcher.js");
+            }
+            catch { return false; }
+        }
+
+        // При запуске Kapsula: Discord, сломанный подключением из 0.6.1–0.6.2, — починить. Папку app убираем, на место
+        // app.asar — заглушка (или сам Discord, если сборки Vencord уже нет). true — что-то починили
+        public static bool RepairBroken()
+        {
+            if (!Installed) return false;
+            bool done = false;
+            bool haveVencord = File.Exists(Path.Combine(Dist, "patcher.js"));
+            foreach (string r in AllResources())
+            {
+                string app = Path.Combine(r, "app"), orig = Path.Combine(r, "_app.asar"), asar = Path.Combine(r, "app.asar");
+                if (!OldLoader(app) || !File.Exists(orig) || File.Exists(asar)) continue;
+                try
+                {
+                    Directory.Delete(app, true);
+                    if (haveVencord) File.WriteAllBytes(asar, StubAsar()); else File.Move(orig, asar);
+                    done = true;
+                }
+                catch (Exception ex) { Store.LogError("починка подключения Discord", ex); }
+            }
+            return done;
+        }
+
         // null — получилось; иначе — что пошло не так (для настроек)
         public static string Install()
         {
@@ -100,20 +186,28 @@ namespace Kapsula
                 // 3. Наша сборка
                 foreach (var kv in data) File.WriteAllBytes(Path.Combine(Dist, kv.Key), kv.Value);
                 // 4. Discord без Vencord — встроить так же, как его установщик: исходный app.asar → _app.asar,
-                //    а на его место — папка app, которая загружает Vencord из его папки
+                //    а на его место — заглушка app.asar, которая загружает Vencord из его папки
                 var injected = new List<string>();
                 foreach (string r in res)
                 {
-                    if (File.Exists(Path.Combine(r, "_app.asar"))) continue;   // уже со встроенным Vencord
-                    string asar = Path.Combine(r, "app.asar");
-                    if (!File.Exists(asar)) continue;
-                    try { File.Move(asar, Path.Combine(r, "_app.asar")); }
+                    string asar = Path.Combine(r, "app.asar"), orig = Path.Combine(r, "_app.asar"), app = Path.Combine(r, "app");
+                    try
+                    {
+                        if (OldLoader(app)) Directory.Delete(app, true);   // так встраивала 0.6.1–0.6.2 — с этим Discord не запускался
+                        if (File.Exists(orig))
+                        {
+                            // Vencord уже встроен; заглушки нет (после 0.6.1–0.6.2) — поставить
+                            if (!File.Exists(asar)) { File.WriteAllBytes(asar, StubAsar()); injected.Add(r); }
+                            continue;
+                        }
+                        if (!File.Exists(asar)) continue;
+                        File.Move(asar, orig);
+                        try { File.WriteAllBytes(asar, StubAsar()); }
+                        catch { File.Move(orig, asar); throw; }   // без заглушки Discord не запустится — вернуть как было
+                        injected.Add(r);
+                    }
                     catch (IOException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
-                    string app = Path.Combine(r, "app");
-                    Directory.CreateDirectory(app);
-                    File.WriteAllText(Path.Combine(app, "index.js"), "require(" + JsString(Path.Combine(Dist, "patcher.js")) + ");\n");
-                    File.WriteAllText(Path.Combine(app, "package.json"), "{\"name\":\"discord\",\"main\":\"index.js\"}\n");
-                    injected.Add(r);
+                    catch (UnauthorizedAccessException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
                 }
                 string old = Installed ? File.ReadAllText(Marker) : "";
                 var sb = new System.Text.StringBuilder();
@@ -134,6 +228,29 @@ namespace Kapsula
             try
             {
                 string[] lines = File.ReadAllLines(Marker);
+                bool ours = Array.Exists(lines, l => l.Trim() == "vencord=kapsula");
+                // 1. Сначала Discord — пока он запущен, ничего не меняем: иначе он остался бы без сборки, которую загружает.
+                //    Где встраивали мы, вернуть исходный app.asar; если и Vencord ставили мы — то же во всех версиях
+                //    Discord (Vencord сам переносит заглушку в новую версию после обновления)
+                var places = new List<string>();
+                foreach (string line in lines) if (line.StartsWith("injected=")) places.Add(line.Substring(9).Trim());
+                if (ours) foreach (string r in AllResources()) if (!places.Contains(r)) places.Add(r);
+                foreach (string r in places)
+                {
+                    string app = Path.Combine(r, "app"), orig = Path.Combine(r, "_app.asar"), asar = Path.Combine(r, "app.asar");
+                    try
+                    {
+                        if (OldLoader(app)) Directory.Delete(app, true);
+                        if (File.Exists(orig) && (!File.Exists(asar) || IsStub(asar)))
+                        {
+                            if (File.Exists(asar)) File.Delete(asar);
+                            File.Move(orig, asar);
+                        }
+                    }
+                    catch (IOException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                    catch (UnauthorizedAccessException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                }
+                // 2. Сборка Vencord: прежняя — на место, иначе убрать нашу
                 if (Directory.Exists(Backup))
                 {
                     foreach (string f in Files) { string p = Path.Combine(Dist, f); if (File.Exists(p)) File.Delete(p); }
@@ -141,18 +258,6 @@ namespace Kapsula
                     Directory.Delete(Backup, true);
                 }
                 else foreach (string f in Files) { string p = Path.Combine(Dist, f); if (File.Exists(p)) File.Delete(p); }
-                foreach (string line in lines)
-                {
-                    if (!line.StartsWith("injected=")) continue;
-                    string r = line.Substring(9).Trim();
-                    string app = Path.Combine(r, "app"), orig = Path.Combine(r, "_app.asar"), asar = Path.Combine(r, "app.asar");
-                    try
-                    {
-                        if (Directory.Exists(app)) Directory.Delete(app, true);
-                        if (File.Exists(orig) && !File.Exists(asar)) File.Move(orig, asar);
-                    }
-                    catch (IOException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
-                }
                 File.Delete(Marker);
                 return null;
             }

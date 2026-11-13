@@ -67,7 +67,12 @@ namespace Kapsula
         {
             var sb = new StringBuilder("{\"commands\":[");
             bool first = true;
-            while (commands.Count > 0) { if (!first) sb.Append(','); sb.Append('"').Append(commands.Dequeue()).Append('"'); first = false; }
+            while (commands.Count > 0)
+            {
+                if (!first) sb.Append(',');
+                sb.Append('"').Append(commands.Dequeue().Replace("\\", "\\\\").Replace("\"", "\\\"")).Append('"');   // «stream:…» несёт имя экрана
+                first = false;
+            }
             return sb.Append("]}").ToString();
         }
 
@@ -156,6 +161,13 @@ namespace Kapsula
         {
             DiscordVoiceServer.Received += delegate(string json) { Dispatcher.BeginInvoke(new Action(delegate { DiscordVoiceMessage(json); })); };
             DiscordVoiceServer.Start();
+            // Discord, который не запускался после «Подключить» в 0.6.1–0.6.2, — починить сразу при запуске Kapsula
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool repaired = false;
+                try { repaired = DiscordInstall.RepairBroken(); } catch { }
+                if (repaired) Dispatcher.BeginInvoke(new Action(delegate { ClaudeAfter(6000, delegate { Toast("", "Починили подключение Discord — можно запускать", null, -1, accent); }); }));
+            });
         }
 
         void DiscordVoiceMessage(string json)
@@ -165,14 +177,18 @@ namespace Kapsula
             if (d == null) return;
             bool wasLive = DiscordLive;
             int nowT = Environment.TickCount;
-            bool wasCall = dvInCall, wasStream = dvStream, wasVideo = dvVideo;
+            bool wasCall = dvInCall, wasStreamSeen = dvStreamSeen, wasVideo = dvVideo;
             dvHeardAt = nowT;
             // Нажатую на острове кнопку не откатываем, пока Discord не подтвердит (или полторы секунды)
             bool inCall = DFlag(d, "inCall"), inMute = DFlag(d, "mute"), inDeaf = DFlag(d, "deaf");
             if (!(dvMuteHold != 0 && unchecked(nowT - dvMuteHold) < 0 && inMute != dvMute)) { dvMute = inMute; dvMuteHold = 0; }
             if (!(dvDeafHold != 0 && unchecked(nowT - dvDeafHold) < 0 && inDeaf != dvDeaf)) { dvDeaf = inDeaf; dvDeafHold = 0; }
             if (!(dvLeaveHold != 0 && unchecked(nowT - dvLeaveHold) < 0 && inCall)) { dvInCall = inCall; dvLeaveHold = 0; }
-            dvStream = DFlag(d, "stream"); dvVideo = DFlag(d, "video"); dvSpeaking = DFlag(d, "speaking");
+            // демка: кнопка на острове может опережать Discord (как микрофон), а надпись — только по его словам
+            bool inStream = DFlag(d, "stream");
+            dvStreamSeen = inStream;
+            if (!(dvStreamHold != 0 && unchecked(nowT - dvStreamHold) < 0 && inStream != dvStream)) { dvStream = inStream; dvStreamHold = 0; }
+            dvVideo = DFlag(d, "video");
             dvChannel = DText(d, "channel"); dvGuild = DText(d, "guild");
             // кто в канале: имя, аватарка, говорит ли, выключен ли микрофон или звук — для карточки звонка
             var people = new List<DvPerson>();
@@ -185,6 +201,10 @@ namespace Kapsula
                     people.Add(new DvPerson { Id = DText(p, "id"), Name = DText(p, "name"), Avatar = DText(p, "avatar"), Speaking = DFlag(p, "speaking"), Mute = DFlag(p, "mute"), Deaf = DFlag(p, "deaf"), Video = DFlag(p, "video"), Stream = DFlag(p, "stream"), Me = DFlag(p, "me") });
                 }
             dvPeople = people;
+            // Зверёк кивает только на ваш голос, а не на чужой: «говорите вы» — от плагина или из списка участников
+            object ms;
+            if (d.TryGetValue("meSpeaking", out ms) && ms is bool) dvSpeaking = (bool)ms;
+            else dvSpeaking = people.Exists(p => p.Me && p.Speaking);
             object o;
             dvUsers = d.TryGetValue("users", out o) && o is int ? (int)o : 0;
             double since = d.TryGetValue("since", out o) && o != null ? Convert.ToDouble(o) : 0;
@@ -196,10 +216,26 @@ namespace Kapsula
             // (не при первом сообщении после запуска Kapsula и не при выходе из звонка — тогда это не новость)
             if (wasLive && dvInCall)
             {
-                if (dvStream != wasStream && (dvStream || wasCall)) DemoToast(dvStream);
+                if (dvStreamSeen != wasStreamSeen && (dvStreamSeen || wasCall)) DemoToast(dvStreamSeen);
                 else if (dvVideo != wasVideo && (dvVideo || wasCall)) CamToast(dvVideo);
             }
+            // Ответ на кнопку демки: что можно показать — меню у кнопки; или почему демка не пошла
+            object so;
+            if (dvSourcesWanted != 0 && d.TryGetValue("sources", out so) && so is object[])
+            {
+                bool fresh = unchecked(nowT - dvSourcesWanted) < 0;
+                dvSourcesWanted = 0;
+                PaintMute();
+                if (fresh) StreamMenu((object[])so);
+            }
+            string notice = DText(d, "notice");
+            if (notice == "no-permission") CallNotice("В этом канале нельзя показывать экран");
+            else if (notice == "no-stream") CallNotice("Discord не запустил демку");
         }
+
+        bool dvStreamSeen;     // демка по словам самого Discord (dvStream — с учётом только что нажатой кнопки)
+        int dvStreamHold;
+        int dvSourcesWanted;   // ждём от Discord список экранов и окон для кнопки демки — до этого момента
 
         // «Демка запущена» с красной меткой LIVE — дольше обычной надписи: важно знать, что ваш экран видят
         bool toastLive;   // Toast() сбрасывает; правый край надписи — красный
@@ -258,6 +294,8 @@ namespace Kapsula
             if (cmd == "mute") { dvMute = !dvMute; dvMuteHold = until; }
             else if (cmd == "deaf") { dvDeaf = !dvDeaf; dvDeafHold = until; }
             else if (cmd == "leave") { dvInCall = false; dvLeaveHold = until; DiscordCallTick(); }
+            else if (cmd.StartsWith("stream:")) { dvStream = true; dvStreamHold = Environment.TickCount + 6000; }   // демка запускается дольше
+            else if (cmd == "unstream") { dvStream = false; dvStreamHold = Environment.TickCount + 3000; }
             callMuted = dvMute || dvDeaf;
             PaintMute();
             RenderCompact();

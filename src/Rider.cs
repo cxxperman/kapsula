@@ -648,6 +648,15 @@ namespace Kapsula
             }
             // KAPSULA_RIDEDISCORD=2: всё время в капсуле — надписи «Демка запущена / остановлена», зверёк в звонке
             if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "2") return;
+            // KAPSULA_RIDEDISCORD=3: кнопка демки — «Главная», нажатие (вместо меню берётся первый экран), потом «стоп»
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "3")
+            {
+                ClaudeAfter(3500, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(6000, delegate { CallKey(4); });
+                ClaudeAfter(11000, delegate { CallKey(4); });
+                ClaudeAfter(15000, delegate { pinned = false; SetState(0); });
+                return;
+            }
             // KAPSULA_CALLTEST=1: «звонок» — восемь секунд в капсуле (зверёк в эфире), потом «Главная» с карточкой звонка
             if (callTest)
             {

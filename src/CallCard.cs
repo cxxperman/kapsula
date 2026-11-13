@@ -1,9 +1,10 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: CallCard.cs
 // Карточка звонка на «Главной»: как голосовая панель самого Discord, но в духе iPhone. Сверху — канал, сервер и
 // зелёный таймер. Ниже — кто в канале: аватарки, у говорящего зелёное кольцо (как в Discord), у того, кто выключил
-// микрофон или звук, — значок. Потом круглые кнопки: микрофон, полный мут, настройки звука и красная «отключиться»;
-// включённая кнопка становится белой, а значок — красным и перечёркнутым, как в Discord. Когда вы показываете экран или включили камеру — рядом
-// метки «LIVE» и камеры. Если играет музыка, внизу тонкая строка плеера: обложка, трек, «назад / пауза / вперёд».
+// микрофон или звук, — значок. Потом круглые кнопки: микрофон, полный мут, демка (экран или окно — меню, как окно
+// выбора в Discord), настройки звука и красная «отключиться»; включённая кнопка становится белой, а значок —
+// красным и перечёркнутым, как в Discord. Когда вы показываете экран или включили камеру — у таймера метки «LIVE»
+// и камеры. Если играет музыка, внизу тонкая строка плеера: обложка, трек, «назад / пауза / вперёд».
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -30,8 +31,8 @@ namespace Kapsula
 
         const int Faces = 6;   // аватарок в ряд, остальные — «+N»
         TextBlock callTitle, callMusicTitle, callMusicArtist, callMore;
-        readonly Border[] callKeys = new Border[4];
-        readonly TextBlock[] callKeyGlyphs = new TextBlock[4];
+        readonly Border[] callKeys = new Border[5];   // микрофон, полный мут, устройства, отключиться, демка
+        readonly TextBlock[] callKeyGlyphs = new TextBlock[5];
         readonly FrameworkElement[] keyStrike = new FrameworkElement[2];   // красная косая черта на микрофоне и наушниках
         readonly Grid[] faceSlots = new Grid[Faces];
         readonly Ellipse[] faceRings = new Ellipse[Faces], facePics = new Ellipse[Faces];
@@ -56,9 +57,17 @@ namespace Kapsula
             callAppText = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
             names.Children.Add(callTitle); names.Children.Add(callAppText);
             head.Children.Add(names);
+            // справа — метки «LIVE» (вы показываете экран) и камеры, как в Discord, и зелёный таймер; метки одной
+            // высоты: красная «LIVE» и зелёная камера (зелёный — как точка камеры на iPhone)
+            var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+            callLive = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleRed, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(0, 2, 6, 0), VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed, ToolTip = "Вы показываете экран",
+                Child = new TextBlock { Text = "LIVE", Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 1) } };
+            callCam = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleGreen, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(0, 2, 6, 0), VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed, ToolTip = "Камера включена",
+                Child = new TextBlock { Text = "", FontFamily = Icons, FontSize = 11, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             callTimeText = new TextBlock { Foreground = AppleGreen, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) };
             System.Windows.Documents.Typography.SetNumeralAlignment(callTimeText, FontNumeralAlignment.Tabular);   // цифры не прыгают
-            Grid.SetColumn(callTimeText, 1); head.Children.Add(callTimeText);
+            right.Children.Add(callLive); right.Children.Add(callCam); right.Children.Add(callTimeText);
+            Grid.SetColumn(right, 1); head.Children.Add(right);
             stack.Children.Add(head);
 
             // 2. Кто в канале
@@ -68,30 +77,23 @@ namespace Kapsula
             callFaces.Children.Add(callMore);
             stack.Children.Add(callFaces);
 
-            // 3. Кнопки, как в голосовой панели Discord: микрофон, звук, настройки; справа — красная «отключиться»
+            // 3. Кнопки, как в голосовой панели Discord: микрофон, звук, демка, настройки; справа — красная «отключиться»
             var row = new Grid { Margin = new Thickness(0, 10, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            string[] glyphs = { "\uE720", "\uE7F6", "\uE713", "\uE778" };
-            string[] tips = { "Микрофон", "Полный мут: не слышать никого", "Микрофон и динамики", "Отключиться" };
-            for (int i = 0; i < 4; i++)
+            string[] glyphs = { "\uE720", "\uE7F6", "\uE713", "\uE778", "\uE7F4" };
+            string[] tips = { "Микрофон", "Полный мут: не слышать никого", "Микрофон и динамики", "Отключиться", "Показать экран (демка)" };
+            for (int i = 0; i < 5; i++)
             {
                 int k = i;
                 var g = callKeyGlyphs[i] = new TextBlock { Text = glyphs[i], FontFamily = Icons, FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 UIElement face = i < 2 ? Strike(g, 18, 1.8, Brushes.White, out keyStrike[i]) : (UIElement)g;   // микрофон и наушники перечёркиваются, как в Discord
-                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? (Brush)AppleRed : GlassKey, Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i < 2 ? 10 : 0, 0) };
+                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? (Brush)AppleRed : GlassKey, Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i == 2 || i == 3 ? 0 : 10, 0) };
                 key.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; CallKey(k); };
                 Fx.Press(key, 0.9);
-                if (i < 3) left.Children.Add(key);
             }
-            // метки «показываю экран» и «камера включена» — как в Discord
-            // одной высоты: красная «LIVE» и зелёная камера (зелёный — как точка камеры на iPhone)
-            callLive = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleRed, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Вы показываете экран",
-                Child = new TextBlock { Text = "LIVE", Foreground = Brushes.White, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 1) } };
-            callCam = new Border { Height = 18, CornerRadius = new CornerRadius(9), Background = AppleGreen, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Камера включена",
-                Child = new TextBlock { Text = "\uE714", FontFamily = Icons, FontSize = 11, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-            left.Children.Add(callLive); left.Children.Add(callCam);
+            left.Children.Add(callKeys[0]); left.Children.Add(callKeys[1]); left.Children.Add(callKeys[4]); left.Children.Add(callKeys[2]);
             row.Children.Add(left);
             Grid.SetColumn(callKeys[3], 1); row.Children.Add(callKeys[3]);
             stack.Children.Add(row);
@@ -179,6 +181,88 @@ namespace Kapsula
             else if (k == 1 && live) DiscordCommand("deaf");
             else if (k == 2) CallDevices(callKeys[2]);
             else if (k == 3 && live) DiscordCommand("leave");
+            else if (k == 4 && live)
+            {
+                if (dvStream) DiscordCommand("unstream");   // идёт демка — остановить
+                else if (dvSourcesWanted == 0) StreamPick();
+            }
+        }
+
+        // Кнопка демки: Discord присылает, что можно показать (экраны и окна), — и у кнопки открывается меню, как
+        // окно выбора в самом Discord. Пока ждём ответа, кнопка притухает; молчит — значит, плагин в Discord старый
+        void StreamPick()
+        {
+            dvSourcesWanted = Environment.TickCount + 4000;
+            if (dvSourcesWanted == 0) dvSourcesWanted = 1;
+            DiscordVoiceServer.Command("sources");
+            PaintMute();
+            ClaudeAfter(4200, delegate
+            {
+                if (dvSourcesWanted == 0 || unchecked(Environment.TickCount - dvSourcesWanted) < 0) return;
+                dvSourcesWanted = 0;
+                PaintMute();
+                CallNotice("Discord не ответил — обновите плагин Kapsula");
+            });
+        }
+
+        void StreamMenu(object[] list)
+        {
+            if (homeCallCard == null || !DiscordLive || !dvInCall) return;
+            var screens = new List<KeyValuePair<string, string>>();
+            var windows = new List<KeyValuePair<string, string>>();
+            foreach (object x in list)
+            {
+                var s = x as Dictionary<string, object>;
+                if (s == null) continue;
+                string id = DText(s, "id"), name = DText(s, "name");
+                if (id.Length == 0) continue;
+                if (id.StartsWith("screen:")) screens.Add(new KeyValuePair<string, string>(id, name));
+                else if (windows.Count < 20) windows.Add(new KeyValuePair<string, string>(id, name.Length > 0 ? name : "Окно"));
+            }
+            if (screens.Count + windows.Count == 0) { CallNotice("Discord не нашёл, что показать"); return; }
+            if (TestRider != null)
+            {
+                // проверка: меню не открываем (оно забирает клавиатуру) — берём первый экран
+                WalkLog("демка: экранов " + screens.Count + ", окон " + windows.Count);
+                DiscordCommand("stream:" + (screens.Count > 0 ? screens[0].Key : windows[0].Key));
+                return;
+            }
+            var menu = new WF.ContextMenuStrip();
+            menu.Items.Add(new WF.ToolStripMenuItem("Показать в Discord") { Enabled = false });
+            for (int i = 0; i < screens.Count; i++)
+            {
+                string id = screens[i].Key;
+                var it = new WF.ToolStripMenuItem(screens.Count == 1 ? "Весь экран" : "Экран " + (i + 1));
+                it.Click += delegate { DiscordCommand("stream:" + id); };
+                menu.Items.Add(it);
+            }
+            if (windows.Count > 0)
+            {
+                menu.Items.Add(new WF.ToolStripSeparator());
+                foreach (KeyValuePair<string, string> w in windows)
+                {
+                    string id = w.Key;
+                    string label = w.Value.Length > 46 ? w.Value.Substring(0, 45) + "…" : w.Value;
+                    var it = new WF.ToolStripMenuItem(label.Replace("&", "&&"));
+                    it.Click += delegate { DiscordCommand("stream:" + id); };
+                    menu.Items.Add(it);
+                }
+            }
+            DarkMenuRenderer.Apply(menu, 300, true);
+            Point at = callKeys[4].PointToScreen(new Point(0, callKeys[4].ActualHeight + 4));
+            menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
+        }
+
+        // Что-то не вышло — сказать прямо в карточке (красной строкой на три с половиной секунды) и надписью в капсуле
+        string callNote;
+        int callNoteUntil;
+
+        void CallNotice(string text)
+        {
+            callNote = text; callNoteUntil = Environment.TickCount + 3500;
+            PaintMute();
+            ClaudeAfter(3600, delegate { PaintMute(); });
+            if (state == 0) Toast("", text, null, -1, null);
         }
 
         // Настройки звука: микрофон и динамики в одном меню
@@ -210,7 +294,7 @@ namespace Kapsula
         {
             callKeys[i].Background = on ? Brushes.White : GlassKey;
             callKeyGlyphs[i].Foreground = on ? AppleRed : Brushes.White;
-            keyStrike[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (i < keyStrike.Length) keyStrike[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             callKeys[i].ToolTip = tip;
         }
 
@@ -225,9 +309,15 @@ namespace Kapsula
             CallKeyState(1, deaf, deaf ?"Полный мут — нажмите, чтобы вернуть звук" : "Полный мут: не слышать никого");
             callKeys[1].Visibility = live ? Visibility.Visible : Visibility.Collapsed;   // полный мут и «отключиться» — только для звонка Discord
             callKeys[3].Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            callKeys[4].Visibility = live ? Visibility.Visible : Visibility.Collapsed;   // и демка
+            CallKeyState(4, live && dvStream, dvStream ? "Идёт демка — нажмите, чтобы остановить" : "Показать экран (демка)");
+            callKeys[4].Opacity = dvSourcesWanted != 0 ? 0.5 : 1;   // ждём от Discord, что можно показать
             callTitle.Text = live ? (dvChannel.Length > 0 ? dvChannel : "Личный звонок") : "Звонок";
             callAppText.Text = live ? (dvGuild.Length > 0 ? dvGuild : "Discord") + (dvUsers > 1 ? " · " + Plural(dvUsers, "участник", "участника", "участников") : "")
                 : (callApp ?? "") + (muted ? " · микрофон выключен" : "");
+            bool note = callNote != null && unchecked(Environment.TickCount - callNoteUntil) < 0;   // что-то не вышло — красной строкой
+            if (note) callAppText.Text = callNote;
+            callAppText.Foreground = note ? AppleRed : Secondary;
             if (callTimeText != null && callApp != null) callTimeText.Text = CallTime();
             callLive.Visibility = live && dvStream ? Visibility.Visible : Visibility.Collapsed;
             callCam.Visibility = live && dvVideo ? Visibility.Visible : Visibility.Collapsed;
