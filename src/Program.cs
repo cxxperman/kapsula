@@ -64,8 +64,12 @@ namespace Kapsula
                 return;
             }
             if (args.Length == 2 && args[0] == "--camsetup") { Environment.Exit(PhoneCam.RunSetup(args[1] == "install")); return; }
-            bool created;
-            var mutex = new Mutex(true, "Kapsula_single_instance", out created);
+            bool created = true;
+            Mutex mutex = null;
+            // Проверочные снимки (--capturable): пробная копия работает рядом с основной и никого не закрывает.
+            // Основная скрыта от снимков экрана, так что в кадр попадает только пробная.
+            bool sideBySide = Array.IndexOf(args, "--capturable") >= 0;
+            if (!sideBySide) mutex = new Mutex(true, "Kapsula_single_instance", out created);
             if (!created)
             {
                 // «--wait» передаёт сама Kapsula при перезапуске после обновления: ждём, пока прежняя копия закроется.
@@ -159,7 +163,7 @@ namespace Kapsula
                 if (args[i] == "--ducktoggle") { Ai.ForceDuck = true; w.TestDuckToggle = true; w.ForceOpen = 4; }
                 if (args[i] == "--season" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) PetView.TestSeason = n;
                 if (args[i] == "--pill") w.ForceOpen = -3;
-                if (args[i] == "--y" && i + 1 < args.Length && double.TryParse(args[i + 1], out y)) w.Top = y;
+                if (args[i] == "--y" && i + 1 < args.Length && double.TryParse(args[i + 1], out y)) { w.Top = y; w.TestDY = y; }
                 if (args[i] == "--open" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) w.ForceOpen = n;
             }
             w.Plain = plain;

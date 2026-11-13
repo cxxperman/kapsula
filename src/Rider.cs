@@ -211,7 +211,9 @@ namespace Kapsula
                         if (found != null && found.Root.Opacity > 0) { found.Root.Opacity = 0; Touch(found); }
                     }
                     return 3;
-                case 3: if (cardPet != null && cardPet.Root.Visibility == Visibility.Visible) { seat = cardPet; return 2; } return 0;
+                // карточка: если на ней свой зверёк (Claude Code, таймер) — на его место; иначе зверёк приносит
+                // уведомление и сидит на нижнем краю карточки под значком приложения
+                case 3: if (cardPet != null && cardPet.Root.Visibility == Visibility.Visible) { seat = cardPet; return 2; } return 5;
                 case 4: if (cmdPet != null && cmdPet.Root.Visibility == Visibility.Visible) { seat = cmdPet; return 2; } return 0;
             }
             return 0;
@@ -356,8 +358,34 @@ namespace Kapsula
                     if (!DropSeat(out p)) return false;
                     x = p.X - 5.5 * RiderPx; y = p.Y - 9 * RiderPx + 1.5; s = 1;    // стоит на верхней кромке зоны
                     return true;
+                case 5:
+                {
+                    double c = CardSpotX();
+                    x = c - 5.5 * RiderPx; y = EdgeY(c) - 8 * RiderPx + 0.6; s = 1;   // на нижнем краю карточки, лапки свисают
+                    return true;
+                }
             }
             return false;
+        }
+
+        // Под значком приложения на карточке: там зверёк отдаёт письмо и ждёт, пока его прочтут
+        double CardSpotX()
+        {
+            double w = cardHost != null && !double.IsNaN(cardHost.Width) ? cardHost.Width : CardW;
+            double x = BaseW / 2 - w / 2 + 18 + 26;
+            try
+            {
+                if (cardGrid != null && cardGrid.Visibility == Visibility.Visible && cardThumbBox != null && cardThumbBox.ActualWidth > 0)
+                    x = BaseW / 2 - w / 2 + cardThumbBox.TranslatePoint(new Point(cardThumbBox.ActualWidth / 2, 0), cardHost).X;
+            }
+            catch { }
+            return x;
+        }
+
+        // Новая карточка пришла, пока зверёк сидит на прежней, — он отдаёт и её
+        void RiderDeliver()
+        {
+            if (rider != null && rOut && !rFly && rKind == 5 && !ReducedMotion) rider.Play("give", 800);
         }
 
         // Перед любой сменой: если зверёк сидит «внутри» (в капсуле или на чужом месте), запомнить, где именно
@@ -378,7 +406,7 @@ namespace Kapsula
             if (kind == rKind && seat == rSeat)
             {
                 // цель та же, но место могло сдвинуться: другая зона сброса, другая вкладка над краем
-                if ((kind == 3 || kind == 4) && rOut && !rFly && rFadeAt == 0)
+                if ((kind == 3 || kind == 4 || kind == 5) && rOut && !rFly && rFadeAt == 0)
                 {
                     double tx, ty, ts;
                     if (RiderSpot(out tx, out ty, out ts) && (Math.Abs(tx - rX) > 6 || kind == 4 && Math.Abs(ty - rY) > 6))
@@ -462,7 +490,7 @@ namespace Kapsula
             fX = x0; fY = y0; fS = s0; fAt = Environment.TickCount;
             fMs = (int)Math.Max(280, Math.Min(620, 240 + d * 0.85));
             // прыжок дугой; в капсулу — почти без дуги (выше только край экрана), из капсулы вниз — короткий подскок
-            fArc = rKind == 1 ? 5 : dy > 60 ? 9 : Math.Max(12, Math.Min(42, 12 + Math.Abs(dx) * 0.12 + Math.Max(0, -dy) * 0.08));
+            fArc = rKind == 1 ? 5 : rKind == 5 ? 6 : dy > 60 ? 9 : Math.Max(12, Math.Min(42, 12 + Math.Abs(dx) * 0.12 + Math.Max(0, -dy) * 0.08));
             // Оба конца у верхней кромки экрана (капсула ↔ строка команд или карточка): прыгать вверх некуда —
             // зверёк «ныряет» дугой вниз, будто перебирается под краем, держась за него
             if (Math.Max(y0, gy) < 60 && Math.Min(y0, gy) - fArc < 2) fArc = -Math.Min(16, Math.Max(8, Math.Abs(dx) * 0.06));
@@ -471,7 +499,7 @@ namespace Kapsula
             rider.Root.Opacity = 1;
             rider.Root.Visibility = Visibility.Visible;
             rider.Seated = false;
-            rider.Mood("fly");
+            rider.Mood(rKind == 5 ? "post" : "fly");   // к карточке — с письмом в лапах
             SetRider(x0, y0, s0, 1, 1);
             Wake();
         }
@@ -570,17 +598,18 @@ namespace Kapsula
                     rFly = false;
                     rider.Seated = true;
                     rider.Mood(RiderMood());
+                    if (rKind == 5 && !ReducedMotion) rider.Play("give", 800);   // принёс уведомление — отдаёт письмо
                 }
                 return;
             }
             if (!goal) return;
-            if (rKind == 3 && Math.Abs(gx - rX) > 6 && !ReducedMotion) { StartFlight(rX, rY, rS); return; }   // вкладку сменили — перескочить
+            if ((rKind == 3 || rKind == 5) && Math.Abs(gx - rX) > 6 && !ReducedMotion) { StartFlight(rX, rY, rS); return; }   // вкладку сменили или карточка стала шире — перескочить
             if (rKind == 4 && (Math.Abs(gx - rX) > 6 || Math.Abs(gy - rY) > 6)) { StartFlight(rX, rY, rS); return; }
             // Сидит: едет вместе с краем и каплями; после прыжка пружинит, а при резкой остановке края приседает
             double sq = 0;
             int la = unchecked(now - rLandAt);
             if (la < 340 && !ReducedMotion) { double k = la / 340.0; sq = 0.22 * (1 - k) * (1 - k) * Math.Cos(k * Math.PI * 2.4); }
-            if (rKind == 3 && !ReducedMotion) { double acc = -sh.K * (sh.X - sh.Target) - sh.C * sh.V; sq += Math.Max(-0.12, Math.Min(0.18, -acc / 26000)); }
+            if ((rKind == 3 || rKind == 5) && !ReducedMotion) { double acc = -sh.K * (sh.X - sh.Target) - sh.C * sh.V; sq += Math.Max(-0.12, Math.Min(0.18, -acc / 26000)); }
             SetRider(gx, gy, gs, 1 + sq * 0.8, 1 - sq);
             if (TestRider != null && (la < 400 || pollN % 4 == 0)) RiderLog(now, gx, gy, gs);
         }
@@ -589,6 +618,37 @@ namespace Kapsula
         // зверька пишется в файл. Вкладки можно задать переменной KAPSULA_RIDEPAGES, например «1,6,5,7,0».
         void RiderTestScript()
         {
+            // KAPSULA_RIDEFLOAT=1: отцепиться и съехать вниз → раскрыться → к нижнему краю → раскрыться (должен приподняться) → вернуться наверх
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEFLOAT") == "1")
+            {
+                Action<double> moveTo = delegate(double topDip)
+                {
+                    Rect wa = WorkDip();
+                    detached = true; se.Target = 0; detFx = 0.5; detFy = (topDip - wa.Top) / wa.Height;
+                    FloatTargets(); PlaceDetached(true); SetTargets();
+                };
+                ClaudeAfter(2500, delegate { moveTo(TestDY + 150); });
+                ClaudeAfter(4300, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(6300, delegate { pinned = false; SetState(0); });
+                ClaudeAfter(7800, delegate { Rect wa = WorkDip(); moveTo(wa.Bottom - pillH * Scale - 40); });
+                ClaudeAfter(9400, delegate { pinned = true; SetState(2); });
+                ClaudeAfter(11800, delegate { pinned = false; SetState(0); });
+                ClaudeAfter(13400, delegate { Attach(true); });
+                ClaudeAfter(15500, delegate { if (riderLog != null && riderLog.Length > 0) { try { System.IO.File.AppendAllText(TestRider, riderLog.ToString()); } catch { } riderLog.Clear(); } });
+                return;
+            }
+            // KAPSULA_RIDESTAGE=1 (вместе с --demo): мини-плеер → «только текст песни» → обратно → яркость: ярко и темно
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDESTAGE") == "1")
+            {
+                ClaudeAfter(4000, delegate { holdOpenUntil = Environment.TickCount + 60000; SetState(1); });
+                ClaudeAfter(6000, delegate { SetMiniLyricsOnly(true); });
+                ClaudeAfter(10000, delegate { SetMiniLyricsOnly(false); });
+                ClaudeAfter(12000, delegate { holdOpenUntil = 0; SetState(0); });
+                ClaudeAfter(13500, delegate { BrightnessShown(85); });
+                ClaudeAfter(16000, delegate { BrightnessShown(12); });
+                ClaudeAfter(19000, delegate { if (riderLog != null && riderLog.Length > 0) { try { System.IO.File.AppendAllText(TestRider, riderLog.ToString()); } catch { } riderLog.Clear(); } });
+                return;
+            }
             int[] seq = { PClip, PWeather, PNote, PSystem, PHome };
             string env = Environment.GetEnvironmentVariable("KAPSULA_RIDEPAGES");
             if (!string.IsNullOrEmpty(env))
@@ -629,6 +689,9 @@ namespace Kapsula
             {
                 ClaudeAfter(at, delegate { cmdBox.Text = ""; cmdItems.Clear(); RenderCmd(); SetState(4); }); at += 1700;   // строка команд без фокуса: проверка не отнимает его у ваших окон
                 ClaudeAfter(at, delegate { SetState(0); }); at += 1500;
+                // обычное уведомление: зверёк приносит письмо; поверх него второе — отдаёт и его; потом карточка со своим зверьком
+                ClaudeAfter(at, delegate { ShowCard(null, ((char)0xE8BD).ToString(), "Марк", "го вечером в кооп?", null); cardUntil = Environment.TickCount + 3000; }); at += 1800;
+                ClaudeAfter(at, delegate { ShowCardEx(null, ((char)0xE8BD).ToString(), "Лена", "скинула фото с прогулки", null, "Ответить", delegate { }, false); cardUntil = Environment.TickCount + 2600; }); at += 4000;
                 ClaudeAfter(at, delegate { ShowCard(null, "", "Готово", "Пример карточки", null); CardPet("happy"); cardUntil = Environment.TickCount + 2500; }); at += 3600;
             }
             ClaudeAfter(at, delegate { if (riderLog != null && riderLog.Length > 0) { try { System.IO.File.AppendAllText(TestRider, riderLog.ToString()); } catch { } riderLog.Clear(); } });
@@ -650,6 +713,7 @@ namespace Kapsula
         {
             if (timerRinging) return "alarm";
             if (claudeState == 2) return "ask";
+            if (state == 3) return "read";   // на карточке: смотрит на уведомление вместе с вами
             if (chatBusy) return "think";
             if (claudeState == 1) return "work";
             if (unchecked(Environment.TickCount - happyUntil) < 0) return "happy";
@@ -661,6 +725,7 @@ namespace Kapsula
         // Свои сценки у каждой вкладки: на полке таскает коробки, в чате «печатает», у таймера постукивает ногой
         string RiderContext()
         {
+            if (state == 3) return "";   // на карточке не отвлекается на сценки
             if (state != 2) return "default";
             switch (page)
             {
@@ -699,8 +764,11 @@ namespace Kapsula
                     Native.POINT pt;
                     if (Native.GetCursorPos(out pt))
                     {
-                        double cxp = (pt.X / dpi - Left) / Scale, c = rX + 5.5 * RiderPx * rS;
-                        rider.Glance(cxp < c - 40 ? -1 : cxp > c + 40 ? 1 : 0, 700);
+                        double cxp = (pt.X / dpi - Left) / Scale, cyp = (pt.Y / dpi - Top) / Scale, c = rX + 5.5 * RiderPx * rS;
+                        bool overIsland = Math.Abs(cxp - BaseW / 2) <= sw.X / 2 + 10 && cyp <= sh.X + 12;
+                        // на карточке читает текст справа от себя, пока курсор не придёт на карточку
+                        if (rKind == 5 && !overIsland) rider.Glance(1, 900);
+                        else rider.Glance(cxp < c - 40 ? -1 : cxp > c + 40 ? 1 : 0, 700);
                     }
                 }
             }

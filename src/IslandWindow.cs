@@ -240,6 +240,7 @@ namespace Kapsula
             ShowLayout = Store.Get("layout") != "0";
             ShowEyes = Store.Get("eyes") != "0";
             LoadMotion();   // характер анимаций, попутчик, кромка, тень
+            LoadDetach();   // остров мог быть отцеплен и стоять в другом месте экрана
             { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
@@ -338,6 +339,8 @@ namespace Kapsula
                 case "cascade": CascadeOn = v; break;
                 case "rim": RimOn = v; Wake(); break;
                 case "shadow": ShadowOn = v; Wake(); break;
+                case "brightHud": BrightHud = v; if (v) StartBrightnessWatch(); else StopBrightnessWatch(); break;
+                case "detach": AllowDetach = v; if (!v && detached) Attach(true); break;
                 case "notifications": ShowNotifications = v; if (v) StartNotifications(); else notifStop = true; break;
                 case "lyrics": Store.Set("lyrics", v ? "on" : "off"); lyricsKey = null; SetLyrics(null); RenderMedia(); break;
             }
@@ -594,7 +597,7 @@ namespace Kapsula
             Height = BaseH * Scale;
             PlaceWindow();
             Top = 0;
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI");
+            FontFamily = FontFor(Environment.GetEnvironmentVariable("KAPSULA_FONT") ?? Store.Get("font"));   // свой шрифт острова (по умолчанию — системный); KAPSULA_FONT — для проверок
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
 
@@ -636,6 +639,7 @@ namespace Kapsula
             ClaudeBridge.Waiting += delegate(string project) { Dispatcher.BeginInvoke(new Action(delegate { ClaudeWaiting(project); })); };
             InitAgents();
             InitExtras();
+            StartBrightnessWatch();   // у ноутбуков Windows сообщает о смене яркости — остров покажет её полоской
             ClaudeBridge.Start();
             Earbuds.Start();
             SteamBridge.Received += delegate(Dictionary<string, object> d)
@@ -759,6 +763,7 @@ namespace Kapsula
             root.Children.Add(edge);
             BuildDecor();   // светлая кромка и тень
             BuildRider();   // зверёк-попутчик — поверх всего острова, чтобы лапки свисали за край
+            BuildDrag();    // остров можно отцепить и перетащить за пустое место
             Content = root;
         }
 
@@ -972,6 +977,8 @@ namespace Kapsula
             Grid.SetRow(vr, 6);
             g.Children.Add(vr);
             miniHost.Children.Add(g);
+            miniPlayer = g;
+            BuildStage();   // «только текст песни» — крупные строки во всю ширину
         }
 
         // ------------------------------------------------- карточка события
@@ -1102,6 +1109,8 @@ namespace Kapsula
             cardThumb.Background = Brushes.Transparent;
             cardPet.Root.Visibility = Visibility.Visible;
             cardPet.Mood(mood);
+            cardHost.UpdateLayout();
+            RiderRetarget();   // у карточки свой зверёк — попутчик сразу летит на его место, а не на край
         }
 
         Path cardRingTrack, cardRing;
@@ -1516,6 +1525,7 @@ namespace Kapsula
             cardUntil = Environment.TickCount + 4200;
             if (state == 3) SetTargets(); else SetState(3);
             FitCard();
+            RiderDeliver();   // зверёк уже сидит на карточке — отдаёт и это письмо
         }
 
         // Новая версия уже лежит на месте старой. Kapsula перезапустится сама, когда это не помешает; кнопка — для нетерпеливых.
@@ -2189,7 +2199,7 @@ namespace Kapsula
             }
         }
 
-        double MiniW() { return lyrics != null || lyricsPending ? MW + 212 : MW; }
+        double MiniW() { if (LyricsStage()) return StageW; return lyrics != null || lyricsPending ? MW + 212 : MW; }
         bool lyricsPending;   // трек сменился, текст нового ещё ищем — место под текст держим, чтобы плеер не прыгал
         int lyricsHoldSeq;
 
@@ -2219,9 +2229,10 @@ namespace Kapsula
             {
                 lyrics = null;
                 if (currentLyric != "") { currentLyric = ""; if (state == 0 && PillMode == 2) RenderCompact(); }
-                EventHandler clear = delegate { if (seq == lyricsHoldSeq && lyricsPending) { miniLyrics.SetLines(null); homeLyrics.SetLines(null); } };
+                EventHandler clear = delegate { if (seq == lyricsHoldSeq && lyricsPending) { miniLyrics.SetLines(null); homeLyrics.SetLines(null); if (stageLyrics != null) stageLyrics.SetLines(null); } };
                 FadeTo(miniLyrics.Root, 0, 160, clear);
                 FadeTo(homeLyrics.Root, 0, 160, null);
+                if (stageLyrics != null) FadeTo(stageLyrics.Root, 0, 160, null);
             }
             var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
             tm.Tick += delegate { tm.Stop(); if (seq == lyricsHoldSeq && lyricsPending) SetLyrics(null); };
@@ -2239,20 +2250,22 @@ namespace Kapsula
             if (list == null && currentLyric != "") { currentLyric = ""; if (state == 0 && PillMode == 2) RenderCompact(); }
             miniLyrics.SetLines(list);
             homeLyrics.SetLines(list);
+            stageLyrics.SetLines(list);
             miniLyrics.Root.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
             homeLyrics.Root.Visibility = list != null && homeLyricsShown ? Visibility.Visible : Visibility.Collapsed;
-            miniLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); homeLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null);
-            miniLyrics.Root.Opacity = homeLyrics.Root.Opacity = list != null ? 0 : 1;
+            miniLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); homeLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); stageLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null);
+            miniLyrics.Root.Opacity = homeLyrics.Root.Opacity = stageLyrics.Root.Opacity = list != null ? 0 : 1;
             double w = MiniW();
             bool resized = Math.Abs(miniHost.Width - w) > 0.5;
+            ApplyMiniMode(false);   // «только текст песни»: показать крупные строки или вернуть обычный мини-плеер
             miniHost.Width = w;
             if (list != null)
             {
                 // Сначала раскладываем строки и ставим ленту на текущую строку, и только потом проявляем —
                 // иначе первый кадр показывал начало песни, а через такт лента прыгала на нужное место
-                try { miniLyrics.Root.UpdateLayout(); homeLyrics.Root.UpdateLayout(); } catch { }
+                try { miniLyrics.Root.UpdateLayout(); homeLyrics.Root.UpdateLayout(); stageLyrics.Root.UpdateLayout(); } catch { }
                 UpdateLyrics();
-                FadeTo(miniLyrics.Root, 1, 320, null); FadeTo(homeLyrics.Root, 1, 320, null);
+                FadeTo(miniLyrics.Root, 1, 320, null); FadeTo(homeLyrics.Root, 1, 320, null); FadeTo(stageLyrics.Root, 1, 320, null);
             }
             if (state == 1 && (resized || !wasPending)) SetTargets();
         }
@@ -2301,6 +2314,7 @@ namespace Kapsula
             }
             miniLyrics.Tick(idx);
             homeLyrics.Tick(idx);
+            if (stageLyrics != null) stageLyrics.Tick(idx);
         }
 
         void SetClock(TextBlock tb)
@@ -3877,8 +3891,13 @@ namespace Kapsula
         {
             var dock = new DockPanel();
             var top = new Grid { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
-            top.Children.Add(new TextBlock { Text = "Файлы до востребования", TextTrimming = TextTrimming.CharacterEllipsis, Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+            shelfHint = new TextBlock { Text = ShelfHintDefault, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 300, 0) };
+            top.Children.Add(shelfHint);
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var zipAll = Btn("В архив", false, 0, 28, delegate { if (shelf.Count > 0) { string[] all2 = shelf.ToArray(); ShelfJob("Архив в «Загрузках»", delegate { return ZipAll(all2); }); } });
+            zipAll.Margin = new Thickness(0, 0, 6, 0);
+            zipAll.ToolTip = "Сложить все файлы полки в один ZIP в папку «Загрузки»";
+            btns.Children.Add(zipAll);
             var all = Btn("Перетащить все", false, 0, 28, delegate { if (shelf.Count > 0) DragOut(shelf.ToArray()); });
             all.Margin = new Thickness(0, 0, 6, 0);
             all.ToolTip = "Зажмите и тяните в нужное окно";
@@ -3889,6 +3908,7 @@ namespace Kapsula
             btns.Children.Add(toPhone);
             btns.Children.Add(Btn("Очистить", false, 0, 28, delegate { shelf.Clear(); SaveShelf(); RenderShelf(); }));
             top.Children.Add(btns);
+            btns.SizeChanged += delegate { shelfHint.Margin = new Thickness(4, 0, btns.ActualWidth + 8, 0); };   // подпись не заезжает под кнопки
             DockPanel.SetDock(top, Dock.Top);
             dock.Children.Add(top);
 
@@ -3956,10 +3976,11 @@ namespace Kapsula
                 var xHit = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = x, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 3, 3, 0), ToolTip = "Убрать с полки" };
                 xHit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; shelf.Remove(path); SaveShelf(); RenderShelf(); };
                 cell.Children.Add(xHit);
-                var b = new Border { Width = 98, Height = 96, CornerRadius = new CornerRadius(14), Background = Chip, Margin = new Thickness(0, 0, 8, 8), Child = cell, Cursor = Cursors.Hand, ToolTip = path };
+                var b = new Border { Width = 98, Height = 96, CornerRadius = new CornerRadius(14), Background = Chip, Margin = new Thickness(0, 0, 8, 8), Child = cell, Cursor = Cursors.Hand, ToolTip = path + "\nПравый щелчок — сжать, переконвертировать, распознать текст" };
+                b.MouseRightButtonUp += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ShelfMenu(path); };
                 b.MouseEnter += delegate { b.Background = ChipHover; };
                 b.MouseLeave += delegate { b.Background = Chip; };
-                b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { dragArmed = path; dragFrom = e.GetPosition(this); };
+                b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; dragArmed = path; dragFrom = e.GetPosition(this); };   // файл тянут с полки, а не весь остров
                 b.MouseMove += delegate(object s, MouseEventArgs e)
                 {
                     if (e.LeftButton != MouseButtonState.Pressed || dragArmed != path) return;
@@ -6620,7 +6641,7 @@ namespace Kapsula
             if (!chr && !PetDancing() && TestMood == null) mood = "";
             string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec"
                 : steamDlApp != null || dlActive != null ? (steamDlApp != null && steamDlDone ? "carried" : "carry")
-                : toastOn && toastValue >= 0 ? "vol" : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
+                : toastOn && toastValue >= 0 ? (toastBright ? "bright" : "vol") : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
                 : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
             petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
 
@@ -6636,6 +6657,13 @@ namespace Kapsula
                 if (toastValue <= 0.005) PetFace(4, "×", Dim);
                 else if (toastValue > 0.8) { PetFace(4, "", null); petShift.X = rnd.NextDouble() * 1.6 - 0.8; petShift.Y = 1; }
                 else PetFace(toastValue > 0.45 ? 2 : 0, "", null);
+            }
+            else if (act == "bright")
+            {
+                // яркость: на ярком щурится от солнца, в темноте таращит глаза
+                if (toastValue > 0.75) { PetFace(4, "☀", Amber); petShift.Y = 0.5; }
+                else if (toastValue < 0.25) PetFace(2, "☾", Dim);
+                else PetFace(0, "", null);
             }
             else if (claudeState == 1) { PetFace(1, "", null); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 5.5)) * -2.2 * 2) / 2; }
             else if (mood == "think") { PetFace(1, "…", Dim); petShift.Y = Math.Round(Math.Sin(t * 3) * 0.8 * 2) / 2; }
@@ -6882,6 +6910,7 @@ namespace Kapsula
         public void ShowDemo(string kind)
         {
             if (kind == "motion") { DemoMotion(); return; }   // характер анимаций и попутчик: раскрыться и свернуться
+            if (kind == "bright" && (state == 0 || state == 1)) { Toast(((char)0xE706).ToString(), null, "70%", 0.7, Amber); toastBright = true; return; }
             if (state == 2 || state == 4) return;
             Action card = null;
             switch (kind)
@@ -7956,11 +7985,13 @@ namespace Kapsula
         // -------------------------------------------- положение, автоскрытие
         void PlaceWindow()
         {
+            if (detached) { PlaceDetached(false); return; }   // отцеплен — стоит там, где его оставили
             var all = WF.Screen.AllScreens;
             WF.Screen scr = MonitorIndex >= 0 && MonitorIndex < all.Length ? all[MonitorIndex] : WF.Screen.PrimaryScreen;
             Left = scr.Bounds.X / dpi + (scr.Bounds.Width / dpi - Width) / 2;
-            Top = scr.Bounds.Y / dpi;
+            Top = scr.Bounds.Y / dpi + TestDY;
         }
+        public double TestDY;   // ключ --y: проверочная копия ниже края экрана, чтобы не заслонять основную
 
         public int MonitorCount { get { return WF.Screen.AllScreens.Length; } }
 
@@ -8144,6 +8175,7 @@ namespace Kapsula
         {
             if (tray != null) tray.Dispose();
             watcher.Stop();
+            StopBrightnessWatch();
             if (hwnd != IntPtr.Zero)
             {
                 Native.RemoveClipboardFormatListener(hwnd);
@@ -8202,6 +8234,9 @@ namespace Kapsula
             menu.Items.Add(lyr);
             menu.Items.Add("Телефон как веб-камера…", null, delegate { OpenPhoneCam(); });
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
+            var home = new WF.ToolStripMenuItem("Вернуть остров наверх", null, delegate { Attach(true); });
+            menu.Opening += delegate { home.Visible = detached; };   // только когда остров отцеплен
+            menu.Items.Add(home);
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
             menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
             var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
@@ -8291,7 +8326,10 @@ namespace Kapsula
             for (int i = 0; i < so.Length; i++) so[i].Target = state == i ? 1 : 0;
             // В полноэкранной программе остров спрятан, но выглядывает на несколько секунд при смене трека (fsPeekUntil).
             bool fsHide = hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0;
-            sy.Target = (fsHide || autoHidden) && state == 0 ? -(pillH + 44) : 0;   // с запасом на волну нижнего края
+            bool hide = (fsHide || autoHidden) && state == 0;
+            sy.Target = hide && !detached ? -(pillH + 44) : 0;   // с запасом на волну нижнего края
+            sFade.Target = hide && detached ? 0 : 1;              // отцепленному некуда уезжать — он тает
+            FloatTargets();                                       // отцепленный: приподняться, чтобы панель влезла
             Wake();
         }
 
@@ -8398,6 +8436,7 @@ namespace Kapsula
             springs |= sr.Step(dt);
             springs |= sy.Step(dt);
             for (int i = 0; i < so.Length; i++) springs |= so[i].Step(dt);
+            springs |= FloatFrame(dt);   // отцепленный остров: уши, растворение, перелёт и подъём окна
             bool riderBusy = RiderBusy();   // зверёк-попутчик в прыжке или пружинит после посадки
             // Пока движется форма острова, рисуем каждый кадр монитора. Когда пляшет только жидкий край,
             // хватает около 60 обновлений в секунду: глаз разницы не видит, а нагрузка падает в разы.
@@ -8497,7 +8536,11 @@ namespace Kapsula
         {
             double w = Math.Max(60, sw.X), h = Math.Max(20, sh.X);
             double r = Math.Max(4, Math.Min(sr.X, h / 2));
-            double cx = BaseW / 2, x0 = cx - w / 2, x1 = cx + w / 2, e = Ear;
+            // Отцепленный остров: «уши», которыми он держится за верхний край, тают, а верхние углы скругляются
+            double ea = Clamp01(se.X);
+            double cx = BaseW / 2, x0 = cx - w / 2, x1 = cx + w / 2, e = Ear * ea, rt = r * (1 - ea);
+            root.Opacity = Clamp01(sFade.X);
+            root.IsHitTestVisible = sFade.X > 0.5;
 
             // Капли нижнего края: шаг фиксирован от центра, чтобы при растяжении они не прыгали.
             double bl = x0 + r, br = x1 - r, A = state == 0 ? 13 : 16;
@@ -8516,14 +8559,31 @@ namespace Kapsula
             var g = new StreamGeometry();
             using (var c = g.Open())
             {
-                c.BeginFigure(new Point(x0 - e, 0), true, true);
-                c.ArcTo(new Point(x0, e), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
+                bool round = rt > e;   // уши почти растаяли — дальше скругляются верхние углы
+                if (round)
+                {
+                    c.BeginFigure(new Point(x0 + rt, 0), true, true);
+                    c.ArcTo(new Point(x0, rt), new Size(rt, rt), 0, false, SweepDirection.Counterclockwise, true, false);
+                }
+                else
+                {
+                    c.BeginFigure(new Point(x0 - e, 0), true, true);
+                    if (e > 0.05) c.ArcTo(new Point(x0, e), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
+                }
                 c.LineTo(new Point(x0, h - r), true, false);
                 c.ArcTo(new Point(bl, h), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
                 Wave(c, tips, bl, br, h, spikes);
                 c.ArcTo(new Point(x1, h - r), new Size(r, r), 0, false, SweepDirection.Counterclockwise, true, false);
-                c.LineTo(new Point(x1, e), true, false);
-                c.ArcTo(new Point(x1 + e, 0), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
+                if (round)
+                {
+                    c.LineTo(new Point(x1, rt), true, false);
+                    c.ArcTo(new Point(x1 - rt, 0), new Size(rt, rt), 0, false, SweepDirection.Counterclockwise, true, false);
+                }
+                else
+                {
+                    c.LineTo(new Point(x1, e), true, false);
+                    if (e > 0.05) c.ArcTo(new Point(x1 + e, 0), new Size(e, e), 0, false, SweepDirection.Clockwise, true, false);
+                }
             }
             g.Freeze();
             shape.Data = g;
@@ -8688,7 +8748,7 @@ namespace Kapsula
             if (!Native.GetCursorPos(out pt)) return;
             double x = (pt.X / dpi - Left) / Scale, y = (pt.Y / dpi - Top) / Scale, cx = BaseW / 2;
             int now = Environment.TickCount;
-            if (AutoHide || appHide || GamerMode)
+            if ((AutoHide || appHide) && !detached || GamerMode)   // отцепленному некуда прятаться за край — автоскрытие для него не действует
             {
                 // Автоскрытие (всегда или только в выбранных программах): остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать.
                 // В игровом режиме курсор остров не достаёт — только уведомления, таймер, запись и загрузки.
@@ -8740,6 +8800,7 @@ namespace Kapsula
         void Toast(string glyph, string text, string right, double value, Brush glyphBrush)
         {
             if (TestCharacter != null) return;   // при съёмке персонажей надписи не нужны
+            toastBright = false;   // надпись про яркость отмечает себя сама, сразу после этого вызова
             toastGlyph = glyph; toastText = text; toastRight = right; toastValue = value; toastBrush = glyphBrush;
             if (glyphBrush == accent && value < 0) Happy(3300);   // удачное действие — персонаж радуется, когда надпись уйдёт
             toastUntil = Environment.TickCount + 1800;
@@ -8997,6 +9058,7 @@ namespace Kapsula
                 nPlayGlyph.Text = mPlayGlyph.Text;
                 SwapTrackText(nTitle, media.Title);
                 SwapTrackText(nArtist, string.IsNullOrEmpty(media.Artist) ? " " : media.Artist);
+                StageMedia(null);
                 string lk = media.Title + "|" + media.Artist;
                 if (lk != lyricsKey)
                 {
@@ -9048,6 +9110,7 @@ namespace Kapsula
                     SwapCover(mCover, coverBrush != null ? (Brush)coverBrush : Chip);
                     SwapCover(cCover, coverBrush != null ? (Brush)coverBrush : Chip);
                     SwapCover(nCover, coverBrush != null ? (Brush)coverBrush : Chip);
+                    StageMedia(coverBrush != null ? (Brush)coverBrush : Chip);
                     coverGlow.Visibility = coverBrush != null ? Visibility.Visible : Visibility.Collapsed;
                     if (PlayerStyle == 3) ApplyPlayerStyle();
                 }
@@ -9086,10 +9149,11 @@ namespace Kapsula
                     mPos.Text = FmtSec(pos);
                     mDur.Text = FmtSec(media.Dur);
                     nProgress.Set(pos / media.Dur);
+                    if (stageProgress != null) stageProgress.Set(pos / media.Dur);
                     nPos.Text = FmtSec(pos);
                     nRem.Text = "−" + FmtSec(Math.Max(0, media.Dur - pos));
                 }
-                else { nProgress.Set(0); nPos.Text = ""; nRem.Text = ""; }
+                else { nProgress.Set(0); if (stageProgress != null) stageProgress.Set(0); nPos.Text = ""; nRem.Text = ""; }
             }
             // Выбранный режим запоминается: «только плеер» включается сам, как только у плеера находится свой звук.
             bool wantPlayer = Store.Get("volPlayer") == "1";
@@ -9194,6 +9258,8 @@ namespace Kapsula
 
         void OnWheel(object sender, MouseWheelEventArgs e)
         {
+            // Ctrl + колёсико над капсулой или мини-плеером — яркость экрана
+            if (BrightHud && (state == 0 || state == 1) && (GetAsyncKeyState(0x11) & 0x8000) != 0) { BrightnessWheel(e.Delta > 0 ? 5 : -5); e.Handled = true; return; }
             if (state == 1 && media.Has)
             {
                 // в мини-плеере колёсико крутит громкость этого плеера

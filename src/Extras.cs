@@ -1008,28 +1008,31 @@ namespace Kapsula
 
         public static void Set(int v)
         {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate { SetNow(v); });
+        }
+
+        // То же, но сразу, в текущем потоке (монитор по DDC/CI отвечает десятки миллисекунд — не из потока окна)
+        public static void SetNow(int v)
+        {
             v = Math.Max(0, Math.Min(100, v));
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            try
             {
+                var s = new System.Management.ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
+                foreach (System.Management.ManagementObject o in s.Get()) { o.InvokeMethod("WmiSetBrightness", new object[] { (uint)1, (byte)v }); return; }
+            }
+            catch { }
+            try
+            {
+                var arr = Monitors();
+                if (arr == null) return;
                 try
                 {
-                    var s = new System.Management.ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
-                    foreach (System.Management.ManagementObject o in s.Get()) { o.InvokeMethod("WmiSetBrightness", new object[] { (uint)1, (byte)v }); return; }
+                    uint min, cur, max;
+                    foreach (var m in arr) if (GetMonitorBrightness(m.h, out min, out cur, out max)) SetMonitorBrightness(m.h, (uint)(min + (max - min) * v / 100));
                 }
-                catch { }
-                try
-                {
-                    var arr = Monitors();
-                    if (arr == null) return;
-                    try
-                    {
-                        uint min, cur, max;
-                        foreach (var m in arr) if (GetMonitorBrightness(m.h, out min, out cur, out max)) SetMonitorBrightness(m.h, (uint)(min + (max - min) * v / 100));
-                    }
-                    finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
-                }
-                catch { }
-            });
+                finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
+            }
+            catch { }
         }
     }
 }

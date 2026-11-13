@@ -17,6 +17,7 @@ namespace Kapsula
         static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
         static readonly Brush Orange = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A));
         static readonly Brush Grey = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
+        static readonly Brush Paper = new SolidColorBrush(Color.FromRgb(0xF4, 0xEF, 0xE2));   // конверт, который зверёк приносит с уведомлением
         static readonly string[] Shape =
         {
             ".B.......B.",
@@ -423,6 +424,12 @@ namespace Kapsula
                     Face(2, "!", Yellow); shift.Y = -bell * hop * 0.7; break;
                 case "scratch":  // чешет затылок
                     Face(1, "?", Grey); tilt.Angle = Math.Sin(p * Math.PI * 8) * 5; break;
+                case "give":     // отдаёт письмо: конверт взлетает и тает, а сам радостно подпрыгивает
+                    Face(p < 0.3 ? 2 : 3, "✉", Paper);
+                    mark.RenderTransform = new TranslateTransform(px * 2.5 * p, -px * 7 * p);
+                    mark.Opacity = Math.Max(0, 1 - p * 1.5);
+                    shift.Y = -Math.Abs(Math.Sin(p * Math.PI)) * hop * 0.9;
+                    break;
                 case "sweat":    // бежит изо всех сил, капля пота
                     Face(1, "·", Drop); shift.X = Math.Sin(t * 10) * hop * 0.8; shift.Y = -Math.Abs(Math.Sin(t * 20)) * hop * 0.7; break;
                 case "sprint":   // рывок
@@ -472,6 +479,10 @@ namespace Kapsula
             {
                 case "fly":     // в прыжке: глаза круглые
                     Face(2, "", null);
+                    break;
+                case "post":    // несёт письмо — уведомление
+                    Face(2, "✉", Paper);
+                    shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
                     break;
                 case "dance":   // играет музыка: покачивается в такт, ноты мигают
                 {
