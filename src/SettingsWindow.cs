@@ -428,6 +428,7 @@ namespace Kapsula
             sp.Children.Add(Row("Тень под островом", "Мягкая тень: на светлых окнах остров словно парит над ними.", Toggle(island.ShadowOn, delegate(bool v) { island.SetFlag("shadow", v); }), false));
             sp.Children.Add(Row("Характер анимаций", "Как остров раскрывается и сворачивается. Выберите — остров сразу покажет. «Капля» сначала стекает вниз, потом расплывается вширь. «Меньше движения» — без отскоков и прыжков; включается само, если в Windows выключены анимации.", Chips(IslandWindow.MotionNames, island.MotionStyle, delegate(int i) { island.SetMotion(i); }), true));
             sp.Children.Add(Row("Зверёк в переходах", "Зверёк сам переходит туда, куда вы смотрите: выпрыгивает из капсулы на край панели и сидит, свесив лапки, перескакивает за вкладками, занимает место зверьков погоды, таймера и пустых списков, приносит уведомления — садится на край карточки и отдаёт вам письмо, — качается на жидком крае под музыку. Пока вкладку перестраивают, надевает каску и следит за стройкой. Щёлкните по нему — подпрыгнет.", Toggle(island.RideOn, delegate(bool v) { island.SetFlag("petRide", v); }), false));
+            sp.Children.Add(Row("Зверёк гуляет по окнам", "Когда остров свёрнут и ничего не происходит, зверёк иногда выпрыгивает из капсулы и садится на верхний край окна, в котором вы работаете: сидит, свесив лапки, прохаживается, засыпает, если вы отошли. Окно двигают — едет с ним. Что-то случилось — возвращается. Сквозь него можно щёлкать. На развёрнутых окнах, в играх и на весь экран не гуляет. Наведите на эту строку — сядет на окно настроек.", Toggle(island.WalkOn, delegate(bool v) { island.SetFlag("walk", v); }), false));
             sp.Children.Add(Row("Блоки по очереди", "Когда открывается панель или вкладка, блоки проявляются один за другим, волной сверху вниз.", Toggle(island.CascadeOn, delegate(bool v) { island.SetFlag("cascade", v); }), false));
             sp.Children.Add(Row("Матовое стекло · бета", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными. Функция пробная: на некоторых компьютерах фон может обновляться с задержкой или нагружать систему — тогда выключите.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
             Sec("Поведение").Children.Add(Row("Остров можно отцепить", "Потяните остров за пустое место — он отцепится от верхнего края и останется там, где отпустите; у краёв экрана прилипает. Поднесите к верхнему краю — встанет на место. Если панели не хватает места, остров сам приподнимается, пока она открыта.", Toggle(island.AllowDetach, delegate(bool v) { island.SetFlag("detach", v); }), false));
@@ -436,7 +437,8 @@ namespace Kapsula
             Sec("Поведение").Children.Add(Row("Показывать в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
             Sec("Поведение").Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так — если выше не включено «Показывать в играх».", HideAppsEditor(), true));
             sp.Children.Add(Row("Зверёк в капсуле", "Следит за курсором, задумывается, пока отвечает нейросеть, пугается таймера, радуется удаче и показывает, чем занят Claude Code. Если выключить, останутся только часы и погода.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
-            sp.Children.Add(Row("Сезонные наряды зверька", "Колпак под Новый год, шляпа в конце октября, шарф зимой. Меняется после перезапуска Kapsula.", Toggle(Store.Get("petSeason") != "0", delegate(bool v) { island.SetFlag("petSeason", v); }), false));
+            sp.Children.Add(Row("Сезонные наряды зверька", "Колпак под Новый год, шляпа в конце октября, шарф зимой.", Toggle(Store.Get("petSeason") != "0", delegate(bool v) { island.SetFlag("petSeason", v); }), false));
+            sp.Children.Add(Row("Наряд зверька", "Обновки за привычки: повязка — за 3 перерыва после долгой работы, бабочка — за 10 выполненных задач на «Сегодня», наушники — за 10 часов музыки, корона — за 10 кругов помодоро. Новый наряд приносит карточка. «Сам» — носит последнюю обновку, а пока их нет — сезонный наряд.", OutfitPicker(), true));
             if (island.MonitorCount > 1)
             {
                 var names = new string[island.MonitorCount];
@@ -692,7 +694,7 @@ namespace Kapsula
         static readonly string[][] Layout =
         {
             new[] { "Общее", "Украинский проект", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
-            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Шрифт острова", "Матовое стекло", "Светлая кромка", "Тень под островом", "Секунды в часах", "#Анимации", "Характер анимаций", "Блоки по очереди", "#Форма капсулы", "Ширина капсулы", "Высота капсулы", "#Зверёк", "Зверёк в капсуле", "Зверёк в переходах", "Свой стикер вместо зверька", "Сезонные наряды зверька" },
+            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Шрифт острова", "Матовое стекло", "Светлая кромка", "Тень под островом", "Секунды в часах", "#Анимации", "Характер анимаций", "Блоки по очереди", "#Форма капсулы", "Ширина капсулы", "Высота капсулы", "#Зверёк", "Зверёк в капсуле", "Зверёк в переходах", "Зверёк гуляет по окнам", "Свой стикер вместо зверька", "Наряд зверька", "Сезонные наряды зверька" },
             new[] { "Поведение", "#Где остров", "Остров можно отцепить", "Вернуть остров наверх", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки", "Яркость на острове" },
             new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "Мини-плеер: только текст песни", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
             new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
@@ -987,6 +989,7 @@ namespace Kapsula
                 case "Напоминать о событиях календаря": return "calendar";
                 case "Смена раскладки": return "layout";
                 case "Яркость на острове": return "bright";
+                case "Зверёк гуляет по окнам": return "walk";
                 case "Игровой режим": return "gamer";
                 case "Новый трек поверх игр и видео": return "track";
                 case "Счётчик непрочитанного": return "unread";
@@ -1249,6 +1252,52 @@ namespace Kapsula
             track.Loaded += delegate { move(false); };
             return track;
         }
+        // Гардероб зверька: «Сам», «По сезону», «Без наряда» и обновки за привычки. Ещё не полученные — бледные,
+        // с тем, сколько осталось; выбрать их нельзя.
+        FrameworkElement OutfitPicker()
+        {
+            var wrap = new WrapPanel { MaxWidth = 470 };
+            var ids = new List<string> { "", "season", "none" };
+            var labels = new List<string> { "Сам", "По сезону", "Без наряда" };
+            var locked = new List<string> { null, null, null };
+            for (int i = 0; i < IslandWindow.OutfitIds.Length; i++)
+            {
+                ids.Add(IslandWindow.OutfitIds[i]);
+                bool have = island.OutfitHave(i);
+                labels.Add(IslandWindow.OutfitNames[i] + (have ? "" : " · " + island.OutfitProgress(i)));
+                locked.Add(have ? null : "Пока нет: нужно " + IslandWindow.OutfitFor(i) + " (сейчас " + island.OutfitProgress(i) + ")");
+            }
+            string cur = island.OutfitChoice();
+            if (ids.IndexOf(cur) < 0) cur = "";
+            var chips = new List<Border>();
+            Action paint = delegate
+            {
+                for (int i = 0; i < chips.Count; i++)
+                {
+                    bool on = ids[i] == cur;
+                    chips[i].Background = on ? OnBg : Brushes.Transparent;
+                    chips[i].BorderBrush = on ? Brushes.Transparent : Divider;
+                    ((TextBlock)chips[i].Child).Foreground = on ? OnTxt : Sub;
+                }
+            };
+            for (int i = 0; i < ids.Count; i++)
+            {
+                int idx = i;
+                var tb = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(1), Child = tb };
+                if (locked[i] != null) { c.Opacity = 0.45; c.ToolTip = locked[i]; }
+                else
+                {
+                    c.Cursor = Cursors.Hand;
+                    c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; cur = ids[idx]; paint(); island.SetOutfit(cur); };
+                }
+                chips.Add(c);
+                wrap.Children.Add(c);
+            }
+            paint();
+            return wrap;
+        }
+
         // Несколько переключателей в ряд(ы): каждый включается и выключается отдельно
         FrameworkElement MultiChips(string[] labels, bool[] on, Action<int, bool> changed)
         {

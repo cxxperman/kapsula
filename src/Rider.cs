@@ -442,7 +442,7 @@ namespace Kapsula
             if (kind == 1 && claudeDot != null) claudeDot.Opacity = 0;
             if (kind == 0)
             {
-                if (claudeDot != null) claudeDot.Opacity = 1;
+                if (claudeDot != null && !walkerOut) claudeDot.Opacity = 1;   // гуляет по окну — в капсуле его нет
                 if (rOut) StartFade();   // спрятаться некуда — растворяется на месте
                 return;
             }
@@ -517,7 +517,7 @@ namespace Kapsula
         void RiderDock()
         {
             rFly = false; rOut = false; rHave = false; rFadeAt = 0;
-            if (rKind == 1 && claudeDot != null) claudeDot.Opacity = 1;
+            if (rKind == 1 && claudeDot != null && !walkerOut) claudeDot.Opacity = 1;
             if (rKind == 2 && rSeat != null) { rSeat.Root.Opacity = 1; rSeat.Glance(0, 300); }
             rider.Root.BeginAnimation(UIElement.OpacityProperty, null);
             rider.Root.Visibility = Visibility.Collapsed;
@@ -555,6 +555,7 @@ namespace Kapsula
         void RiderPlace()
         {
             if (rider == null || !rOut) return;
+            if (walkerOut && walkPhase == 4) rider.Root.Opacity = 0;   // к нему с окна прыгает гуляющий зверёк — пока не показывать
             int now = Environment.TickCount;
             if (rFadeAt != 0)
             {
@@ -618,6 +619,58 @@ namespace Kapsula
         // зверька пишется в файл. Вкладки можно задать переменной KAPSULA_RIDEPAGES, например «1,6,5,7,0».
         void RiderTestScript()
         {
+            // KAPSULA_RIDEWALK=1 (вместе с KAPSULA_WALKRECT): на край «окна» → прогулка по краю → домой → снова → остров раскрылся (тает)
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEWALK") == "1")
+            {
+                ClaudeAfter(3000, delegate { WalkGo(true); walkUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(5200, delegate { Native.RECT r = walkRect; wGoX = EdgeX(r, wX + 140); walkMoving = true; StartWalkTimer(); });
+                ClaudeAfter(9000, delegate { WalkHome(); });
+                ClaudeAfter(11000, delegate { WalkGo(true); walkUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(13200, delegate { holdOpenUntil = Environment.TickCount + 60000; SetState(2); });
+                ClaudeAfter(15200, delegate { holdOpenUntil = 0; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDEOUTFIT=1 (вместе с KAPSULA_HABITS): корона получена → карточка → примерка всех нарядов → панель
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEOUTFIT") == "1")
+            {
+                ClaudeAfter(2500, delegate { HabitAdd(3, 1); OutfitCardTry(true); });
+                ClaudeAfter(6500, delegate { SetState(0); });
+                ClaudeAfter(7500, delegate { SetOutfit("phones"); });
+                ClaudeAfter(8700, delegate { SetOutfit("band"); });
+                ClaudeAfter(9900, delegate { SetOutfit("bow"); });
+                ClaudeAfter(11100, delegate { SetOutfit("crown"); });
+                ClaudeAfter(12000, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(14500, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDEBAT=1 (вместе с KAPSULA_BATTERY=«23,0»): зарядку подключили → отключили → батарея садится → карточку раскрыли
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEBAT") == "1")
+            {
+                ClaudeAfter(2500, delegate { batTest = "23,1"; });
+                ClaudeAfter(5500, delegate { batTest = "23,0"; });
+                ClaudeAfter(8000, delegate { batTest = "19,0"; });
+                ClaudeAfter(10800, delegate { cardUntil = Environment.TickCount + 60000; CardExpand(); holdOpenUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(13800, delegate { holdOpenUntil = 0; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDECARD=1: сообщение → раскрыть в панель (улетает в историю) → свернуть → обычная карточка → раскрыть
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDECARD") == "1")
+            {
+                ClaudeAfter(2500, delegate
+                {
+                    Quiet("Discord", "Марк", "го вечером в кооп?");
+                    ShowCard(null, ((char)0xE8BD).ToString(), "Марк", "го вечером в кооп?", null);
+                    SetCardBadge(SourceIcon("discord")); HideCardButton(); CardIsNote();
+                    cardUntil = Environment.TickCount + 60000;
+                });
+                ClaudeAfter(4800, delegate { CardExpand(); holdOpenUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(7800, delegate { holdOpenUntil = 0; SetState(0); });
+                ClaudeAfter(9300, delegate { ShowCard(null, ((char)0xE896).ToString(), "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null); cardUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(10000, delegate { CardGrabShow(true); });   // «ручка» — как при наведении курсора
+                ClaudeAfter(11300, delegate { CardExpand(); holdOpenUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(14000, delegate { holdOpenUntil = 0; SetState(0); });
+                return;
+            }
             // KAPSULA_RIDEFLOAT=1: отцепиться и съехать вниз → раскрыться → к нижнему краю → раскрыться (должен приподняться) → вернуться наверх
             if (Environment.GetEnvironmentVariable("KAPSULA_RIDEFLOAT") == "1")
             {
@@ -747,7 +800,7 @@ namespace Kapsula
             if (rider == null) return;
             if (!RiderAllowed())
             {
-                if (rOut || rKind != 0 || rTouched.Count > 0 || claudeDot != null && claudeDot.Opacity < 1) RiderReset();
+                if (rOut || rKind != 0 || rTouched.Count > 0 || claudeDot != null && claudeDot.Opacity < 1 && !walkerOut) RiderReset();
                 return;
             }
             // Страница только что перерисовалась и ещё не разложена — её зверьки не на местах; решать в следующий раз
@@ -780,7 +833,7 @@ namespace Kapsula
         {
             rFly = false; rOut = false; rKind = 0; rSeat = null; rHave = false; rFadeAt = 0;
             if (rider != null) { rider.Root.BeginAnimation(UIElement.OpacityProperty, null); rider.Root.Opacity = 1; rider.Root.Visibility = Visibility.Collapsed; rider.Seated = false; rider.Hat = false; }
-            if (claudeDot != null) claudeDot.Opacity = 1;
+            if (claudeDot != null && !walkerOut) claudeDot.Opacity = 1;
             foreach (PetView p in rTouched) p.Root.Opacity = 1;
             rTouched.Clear();
         }
@@ -993,7 +1046,7 @@ namespace Kapsula
             if (pollTimer == null) return;
             bool want = false;
             if (state == 0 && !toastOn && !(media.Has && media.Playing) && !GamerMode && !timerRinging && claudeState == 0 && dlActive == null && steamDlApp == null
-                && !Recorder.Active && !rOut && ForceOpen == -1 && unchecked(Environment.TickCount - happyUntil) >= 0)
+                && !Recorder.Active && !rOut && !walkerOut && ForceOpen == -1 && unchecked(Environment.TickCount - happyUntil) >= 0)
             {
                 Native.POINT pt;
                 if (Native.GetCursorPos(out pt))

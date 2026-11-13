@@ -241,6 +241,8 @@ namespace Kapsula
             ShowEyes = Store.Get("eyes") != "0";
             LoadMotion();   // характер анимаций, попутчик, кромка, тень
             LoadDetach();   // остров мог быть отцеплен и стоять в другом месте экрана
+            WalkInit();     // зверёк иногда гуляет по краю окна, в котором вы работаете
+            HabitsInit();   // наряды за привычки: что сейчас носит зверёк
             { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
@@ -327,6 +329,7 @@ namespace Kapsula
             switch (key)
             {
                 case "followWin": FollowWindows = v; lastWinDark = IsDarkTheme(); ApplyEffectiveTheme(); break;
+                case "petSeason": ApplyOutfit(); break;   // сезонный наряд снимается и надевается сразу
                 case "pillTitle": PillTitle = v; RenderCompact(); SetTargets(); break;
                 case "hoverMini": HoverMini = v; break;
                 case "liquid": LiquidOn = v; Wake(); break;
@@ -341,6 +344,7 @@ namespace Kapsula
                 case "shadow": ShadowOn = v; Wake(); break;
                 case "brightHud": BrightHud = v; if (v) StartBrightnessWatch(); else StopBrightnessWatch(); break;
                 case "detach": AllowDetach = v; if (!v && detached) Attach(true); break;
+                case "walk": WalkOn = v; if (!v) WalkHome(); break;
                 case "notifications": ShowNotifications = v; if (v) StartNotifications(); else notifStop = true; break;
                 case "lyrics": Store.Set("lyrics", v ? "on" : "off"); lyricsKey = null; SetLyrics(null); RenderMedia(); break;
             }
@@ -740,7 +744,8 @@ namespace Kapsula
             compactHost = new Grid { Height = pillH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
             var cardScale = new ScaleTransform(1, 1);
             var cmdScale = new ScaleTransform(1, 1);
-            cardHost = new Grid { Width = CardW, Height = CardH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = cardScale, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
+            var cardTg = new TransformGroup(); cardTg.Children.Add(cardScale); cardTg.Children.Add(cardShift);   // сдвиг — карточка опускается в панель
+            cardHost = new Grid { Width = CardW, Height = CardH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = cardTg, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
             cmdHost = new Grid { Width = CmdW, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, RenderTransform = cmdScale, RenderTransformOrigin = new Point(0.5, 0), Opacity = 0, IsHitTestVisible = false };
             BuildCompact();
             BuildMini();
@@ -758,6 +763,7 @@ namespace Kapsula
             clipHost.Children.Add(compactHost);
             layers = new Grid[] { compactHost, miniHost, expandedHost, cardHost, cmdHost };
             layerScale = new ScaleTransform[] { null, miniScale, expandScale, cardScale, cmdScale };
+            BuildHero();    // копии значка и текста карточки, которые улетают в историю уведомлений
             root.Children.Add(clipHost);
             edge = new Path { Stroke = accent, StrokeThickness = 1.6, StrokeLineJoin = PenLineJoin.Round, IsHitTestVisible = false, Opacity = 0 };
             root.Children.Add(edge);
@@ -1093,6 +1099,7 @@ namespace Kapsula
             cardHost.Children.Add(g);
             cardGrid = g;
             BuildBudsPanel();
+            BuildCardGrab();   // «ручка» внизу: раскрыть карточку в панель
         }
 
         void ShowCard(ImageSource img, string glyph, string title, string sub, Action act) { ShowCardEx(img, glyph, title, sub, act, null, null, false); }
@@ -1478,6 +1485,8 @@ namespace Kapsula
         void ShowCardEx(ImageSource img, string glyph, string title, string sub, Action act, string btnText, Action btnAct, bool force)
         {
             cardNoAction = null;
+            cardPage = -1; cardNote = false;   // вкладку и «улёт в историю» назначает тот, кто показывает карточку
+            CardContentBack();
             shotDragPath = null; if (cardThumbBox != null) cardThumbBox.ToolTip = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
             for (int i = 0; i < 2; i++) if (cardAlt[i] != null) { cardAlt[i].Visibility = Visibility.Collapsed; cardAltAction[i] = null; }
@@ -1526,6 +1535,14 @@ namespace Kapsula
             if (state == 3) SetTargets(); else SetState(3);
             FitCard();
             RiderDeliver();   // зверёк уже сидит на карточке — отдаёт и это письмо
+            Dispatcher.BeginInvoke(new Action(delegate { CardGrabShow(state == 3 && cardHost.IsMouseOver); }), System.Windows.Threading.DispatcherPriority.Background);   // кнопки уже расставлены
+        }
+
+        // Карточка — уведомление из истории: колёсиком вниз она раскрывается во вкладку «Уведомления» и улетает в её верхнюю строку
+        void CardIsNote()
+        {
+            if (state != 3) return;
+            cardNote = true; cardPage = PNotif;
         }
 
         // Новая версия уже лежит на месте старой. Kapsula перезапустится сама, когда это не помешает; кнопка — для нетерпеливых.
@@ -5193,11 +5210,18 @@ namespace Kapsula
             var stats = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8) };
             // процессор и память — в одну строку, чтобы над ними поместились яркость и питание
             var rows = new UniformGrid { Rows = 1, Columns = 2 };
-            cpuBar = new Bar((PageW - 32 - 24) / 2 - 96 - 48 + 4, 5, accent, 22);
-            ramBar = new Bar((PageW - 32 - 24) / 2 - 96 - 48 + 4, 5, new SolidColorBrush(Color.FromRgb(0x5A, 0xA9, 0xFF)), 22);
+            double statW = (PageW - 32 - 24) / 2 - 96 - 48 + 4 - (BatteryPresent() ? 38 : 0);   // у ноутбука справа — заряд батареи
+            cpuBar = new Bar(statW, 5, accent, 22);
+            ramBar = new Bar(statW, 5, new SolidColorBrush(Color.FromRgb(0x5A, 0xA9, 0xFF)), 22);
             rows.Children.Add(StatRow("Процессор", cpuBar, out cpuText));
             rows.Children.Add(StatRow("Память", ramBar, out ramText));
-            stats.Child = rows;
+            var statsRow = new Grid();
+            statsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            statsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            statsRow.Children.Add(rows);
+            FrameworkElement chip = BuildBatChip();
+            Grid.SetColumn(chip, 1); statsRow.Children.Add(chip);
+            stats.Child = statsRow;
             sb.Add("load", "Нагрузка", stats, 0, 3, 4, 1, false);
             WireBoard(sb);
             sb.Load();
@@ -5778,6 +5802,7 @@ namespace Kapsula
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", Store.Get("hideNotifText") == "1" ? "Новое уведомление" : text, delegate { }, null, null, false);
                                     SetCardLogo(logoImg);   // нет значка — остаётся колокольчик
                                     HideCardButton();
+                                    CardIsNote();
                                     cardUntil = Environment.TickCount + 5500;
                                 }));
                             }
@@ -5823,6 +5848,7 @@ namespace Kapsula
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             SetCardBadge(SourceIcon("discord"));
             HideCardButton();
+            CardIsNote();
             cardUntil = Environment.TickCount + 6000;
             if (TestDemoCard == null) UnreadAdd(true);
         }
@@ -6393,7 +6419,10 @@ namespace Kapsula
                     petEyes[m].Add(PetPixel(c, 11 - e[0] - e[2], e[1], e[2], e[3], Ink));
                 }
             }
+            int dressFrom = c.Children.Count;
             PetView.Dress(c, PetPx);
+            for (int i = dressFrom; i < c.Children.Count; i++) petOutfit.Add(c.Children[i]);
+            petCanvas = c; petDressedAs = PetView.OutfitVersion;
             petMark = new TextBlock { FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2.5, -4, 0, 0), MinWidth = 8 };
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 5, 0), Visibility = Visibility.Collapsed };
             sp.Children.Add(c); sp.Children.Add(petMark);
@@ -6575,7 +6604,13 @@ namespace Kapsula
         void MoodTick()
         {
             int now = Environment.TickCount;
-            if (Native.IdleMs() > 5 * 60000) { activeSince = now; breakHinted = false; }
+            if (Native.IdleMs() > 5 * 60000)
+            {
+                // отошли минут на пять после долгой работы — это перерыв (к повязке)
+                if (!onBreak && unchecked(now - activeSince) > 45 * 60000) HabitAdd(0, 1);
+                onBreak = true; activeSince = now; breakHinted = false;
+            }
+            else onBreak = false;
             if (PetProps() && NeedsBreak() && !breakHinted && state == 0 && !toastOn && !hiddenFs && !QuietNow)
             {
                 breakHinted = true;
@@ -6628,6 +6663,7 @@ namespace Kapsula
         void PetAnimate()
         {
             if (claudeDot == null || claudeDot.Visibility != Visibility.Visible) return;
+            if (petDressedAs != PetView.OutfitVersion) PetRedress();   // новый наряд — переодеться
             int now = Environment.TickCount;
             double t = now / 1000.0;
             bool chr = PetIsCharacter();
@@ -6641,7 +6677,7 @@ namespace Kapsula
             if (!chr && !PetDancing() && TestMood == null) mood = "";
             string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec"
                 : steamDlApp != null || dlActive != null ? (steamDlApp != null && steamDlDone ? "carried" : "carry")
-                : toastOn && toastValue >= 0 ? (toastBright ? "bright" : "vol") : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
+                : toastOn && toastValue >= 0 ? (toastBright ? "bright" : toastCharge == 1 ? "charge" : "vol") : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
                 : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
             petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
 
@@ -6658,6 +6694,7 @@ namespace Kapsula
                 else if (toastValue > 0.8) { PetFace(4, "", null); petShift.X = rnd.NextDouble() * 1.6 - 0.8; petShift.Y = 1; }
                 else PetFace(toastValue > 0.45 ? 2 : 0, "", null);
             }
+            else if (act == "charge") { PetFace(3, "⚡", ClaudeGreen); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; petMark.Opacity = 0.45 + 0.55 * Math.Abs(Math.Sin(t * 5)); }   // зарядку подключили: радуется, молния мигает
             else if (act == "bright")
             {
                 // яркость: на ярком щурится от солнца, в темноте таращит глаза
@@ -6910,6 +6947,7 @@ namespace Kapsula
         public void ShowDemo(string kind)
         {
             if (kind == "motion") { DemoMotion(); return; }   // характер анимаций и попутчик: раскрыться и свернуться
+            if (kind == "walk") { if (state == 0 && !walkerOut && WalkAllowed() && PetAtHome()) WalkGo(true); return; }   // пример: зверёк садится на окно настроек
             if (kind == "bright" && (state == 0 || state == 1)) { Toast(((char)0xE706).ToString(), null, "70%", 0.7, Amber); toastBright = true; return; }
             if (state == 2 || state == 4) return;
             Action card = null;
@@ -7190,28 +7228,6 @@ namespace Kapsula
             AddCmd(s.Model + " — " + s.Text, s.InEar ? "надеты" : "не надеты", BudsGlyph, null, null);
         }
 
-        // ---- батарея ноутбука: предупреждаем на 20% и 10%, пока он не на зарядке
-        int batteryWarned = 101;
-
-        void BatteryTick()
-        {
-            try
-            {
-                WF.PowerStatus ps = WF.SystemInformation.PowerStatus;
-                if ((ps.BatteryChargeStatus & WF.BatteryChargeStatus.NoSystemBattery) != 0 || ps.BatteryLifePercent > 1) return;
-                int pct = (int)Math.Round(ps.BatteryLifePercent * 100);
-                if (ps.PowerLineStatus != WF.PowerLineStatus.Offline) { batteryWarned = 101; return; }
-                foreach (int mark in new int[] { 10, 20 })
-                    if (pct <= mark && batteryWarned > mark)
-                    {
-                        batteryWarned = mark;
-                        Toast(((char)0xE850).ToString(), "Батарея " + pct + "% — пора на зарядку", null, -1, pct <= 10 ? RecRed : (Brush)accent);
-                        return;
-                    }
-            }
-            catch { }
-        }
-
         // Звук, когда Claude Code ждёт решения: карточку можно не заметить, если вы отвернулись от экрана
         void ClaudeSound()
         {
@@ -7313,6 +7329,7 @@ namespace Kapsula
             {
                 pomoRounds++;
                 DoneAdd();
+                HabitAdd(3, 1);   // круг помодоро — к короне
                 int rest = pomoRounds % 4 == 0 ? 15 : 5;
                 pomoPhase = 2;
                 timerEnd = DateTime.Now.AddMinutes(rest);
@@ -7463,6 +7480,7 @@ namespace Kapsula
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             // Значок Steam — только на сообщениях: там важно, откуда пишут. У достижений и «друг в игре» источник и так понятен.
             if (replyTo != null) SetCardBadge(SourceIcon("steam")); else HideCardButton();
+            CardIsNote();
             cardUntil = Environment.TickCount + (replyTo != null ? 8000 : 6000);
             if (replyTo != null && TestDemoCard == null) UnreadAdd(false);
             if (TestReply && replyTo != null && !replyShown)
@@ -8176,6 +8194,7 @@ namespace Kapsula
             if (tray != null) tray.Dispose();
             watcher.Stop();
             StopBrightnessWatch();
+            if (walker != null) try { walker.Close(); } catch { }
             if (hwnd != IntPtr.Zero)
             {
                 Native.RemoveClipboardFormatListener(hwnd);
@@ -8440,16 +8459,17 @@ namespace Kapsula
             bool riderBusy = RiderBusy();   // зверёк-попутчик в прыжке или пружинит после посадки
             // Пока движется форма острова, рисуем каждый кадр монитора. Когда пляшет только жидкий край,
             // хватает около 60 обновлений в секунду: глаз разницы не видит, а нагрузка падает в разы.
-            if (springs || riderBusy || t - appliedAt >= 0.0155)
+            if (springs || riderBusy || heroOn || t - appliedAt >= 0.0155)
             {
                 liquidLive = StepLiquid(Math.Min(0.05, t - liquidAt));
                 liquidAt = t;
                 ApplyFrame();
                 RiderPlace();
+                HeroFrame();   // карточка улетает в историю уведомлений
                 if (springs && duck != null && state == 2 && page == PChat) DuckTick();
                 appliedAt = t;
             }
-            bool moving = springs || liquidLive || riderBusy;
+            bool moving = springs || liquidLive || riderBusy || heroOn;
             if (!moving)
             {
                 CompositionTarget.Rendering -= OnFrame;
@@ -8638,9 +8658,11 @@ namespace Kapsula
                 if (layerScale[i] != null)
                 {
                     double sc = 0.9 + 0.1 * Clamp01(so[i].X);
+                    if (i == 3 && cardFlow) sc = 1 + 0.03 * (1 - Clamp01(so[3].X));   // карточка уходит в панель: не сжимается к капсуле, а опускается
                     layerScale[i].ScaleX = sc; layerScale[i].ScaleY = sc;
                 }
             }
+            cardShift.Y = cardFlow ? 34 * (1 - Clamp01(so[3].X)) : 0;
 
             double go = Clamp01(glowAmt) * Clamp01(Math.Max(so[1].X, so[2].X * 0.6));
             bottomGlow.Opacity = go;
@@ -8653,11 +8675,17 @@ namespace Kapsula
         void SetState(int s)
         {
             if (state == s) return;
+            bool walkBack = walkerOut;   // гулял по окну — прыгнет на остров вслед за попутчиком (или растает на окне)
             RiderCapture();   // запомнить, где сейчас сидит зверёк: оттуда он и прыгнет
             if (s != 2) { Board eb = BoardFor(page); if (eb != null && eb.Editing) eb.SetEditing(false); RefreshPencil(); }   // панель закрылась — правка закончена
             if (s == 1) RenderMiniVolume();   // ползунок громкости — сразу с текущим значением
             bool wasFull = state == 2 || state == 4;
             bool wasCmd = state == 4;
+            // Карточка ещё на экране, а открывается панель — карточка опускается в неё, а не сжимается к капсуле.
+            // Новая карточка появляется как обычно, с прежним значком и текстом.
+            if (s == 2 && so[3].X > 0.3) cardFlow = true;
+            if (s == 3) { cardFlow = false; CardContentBack(); }
+            if (s != 2) HeroEnd();
             state = s;
             if (wasCmd && s != 4)
             {
@@ -8692,6 +8720,7 @@ namespace Kapsula
             SetTargets();
             DuckTick();
             RiderRetarget();   // зверёк перебирается туда, где он теперь нужен
+            if (walkBack) WalkToIsland();
         }
 
         // Панель открылась — содержимое страницы мягко «всплывает» снизу, блоки — по очереди
@@ -8800,7 +8829,7 @@ namespace Kapsula
         void Toast(string glyph, string text, string right, double value, Brush glyphBrush)
         {
             if (TestCharacter != null) return;   // при съёмке персонажей надписи не нужны
-            toastBright = false;   // надпись про яркость отмечает себя сама, сразу после этого вызова
+            toastBright = false; toastCharge = 0;   // надписи про яркость и зарядку отмечают себя сами, сразу после этого вызова
             toastGlyph = glyph; toastText = text; toastRight = right; toastValue = value; toastBrush = glyphBrush;
             if (glyphBrush == accent && value < 0) Happy(3300);   // удачное действие — персонаж радуется, когда надпись уйдёт
             toastUntil = Environment.TickCount + 1800;
@@ -9258,6 +9287,8 @@ namespace Kapsula
 
         void OnWheel(object sender, MouseWheelEventArgs e)
         {
+            if (unchecked(Environment.TickCount - wheelMuteUntil) < 0) { e.Handled = true; return; }   // хвост жеста над карточкой
+            if (CardWheel(e)) { e.Handled = true; return; }   // над карточкой: вниз — в панель, вверх — смахнуть
             // Ctrl + колёсико над капсулой или мини-плеером — яркость экрана
             if (BrightHud && (state == 0 || state == 1) && (GetAsyncKeyState(0x11) & 0x8000) != 0) { BrightnessWheel(e.Delta > 0 ? 5 : -5); e.Handled = true; return; }
             if (state == 1 && media.Has)
@@ -9757,6 +9788,7 @@ namespace Kapsula
             if (state == 0 && PillMode == 3 && pollN % 15 == 0 && media.Has && media.Playing && !toastOn) RenderCompact();   // полоса трека в капсуле
             if (expanded && page == PWeather && weatherAnimAt != 0) AnimateWeather();
             if (expanded && page == PNote && pollN % 4 == 0) UpdateRing();
+            WalkTick();    // прогулка по окнам: пора ли, не пора ли домой (до попутчика: тот должен знать, где зверёк)
             RiderPoll();
             CalmCheck();
         }
@@ -9777,10 +9809,11 @@ namespace Kapsula
             }
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
-            if (tick % 60 == 7) BatteryTick();
             if (tick % 4 == 1) { MoodTick(); MorningTick(); }
             ExtrasTick();
             if (tick % 4 == 2) EarbudsTick();
+            if (tick % 2 == 1) BatteryTick();   // батарея ноутбука: зарядка, «садится»
+            HabitTick();                        // наряды за привычки: минуты музыки, карточка с обновкой
             if (tick % 4 == 1) BudsChipRefresh();   // раз в две секунды: так подключение наушников замечается почти сразу
             UnreadTick();
             int cs = ClaudeStateNow();
@@ -9791,7 +9824,10 @@ namespace Kapsula
             bool ah = HideAppInFront();
             if (ah != appHide) { appHide = ah; if (!ah) revealUntil = Environment.TickCount + 600; }
             if (!fs && tick % 6 == 0 && hwnd != IntPtr.Zero && !snipActive)
+            {
                 Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+                WalkerTop();   // гуляющий зверёк — всё равно над островом
+            }
 
             if (tick % 4 == 1) PollSteam();
             if (tick % 2 == 0) SampleCpu();

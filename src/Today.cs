@@ -310,7 +310,7 @@ namespace Kapsula
                     e.Handled = true;
                     List<DayTask> cur = Tasks.Load();
                     DayTask x = cur.Find(delegate(DayTask y) { return y.Id == task.Id; });
-                    if (x != null) { x.Done = !x.Done; Tasks.Save(cur); if (x.Done) Happy(1500); }
+                    if (x != null) { x.Done = !x.Done; Tasks.Save(cur); if (x.Done) Happy(1500); HabitAdd(1, x.Done ? 1 : -1); }   // выполненные задачи — к бабочке
                     RenderToday();
                 };
                 b.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e)
@@ -349,6 +349,7 @@ namespace Kapsula
             string head = (now.Hour < 12 ? "Доброе утро" : "Добрый день") + (list.Count > 0 ? " · " + Plural(list.Count, "задача", "задачи", "задач") : "");
             ShowCardEx(null, ((char)0xE706).ToString(), head, next, delegate { SetState(2); ShowPage(PToday); }, "Фокус", delegate { PomodoroStart(); }, true);
             CardPet("happy");
+            cardPage = PToday;   // раскрыть карточку — сразу во вкладку «Сегодня»
             cardUntil = Environment.TickCount + 9000;
         }
 

@@ -45,7 +45,7 @@ namespace Kapsula
             return 0;
         }
 
-        // Клетки аксессуара: x, y, ширина, цвет (0 красный, 1 белый, 2 фиолетовый, 3 оранжевый, 4 синий)
+        // Клетки аксессуара: x, y, ширина, цвет (0 красный, 1 белый, 2 фиолетовый, 3 оранжевый, 4 синий, 5 золото, 6 графит)
         static readonly int[][][] Outfits =
         {
             new int[0][],
@@ -53,11 +53,36 @@ namespace Kapsula
             new int[][] { new int[] { 1, 0, 9, 2 }, new int[] { 3, -1, 5, 3 }, new int[] { 3, -2, 5, 2 }, new int[] { 4, -3, 3, 2 }, new int[] { 5, -4, 1, 2 } },
             new int[][] { new int[] { 1, 7, 9, 4 }, new int[] { 7, 8, 2, 4 } }
         };
-        static readonly Color[] OutfitColors = { Color.FromRgb(0xE5, 0x48, 0x4D), Color.FromRgb(0xF4, 0xF4, 0xF6), Color.FromRgb(0x7B, 0x4F, 0xBF), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x4F, 0x8F, 0xE0) };
+        static readonly Color[] OutfitColors = { Color.FromRgb(0xE5, 0x48, 0x4D), Color.FromRgb(0xF4, 0xF4, 0xF6), Color.FromRgb(0x7B, 0x4F, 0xBF), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x4F, 0x8F, 0xE0), Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0x3A, 0x3A, 0x42) };
+
+        // ---- наряды за привычки (их выдаёт остров, см. Habits.cs). Глаза открыты: зверёк в них по-прежнему всё показывает.
+        public static readonly string[] HabitIds = { "band", "bow", "phones", "crown" };
+        static readonly int[][][] HabitOutfits =
+        {
+            // повязка: красная лента по лбу и хвостик справа
+            new int[][] { new int[] { 1, 2, 9, 0 }, new int[] { 10, 2, 1, 0 }, new int[] { 11, 3, 1, 0 } },
+            // бабочка на груди: два крыла и узелок посередине
+            new int[][] { new int[] { 3, 6, 2, 2 }, new int[] { 6, 6, 2, 2 }, new int[] { 3, 7, 2, 2 }, new int[] { 6, 7, 2, 2 }, new int[] { 5, 6, 1, 6 }, new int[] { 5, 7, 1, 6 } },
+            // наушники: дужка над ушками и синие амбушюры по бокам
+            new int[][] { new int[] { 1, -1, 9, 6 }, new int[] { 0, 0, 1, 6 }, new int[] { 10, 0, 1, 6 }, new int[] { 0, 1, 1, 6 }, new int[] { 10, 1, 1, 6 },
+                          new int[] { -1, 2, 2, 4 }, new int[] { -1, 3, 2, 4 }, new int[] { 10, 2, 2, 4 }, new int[] { 10, 3, 2, 4 } },
+            // корона между ушками: золотое основание, три зубца и рубин
+            new int[][] { new int[] { 3, 1, 5, 5 }, new int[] { 3, 0, 1, 5 }, new int[] { 5, 0, 1, 5 }, new int[] { 7, 0, 1, 5 }, new int[] { 5, 1, 1, 0 } }
+        };
+
+        public static string Outfit = "";     // "" — по сезону, "none" — без наряда, иначе один из HabitIds
+        public static int OutfitVersion;      // сменили наряд — каждый зверёк переодевается на своём следующем шаге
+
+        static int[][] OutfitCells()
+        {
+            if (Outfit == "none") return new int[0][];
+            int k = Array.IndexOf(HabitIds, Outfit);
+            return k >= 0 ? HabitOutfits[k] : Outfits[Season()];
+        }
 
         public static void Dress(Canvas c, double px)
         {
-            foreach (int[] o in Outfits[Season()])
+            foreach (int[] o in OutfitCells())
             {
                 var r = new Rectangle { Width = o[2] * px + 0.3, Height = px + 0.3, Fill = new SolidColorBrush(OutfitColors[o[3]]), SnapsToDevicePixels = true };
                 Canvas.SetLeft(r, o[0] * px); Canvas.SetTop(r, o[1] * px);
@@ -194,6 +219,7 @@ namespace Kapsula
             int dressed = c.Children.Count;
             Dress(c, px);
             for (int i = dressed; i < c.Children.Count; i++) outfit.Add(c.Children[i]);
+            dressedAs = OutfitVersion;
             mark = new TextBlock { FontSize = Math.Max(10, px * 6.5), FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(px * 1.4, -px * 2.2, 0, 0), MinWidth = px * 5 };
             Root = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
             Root.Children.Add(c); Root.Children.Add(mark);
@@ -459,8 +485,21 @@ namespace Kapsula
                     Face(0, "", null); LookEyes(-1, 1); break;   // заглядывает в строку
             }
         }
+        // Переодеться: сняли прежний наряд, надели нынешний (каска прораба, если она надета, остаётся сверху)
+        int dressedAs;
+        void Redress()
+        {
+            dressedAs = OutfitVersion;
+            foreach (UIElement o in outfit) body.Children.Remove(o);
+            outfit.Clear();
+            int n = body.Children.Count;
+            Dress(body, px);
+            for (int i = n; i < body.Children.Count; i++) { outfit.Add(body.Children[i]); body.Children[i].Visibility = hatOn ? Visibility.Collapsed : Visibility.Visible; }
+        }
+
         void Step()
         {
+            if (dressedAs != OutfitVersion) Redress();
             int now = Environment.TickCount;
             double t = now / 1000.0, age = unchecked(now - born) / 1000.0;
             shift.X = 0; shift.Y = 0; mark.Opacity = 1;
@@ -473,6 +512,18 @@ namespace Kapsula
                 Canvas.SetLeft(legs[1], ((double[])legs[1].Tag)[0] + a);
                 Canvas.SetLeft(legs[2], ((double[])legs[2].Tag)[0] - a);
             }
+            else if (legs.Count == 4)
+            {
+                // идёт — лапки переступают парами, иначе стоят на месте
+                bool walking = mood == "walk";
+                bool stepA = walking && Math.Sin(t * 11) > 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    double[] home = (double[])legs[i].Tag;
+                    bool up = walking && ((i % 2 == 0) == stepA);
+                    Canvas.SetTop(legs[i], home[1] - (up ? px * 0.6 : 0));
+                }
+            }
             if (EventTick(now, t, hop)) return;   // случайная сценка поверх обычного поведения
             if (mood != "hello" && mark.RenderTransform != Transform.Identity) mark.RenderTransform = Transform.Identity;
             switch (mood)
@@ -483,6 +534,11 @@ namespace Kapsula
                 case "post":    // несёт письмо — уведомление
                     Face(2, "✉", Paper);
                     shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
+                    break;
+                case "walk":    // идёт по краю окна: покачивается в такт шагам, смотрит, куда идёт
+                    Face(0, "", null);
+                    shift.Y = -Math.Abs(Math.Sin(t * 11)) * px * 0.35;
+                    foreach (Rectangle r in eyes[0]) { double[] home = (double[])r.Tag; Canvas.SetLeft(r, home[0] + lookDir * px); }
                     break;
                 case "dance":   // играет музыка: покачивается в такт, ноты мигают
                 {

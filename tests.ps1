@@ -367,5 +367,22 @@ foreach ($c in @(@('https://kapsula.app/x', 2), @('#ff9f0a', 3), @('const x = ()
     T "буфер: тип «$($c[0])»" ($ck.Invoke($null, @($it))) $c[1]
 }
 
+# --- батарея ноутбука: сколько осталось и значок заряда
+$iwT = $asm.GetType('Kapsula.IslandWindow')
+$lt = $iwT.GetMethod('LeftText', [Reflection.BindingFlags]'NonPublic,Static')
+T 'батарея: осталось минут' ($lt.Invoke($null, @(45))) '45 мин'
+T 'батарея: осталось часов' ($lt.Invoke($null, @(92))) '1 ч 32 мин'
+T 'батарея: с нулём в минутах' ($lt.Invoke($null, @(65))) '1 ч 05 мин'
+T 'батарея: ровно часы' ($lt.Invoke($null, @(120))) '2 ч'
+$bg = $iwT.GetMethod('BatGlyph', [Reflection.BindingFlags]'NonPublic,Static')
+T 'батарея: значок 23%' ([int][char]"$($bg.Invoke($null, @(23, $false)))") 0xE852
+T 'батарея: значок полной' ([int][char]"$($bg.Invoke($null, @(100, $false)))") 0xE83F
+T 'батарея: значок пустой' ([int][char]"$($bg.Invoke($null, @(2, $false)))") 0xE850
+T 'батарея: значок зарядки 95%' ([int][char]"$($bg.Invoke($null, @(95, $true)))") 0xEA93
+T 'батарея: значок зарядки 41%' ([int][char]"$($bg.Invoke($null, @(41, $true)))") 0xE85E
+
+# --- наряды за привычки: у каждого наряда есть название
+T 'наряды: названий столько же, сколько нарядов' ($iwT.GetField('OutfitNames').GetValue($null).Length) ($iwT.GetField('OutfitIds').GetValue($null).Length)
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }
