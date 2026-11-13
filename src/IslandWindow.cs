@@ -243,6 +243,7 @@ namespace Kapsula
             LoadDetach();   // остров мог быть отцеплен и стоять в другом месте экрана
             WalkInit();     // зверёк иногда гуляет по краю окна, в котором вы работаете
             HabitsInit();   // наряды за привычки: что сейчас носит зверёк
+            DiscordVoiceInit();   // звонки Discord напрямую — от плагина Kapsula в Discord
             { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
@@ -2910,7 +2911,7 @@ namespace Kapsula
             bool showPlayer = (media.Has || !clipOn) && !TestHomeClips;
             bool showClips = clipOn && !showPlayer;
             bool showCall = CallVisible();
-            if (showCall && media.Has && media.Playing) showCall = false;
+            if (showCall && media.Has && media.Playing && !DiscordLive) showCall = false;   // догадка уступает музыке; звонок по словам Discord — нет
             if (showCall) { showPlayer = false; showClips = false; }
             if (homeCallCard != null) homeCallCard.Visibility = showCall ? Visibility.Visible : Visibility.Collapsed;
             homePlayerCard.Visibility = showPlayer ? Visibility.Visible : Visibility.Collapsed;
@@ -6448,7 +6449,13 @@ namespace Kapsula
                 for (int m = 0; m < petEyes.Length; m++)
                     foreach (Rectangle r in petEyes[m]) r.Visibility = m == eyesKind ? Visibility.Visible : Visibility.Collapsed;
             }
-            if (petMark.Text != mark) petMark.Text = mark;
+            if (petMark.Text != mark)
+            {
+                petMark.Text = mark;
+                // значок из шрифта Windows (наушники, колокольчик) — тем же шрифтом, что и все значки острова
+                bool icon = mark.Length == 1 && mark[0] >= '' && mark[0] <= '';
+                if (icon) petMark.FontFamily = Icons; else petMark.ClearValue(TextBlock.FontFamilyProperty);
+            }
             petMark.Foreground = markBrush ?? Faint;
         }
 
@@ -6694,7 +6701,15 @@ namespace Kapsula
                 // звонок: микрофон выключен — зверёк потупился, рядом красный крестик; в эфире — зелёный огонёк,
                 // а когда в разговоре звучит голос, зверёк кивает и огонёк пульсирует
                 bool voice = callVoiceAt != 0 && unchecked(now - callVoiceAt) < 900;
-                if (callMuted) { PetFace(1, "×", RecRed); petShift.Y = 0.5; }
+                if (DiscordLive && dvDeaf) { PetFace(4, "", RecRed); petShift.Y = 0.5; }   // полный мут: зажмурился, рядом красные наушники
+                else if (callMuted) { PetFace(1, "×", RecRed); petShift.Y = 0.5; }
+                else if (DiscordLive && dvStream)
+                {
+                    // демонстрация экрана: красный огонёк «в эфире» мигает, а под голос зверёк ещё и кивает
+                    PetFace(voice ? 3 : 0, "●", RecRed);
+                    petMark.Opacity = (now / 600) % 2 == 0 ? 1 : 0.3;
+                    if (voice) petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.2 * 2) / 2;
+                }
                 else
                 {
                     PetFace(voice ? 3 : 0, "●", ClaudeGreen);
@@ -8960,9 +8975,19 @@ namespace Kapsula
             if (timerRinging) { cText.Text = "Время вышло"; cRight.Visibility = Visibility.Collapsed; return; }
             if (CallVisible() && !timing)
             {
-                cText.Text = "Звонок · " + CallTime(); cText.MaxWidth = 200;
-                bool mutedNow = Audio.MicMuted();
-                cRight.Visibility = Visibility.Visible; cRight.Text = mutedNow ? "микрофон выкл" : "в эфире"; cRight.Foreground = mutedNow ? RecRed : (Brush)ClaudeGreen;
+                bool live = DiscordLive;   // плагин в Discord: канал, мут, полный мут и демонстрация — точно
+                cText.Text = (live && dvChannel.Length > 0 ? dvChannel : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
+                bool mutedNow = live ? dvMute : Audio.MicMuted();
+                // Справа — значки, как в самом Discord: демонстрация, камера, микрофон (или полный мут)
+                cRight.Visibility = Visibility.Visible;
+                cRight.Inlines.Clear();
+                var tip = new List<string>();
+                if (live && dvStream) { CallIcon(0xE7F4, RecRed); tip.Add("идёт демонстрация экрана"); }
+                if (live && dvVideo) { CallIcon(0xE714, ClaudeGreen); tip.Add("камера включена"); }
+                if (live && dvDeaf) { CallIcon(0xE74F, RecRed); tip.Add("полный мут: вы никого не слышите"); }
+                else if (mutedNow) { CallIcon(0xF781, RecRed); tip.Add("микрофон выключен"); }
+                else { CallIcon(0xE720, ClaudeGreen); tip.Add("в эфире: вас слышно"); }
+                cRight.ToolTip = string.Join(" · ", tip.ToArray());
                 eq.Visibility = Visibility.Collapsed;
                 return;
             }
@@ -9185,6 +9210,7 @@ namespace Kapsula
         void RenderHomeLive()
         {
             if (state == 2 && page == PHome) RenderHomeBlocks();   // календарь, сеть, батарея — если их достали на «Главную»
+            if (homeCallCard != null && homeCallCard.Visibility == Visibility.Visible) PaintMute();   // в карточке звонка — и музыка: новый трек, пауза
             if (media.Has)
             {
                 bool hasTime = media.Dur > 1;

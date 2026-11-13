@@ -594,6 +594,50 @@ namespace Kapsula
             {
                 sp.Children.Add(Row("Discord через Vencord · бета", "Сообщения и звонки Discord на острове. Нужен Vencord — неофициальная модификация Discord; ставить её или нет, решаете вы.", LinkButton("Сайт Vencord", "https://vencord.dev/"), false));
             }
+            // Звонки Discord напрямую — наш плагин в сборке Vencord, ставится и снимается одной кнопкой
+            {
+                TextBlock vText = null;
+                Border vBtn = null;
+                bool vBusy = false;
+                string vResult = null;
+                bool vInBuild = DiscordInstall.Installed && DiscordInstall.PluginInBuild;
+                Action vShow = null;
+                vBtn = PillBtn(DiscordInstall.Installed ? "Отключить" : "Подключить", !DiscordInstall.Installed, delegate
+                {
+                    if (vBusy) return;
+                    vBusy = true;
+                    bool off = DiscordInstall.Installed;
+                    if (vText != null) vText.Text = off ? "Возвращаю Discord как было…" : "Скачиваю сборку Vencord с плагином Kapsula и ставлю…";
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        string err = off ? DiscordInstall.Uninstall() : DiscordInstall.Install();
+                        bool inBuild = !off && err == null && DiscordInstall.PluginInBuild;
+                        Dispatcher.BeginInvoke(new Action(delegate
+                        {
+                            vBusy = false; vInBuild = inBuild;
+                            vResult = err != null ? "Не вышло: " + err + "." : off ? "Отключено — перезапустите Discord." : "Готово — перезапустите Discord, и звонки появятся на острове.";
+                            vShow();
+                        }));
+                    });
+                });
+                var vRow = Row("Звонки Discord на острове · бета", "—", vBtn, false);
+                vText = ((StackPanel)((Grid)((Border)vRow).Child).Children[0]).Children[1] as TextBlock;
+                vShow = delegate
+                {
+                    bool inst = DiscordInstall.Installed;
+                    ((TextBlock)vBtn.Child).Text = inst ? "Отключить" : "Подключить";
+                    string st = island.DiscordLive ? "Плагин на связи." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
+                        : "Плагин пропал из Discord (видимо, Vencord переустановили) — нажмите «Отключить», потом «Подключить».");
+                    if (vText != null && !vBusy)
+                        vText.Text = "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы. " + st;
+                };
+                vShow();
+                var vTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                vTimer.Tick += delegate { if (!vBusy) vShow(); };
+                vTimer.Start();
+                Closed += delegate { vTimer.Stop(); };
+                sp.Children.Add(vRow);
+            }
             if (Steam.Found)
                 sp.Children.Add(Row("Steam · бета", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
 

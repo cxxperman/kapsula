@@ -1,4 +1,4 @@
-// Kapsula — «остров» для Windows. Часть исходного кода: Extras.cs
+﻿// Kapsula — «остров» для Windows. Часть исходного кода: Extras.cs
 // Вкладка уведомлений, дека ярлыков с горячими клавишами, режим звонка, быстрые настройки (яркость, питание),
 // умные карточки буфера, свои сайты во вкладке чата и экономия процессора в покое.
 using System;
@@ -358,10 +358,9 @@ namespace Kapsula
         string callApp;
         DateTime callStart;
         Border homeCallCard;
-        TextBlock callTimeText, callAppText, callMuteText, callMuteGlyph;
-        Border callMuteBtn;
+        TextBlock callTimeText, callAppText;
 
-        bool CallVisible() { return callApp != null && (Store.Get("callMode") == "1" || callTest); }
+        bool CallVisible() { return callApp != null && (DiscordLive || Store.Get("callMode") == "1" || callTest); }   // плагин в Discord — звонок точно, без «альфы»
         bool callTest = Environment.GetEnvironmentVariable("KAPSULA_CALLTEST") == "1";   // проверка: «звонок» в Discord с голосом через раз
         bool callMuted;   // микрофон выключен — запоминается раз в полсекунды, зверёк в капсуле показывает это
         string CallTime() { TimeSpan t = DateTime.Now - callStart; return (int)t.TotalMinutes + ":" + t.Seconds.ToString("00"); }
@@ -420,6 +419,7 @@ namespace Kapsula
         void CallTick()
         {
             callTickN++;
+            if (DiscordLive) { DiscordCallTick(); return; }   // плагин в Discord сообщает всё сам — догадки по микрофону не нужны
             int now = Environment.TickCount;
             if (callTest) callCandidate = "Discord";
             else if (Store.Get("callMode") != "1") callCandidate = null;   // альфа: выключено, пока не включат в настройках
@@ -444,95 +444,11 @@ namespace Kapsula
             {
                 callMuted = Audio.MicMuted();
                 if (callTimeText != null) callTimeText.Text = CallTime();
-                if (callAppText != null) callAppText.Text = "Звонок · " + callApp;
                 PaintMute();
                 if (state == 0) RenderCompact();
             }
         }
-        void EnsureCallCard()
-        {
-            if (homeCallCard != null || homeGrid == null) return;
-            var g = new Grid { Margin = new Thickness(16, 14, 16, 14) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            // большая кнопка микрофона
-            callMuteGlyph = new TextBlock { FontFamily = Icons, FontSize = 30, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            callMuteBtn = new Border { Width = 84, Height = 84, CornerRadius = new CornerRadius(42), Cursor = Cursors.Hand, Child = callMuteGlyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 8, 0, 0) };
-            callMuteBtn.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; Audio.SetMicMuted(!Audio.MicMuted()); PaintMute(); RenderCompact(); };
-            Fx.Press(callMuteBtn, 0.92);
-            var left = new StackPanel();
-            left.Children.Add(callMuteBtn);
-            callMuteText = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
-            left.Children.Add(callMuteText);
-            left.Children.Add(new TextBlock { Text = "клик — переключить", Foreground = Faint, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center });
-            g.Children.Add(left);
-            var right = new StackPanel { Margin = new Thickness(10, 4, 0, 0) };
-            callTimeText = new TextBlock { Foreground = Fg, FontSize = 30, FontWeight = FontWeights.SemiBold };
-            callAppText = new TextBlock { Foreground = Dim, FontSize = 12 };
-            right.Children.Add(callTimeText); right.Children.Add(callAppText);
-            right.Children.Add(CallRow(((char)0xE720).ToString(), "Микрофон", 1));
-            right.Children.Add(CallRow(((char)0xE7F5).ToString(), "Динамики", 0));
-            var cam = Btn("Проверить камеру", false, 0, 28, delegate { try { System.Diagnostics.Process.Start("microsoft.windows.camera:"); } catch { } });
-            cam.HorizontalAlignment = HorizontalAlignment.Left; cam.Margin = new Thickness(0, 8, 0, 0);
-            right.Children.Add(cam);
-            Grid.SetColumn(right, 1); g.Children.Add(right);
-            homeCallCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(22), Child = g, Visibility = Visibility.Collapsed };
-            Grid.SetRow(homeCallCard, 0);
-            homeGrid.Children.Add(homeCallCard);
-            PaintMute();
-        }
-
-        // строка «Микрофон: название ⌄ [Проверить]»: flow 1 — микрофоны, 0 — динамики
-        FrameworkElement CallRow(string glyph, string what, int flow)
-        {
-            var row = new Grid { Margin = new Thickness(0, 8, 0, 0), Height = 28 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var label = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            Action paint = delegate
-            {
-                string nm = what;
-                foreach (AudioOutDevice d in AudioOut.List(flow)) if (d.Default) nm = AudioOut.Short(d.Name);
-                label.Text = glyph + "  " + nm + "  ⌄";
-            };
-            label.FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI, Segoe MDL2 Assets");
-            paint();
-            var pick = new Border { Background = Chip, CornerRadius = new CornerRadius(14), Padding = new Thickness(10, 0, 10, 1), Cursor = Cursors.Hand, Child = label, HorizontalAlignment = HorizontalAlignment.Left, ToolTip = what };
-            pick.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e)
-            {
-                e.Handled = true;
-                var menu = new WF.ContextMenuStrip();
-                foreach (AudioOutDevice dev in AudioOut.List(flow))
-                {
-                    AudioOutDevice d = dev;
-                    var it = new WF.ToolStripMenuItem(d.Name) { Checked = d.Default };
-                    it.Click += delegate { AudioOut.SetDefault(d.Id); paint(); };
-                    menu.Items.Add(it);
-                }
-                if (menu.Items.Count == 0) menu.Items.Add("Устройств нет").Enabled = false;
-                DarkMenuRenderer.Apply(menu, 300, true);
-                Point at = pick.PointToScreen(new Point(0, pick.ActualHeight + 4));
-                menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
-            };
-            row.Children.Add(pick);
-            var test = Btn("Проверить", false, 0, 26, delegate
-            {
-                if (flow == 0) { System.Media.SystemSounds.Asterisk.Play(); return; }
-                try { System.Diagnostics.Process.Start("ms-settings:sound"); } catch { }
-            });
-            Grid.SetColumn(test, 1); row.Children.Add(test);
-            return row;
-        }
-
-        void PaintMute()
-        {
-            if (callMuteBtn == null) return;
-            bool m = Audio.MicMuted();
-            callMuteBtn.Background = m ? RecRed : (Brush)ClaudeGreen;
-            callMuteGlyph.Text = ((char)(m ? 0xF781 : 0xE720)).ToString();
-            callMuteText.Text = m ? "Микрофон выключен" : "Вас слышно";
-            callMuteText.Foreground = m ? RecRed : (Brush)ClaudeGreen;
-        }
+        // Карточка звонка на «Главной» (EnsureCallCard, PaintMute) — в CallCard.cs
 
         // ================================================================ Быстрые настройки
         Border powerChips;

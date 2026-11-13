@@ -387,6 +387,43 @@ T 'сеть: почти тишина' ($rt.Invoke($null, @([double]100))) '0 К�
 T 'сеть: килобайты' ($rt.Invoke($null, @([double]51200))) '50 КБ/с'
 T 'сеть: мегабайты' ($rt.Invoke($null, @([double]2516582.4))) '2,4 МБ/с'
 
+# --- «Подключить Discord»: на поддельных папках — Discord без Vencord и Discord с Vencord; ничего настоящего не трогаем
+$di = $asm.GetType('Kapsula.DiscordInstall')
+$tmp = Join-Path $env:TEMP ('kapsula-di-' + [Guid]::NewGuid().ToString('N'))
+$roam = Join-Path $tmp 'Roaming'; $loc = Join-Path $tmp 'Local'; $src = Join-Path $tmp 'build'
+$res = Join-Path $loc 'Discord\app-1.0.9268\resources'
+New-Item -ItemType Directory -Force $res, $src, (Join-Path $loc 'Discord\app-1.0.9100\resources') | Out-Null
+foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $src $f) ('// kapsula build ' + $f + (' ' * 120)) }
+Set-Content (Join-Path $res 'app.asar') 'discord'
+$env:KAPSULA_TEST_APPDATA = $roam; $env:KAPSULA_TEST_LOCALAPPDATA = $loc; $env:KAPSULA_TEST_VENCORD_DIR = $src
+try {
+    # 1) Discord без Vencord: Kapsula встраивает сама
+    T 'discord: подключение без Vencord' ($di.GetMethod('Install').Invoke($null, @())) $null
+    $dist = Join-Path $roam 'Vencord\dist'
+    T 'discord: сборка на месте' (Get-Content (Join-Path $dist 'renderer.js') -Raw).Contains('kapsula build') $true
+    T 'discord: исходный app.asar сохранён' (Test-Path (Join-Path $res '_app.asar')) $true
+    T 'discord: загрузчик ведёт к patcher.js' ((Get-Content (Join-Path $res 'app\index.js') -Raw).Contains('patcher.js')) $true
+    T 'discord: старая версия Discord не тронута' (Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\app')) $false
+    T 'discord: отключение' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: app.asar вернулся' ((Test-Path (Join-Path $res 'app.asar')) -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
+    T 'discord: нашей сборки не осталось' (Test-Path (Join-Path $dist 'renderer.js')) $false
+    # 2) Discord с Vencord: меняются только файлы Vencord, прежние возвращаются
+    Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar'); Set-Content (Join-Path $res 'app.asar') 'vencord stub'
+    New-Item -ItemType Directory -Force $dist | Out-Null
+    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) 'official vencord' }
+    T 'discord: подключение к Vencord' ($di.GetMethod('Install').Invoke($null, @())) $null
+    T 'discord: Discord не тронут' ((Get-Content (Join-Path $res 'app.asar') -Raw).Trim()) 'vencord stub'
+    T 'discord: прежний Vencord в резерве' ((Get-Content (Join-Path $roam 'Vencord\dist-before-kapsula\renderer.js') -Raw).Trim()) 'official vencord'
+    T 'discord: повторное подключение не портит резерв' ($di.GetMethod('Install').Invoke($null, @())) $null
+    T 'discord: резерв прежний' ((Get-Content (Join-Path $roam 'Vencord\dist-before-kapsula\renderer.js') -Raw).Trim()) 'official vencord'
+    T 'discord: отключение от Vencord' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: официальный Vencord вернулся' ((Get-Content (Join-Path $dist 'renderer.js') -Raw).Trim()) 'official vencord'
+    T 'discord: метка снята' ($di.GetProperty('Installed').GetValue($null)) $false
+} finally {
+    Remove-Item Env:KAPSULA_TEST_APPDATA, Env:KAPSULA_TEST_LOCALAPPDATA, Env:KAPSULA_TEST_VENCORD_DIR -ErrorAction SilentlyContinue
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- наряды за привычки: у каждого наряда есть название
 T 'наряды: названий столько же, сколько нарядов' ($iwT.GetField('OutfitNames').GetValue($null).Length) ($iwT.GetField('OutfitIds').GetValue($null).Length)
 

@@ -639,6 +639,13 @@ namespace Kapsula
                 ClaudeAfter(15200, delegate { holdOpenUntil = 0; SetState(0); });
                 return;
             }
+            // KAPSULA_RIDEDISCORD=1: двенадцать секунд в капсуле (состояние звонка присылает проверка вместо плагина), потом «Главная»
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "1")
+            {
+                ClaudeAfter(12000, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(16000, delegate { pinned = false; SetState(0); });
+                return;
+            }
             // KAPSULA_CALLTEST=1: «звонок» — восемь секунд в капсуле (зверёк в эфире), потом «Главная» с карточкой звонка
             if (callTest)
             {
