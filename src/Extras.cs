@@ -361,7 +361,9 @@ namespace Kapsula
         TextBlock callTimeText, callAppText, callMuteText, callMuteGlyph;
         Border callMuteBtn;
 
-        bool CallVisible() { return callApp != null && Store.Get("callMode") == "1"; }
+        bool CallVisible() { return callApp != null && (Store.Get("callMode") == "1" || callTest); }
+        bool callTest = Environment.GetEnvironmentVariable("KAPSULA_CALLTEST") == "1";   // проверка: «звонок» в Discord с голосом через раз
+        bool callMuted;   // микрофон выключен — запоминается раз в полсекунды, зверёк в капсуле показывает это
         string CallTime() { TimeSpan t = DateTime.Now - callStart; return (int)t.TotalMinutes + ":" + t.Seconds.ToString("00"); }
 
         static string CallAppNow()
@@ -419,11 +421,12 @@ namespace Kapsula
         {
             callTickN++;
             int now = Environment.TickCount;
-            if (Store.Get("callMode") != "1") callCandidate = null;   // альфа: выключено, пока не включат в настройках
+            if (callTest) callCandidate = "Discord";
+            else if (Store.Get("callMode") != "1") callCandidate = null;   // альфа: выключено, пока не включат в настройках
             else if (callTickN % 4 == 0) callCandidate = CallAppNow();
             if (callCandidate != null)
             {
-                double pk = Math.Max(AppVolume.SessionPeak(callCandidate, 0), AppVolume.SessionPeak(callCandidate, 1));
+                double pk = callTest ? (callTickN % 6 < 3 ? 0.3 : 0) : Math.Max(AppVolume.SessionPeak(callCandidate, 0), AppVolume.SessionPeak(callCandidate, 1));
                 if (pk > 0.08) callVoiceAt = now;   // тишина в канале ~0.01, речь — от 0.1
             }
             bool talking = callCandidate != null && callVoiceAt != 0 && unchecked(now - callVoiceAt) < 45000;
@@ -439,6 +442,7 @@ namespace Kapsula
             }
             if (callApp != null)
             {
+                callMuted = Audio.MicMuted();
                 if (callTimeText != null) callTimeText.Text = CallTime();
                 if (callAppText != null) callAppText.Text = "Звонок · " + callApp;
                 PaintMute();

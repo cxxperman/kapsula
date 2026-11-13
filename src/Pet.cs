@@ -73,16 +73,18 @@ namespace Kapsula
         public static string Outfit = "";     // "" — по сезону, "none" — без наряда, иначе один из HabitIds
         public static int OutfitVersion;      // сменили наряд — каждый зверёк переодевается на своём следующем шаге
 
-        static int[][] OutfitCells()
+        static int[][] OutfitCells(string outfit)
         {
-            if (Outfit == "none") return new int[0][];
-            int k = Array.IndexOf(HabitIds, Outfit);
+            if (outfit == "none") return new int[0][];
+            int k = Array.IndexOf(HabitIds, outfit);
             return k >= 0 ? HabitOutfits[k] : Outfits[Season()];
         }
 
-        public static void Dress(Canvas c, double px)
+        public static void Dress(Canvas c, double px) { Dress(c, px, Outfit); }
+
+        static void Dress(Canvas c, double px, string outfit)
         {
-            foreach (int[] o in OutfitCells())
+            foreach (int[] o in OutfitCells(outfit))
             {
                 var r = new Rectangle { Width = o[2] * px + 0.3, Height = px + 0.3, Fill = new SolidColorBrush(OutfitColors[o[3]]), SnapsToDevicePixels = true };
                 Canvas.SetLeft(r, o[0] * px); Canvas.SetTop(r, o[1] * px);
@@ -300,9 +302,17 @@ namespace Kapsula
                 for (int m = 0; m < eyes.Length; m++)
                     foreach (Rectangle r in eyes[m]) r.Visibility = m == kind ? Visibility.Visible : Visibility.Collapsed;
             }
-            if (mark.Text != sign) mark.Text = sign;
+            if (mark.Text != sign)
+            {
+                mark.Text = sign;
+                // значок из шрифта Windows (колокольчик напоминания) — тем же шрифтом, что и все значки острова
+                bool icon = sign.Length == 1 && sign[0] >= '' && sign[0] <= '';
+                if (icon) mark.FontFamily = IconFont; else mark.ClearValue(TextBlock.FontFamilyProperty);
+            }
             mark.Foreground = signBrush ?? Grey;
         }
+        static readonly FontFamily IconFont = new FontFamily("Segoe MDL2 Assets");
+        public const string BellSign = "";   // колокольчик — зверёк несёт напоминание
 
         // ---- Случайные сценки. Где живёт зверёк (Context), то он и делает: на полке таскает коробки, в чате «печатает»,
         // в погоде отряхивается от дождя или ловит снежинки, у таймера постукивает ногой. Раз в 6–14 секунд, на 1–2,5 секунды.
@@ -450,6 +460,11 @@ namespace Kapsula
                     Face(2, "!", Yellow); shift.Y = -bell * hop * 0.7; break;
                 case "scratch":  // чешет затылок
                     Face(1, "?", Grey); tilt.Angle = Math.Sin(p * Math.PI * 8) * 5; break;
+                case "ring":     // принёс напоминание: звонит в колокольчик — он качается, а зверёк подпрыгивает
+                    Face(p < 0.15 ? 2 : 3, BellSign, Yellow);
+                    mark.RenderTransform = new RotateTransform(Math.Sin(p * Math.PI * 9) * 24 * (1 - p), mark.ActualWidth / 2, 0);
+                    shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 3)) * hop * 0.5;
+                    break;
                 case "give":     // отдаёт письмо: конверт взлетает и тает, а сам радостно подпрыгивает
                     Face(p < 0.3 ? 2 : 3, "✉", Paper);
                     mark.RenderTransform = new TranslateTransform(px * 2.5 * p, -px * 7 * p);
@@ -485,6 +500,10 @@ namespace Kapsula
                     Face(0, "", null); LookEyes(-1, 1); break;   // заглядывает в строку
             }
         }
+        // Свой наряд у этого зверька (в гардеробе — примерка); null — общий, как у всех
+        string own;
+        public string OwnOutfit { get { return own; } set { own = value; Redress(); } }
+
         // Переодеться: сняли прежний наряд, надели нынешний (каска прораба, если она надета, остаётся сверху)
         int dressedAs;
         void Redress()
@@ -493,7 +512,7 @@ namespace Kapsula
             foreach (UIElement o in outfit) body.Children.Remove(o);
             outfit.Clear();
             int n = body.Children.Count;
-            Dress(body, px);
+            Dress(body, px, own ?? Outfit);
             for (int i = n; i < body.Children.Count; i++) { outfit.Add(body.Children[i]); body.Children[i].Visibility = hatOn ? Visibility.Collapsed : Visibility.Visible; }
         }
 
@@ -533,6 +552,10 @@ namespace Kapsula
                     break;
                 case "post":    // несёт письмо — уведомление
                     Face(2, "✉", Paper);
+                    shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
+                    break;
+                case "bell":    // несёт напоминание — колокольчик
+                    Face(2, BellSign, Yellow);
                     shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
                     break;
                 case "walk":    // идёт по краю окна: покачивается в такт шагам, смотрит, куда идёт

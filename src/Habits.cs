@@ -94,6 +94,7 @@ namespace Kapsula
         {
             PetView.Outfit = OutfitWearing();
             PetView.OutfitVersion++;   // все зверьки переоденутся на своём следующем шаге
+            if (roomPet != null && page == PPet) RenderPetPage();   // уголок зверька открыт — обновить гардероб
         }
 
         // Зверёк в капсуле нарисован отдельно — переодеваем его сами

@@ -215,7 +215,7 @@ namespace Kapsula
         bool WalkCanLeave()
         {
             return WalkAllowed() && state == 0 && !toastOn && PetAtHome()
-                && !timerRinging && claudeState == 0 && !Recorder.Active && dlActive == null && steamDlApp == null
+                && !timerRinging && claudeState == 0 && !Recorder.Active && dlActive == null && steamDlApp == null && !CallVisible()
                 && !autoHidden && ForceOpen == -1 && Native.IdleMs() < 30000;
         }
 
@@ -245,7 +245,7 @@ namespace Kapsula
             if (walkPhase == 3) return;
             // на острове что-то происходит — пора домой
             // (громкость, яркость, смена трека в капсуле — не повод: зверёк остаётся на окне)
-            bool busy = claudeState != 0 || timerRinging || Recorder.Active || dlActive != null || steamDlApp != null;
+            bool busy = claudeState != 0 || timerRinging || Recorder.Active || dlActive != null || steamDlApp != null || CallVisible();
             if (busy || unchecked(now - walkUntil) >= 0 && !toastOn)   // нагулялся — домой, но не посреди всплывашки в капсуле
             {
                 WalkLog("home: claude=" + claudeState + " timer=" + timerRinging + " time=" + (unchecked(now - walkUntil) >= 0));

@@ -381,6 +381,12 @@ T 'батарея: значок пустой' ([int][char]"$($bg.Invoke($null, @
 T 'батарея: значок зарядки 95%' ([int][char]"$($bg.Invoke($null, @(95, $true)))") 0xEA93
 T 'батарея: значок зарядки 41%' ([int][char]"$($bg.Invoke($null, @(41, $true)))") 0xE85E
 
+# --- блок «Сеть» на «Главной»: скорость по-человечески
+$rt = $iwT.GetMethod('Rate', [Reflection.BindingFlags]'NonPublic,Static')
+T 'сеть: почти тишина' ($rt.Invoke($null, @([double]100))) '0 КБ/с'
+T 'сеть: килобайты' ($rt.Invoke($null, @([double]51200))) '50 КБ/с'
+T 'сеть: мегабайты' ($rt.Invoke($null, @([double]2516582.4))) '2,4 МБ/с'
+
 # --- наряды за привычки: у каждого наряда есть название
 T 'наряды: названий столько же, сколько нарядов' ($iwT.GetField('OutfitNames').GetValue($null).Length) ($iwT.GetField('OutfitIds').GetValue($null).Length)
 

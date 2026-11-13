@@ -418,6 +418,8 @@ namespace Kapsula
         // Для проверки без мыши: то же, что отпустить блок в ячейке (c, r)
         public bool TestMove(string id, int c, int r) { Item it = Find(id); var p = it == null ? null : Plan(it, c, r); if (p != null) Apply(p); Layout(false); return p != null; }
         public void TestHide(string id) { Item it = Find(id); if (it != null) { it.Hidden = true; Layout(false); Save(); } }
+        // Для проверки: показать блок в ячейке (c, r) или спрятать его — без записи раскладки в настройки
+        public void TestPlace(string id, int c, int r, bool show) { Item it = Find(id); if (it == null) return; it.Hidden = !show; if (show) { it.C = c; it.R = r; } Layout(false); }
 
         // Вернуть спрятанный блок на ближайшее к его обычному месту свободное место
         void Restore(Item it)

@@ -382,10 +382,19 @@ namespace Kapsula
             return x;
         }
 
+        // Что зверёк несёт на карточку: "" — письмо, "bell" — колокольчик (напоминание). Назначается до показа карточки.
+        string cardCarry = "", cardCarryNext = "";
+
+        // Долетел до карточки: отдаёт письмо, а напоминание — звонит в колокольчик
+        void RiderHandOver()
+        {
+            if (cardCarry == "bell") rider.Play("ring", 1300); else rider.Play("give", 800);
+        }
+
         // Новая карточка пришла, пока зверёк сидит на прежней, — он отдаёт и её
         void RiderDeliver()
         {
-            if (rider != null && rOut && !rFly && rKind == 5 && !ReducedMotion) rider.Play("give", 800);
+            if (rider != null && rOut && !rFly && rKind == 5 && !ReducedMotion) RiderHandOver();
         }
 
         // Перед любой сменой: если зверёк сидит «внутри» (в капсуле или на чужом месте), запомнить, где именно
@@ -499,7 +508,7 @@ namespace Kapsula
             rider.Root.Opacity = 1;
             rider.Root.Visibility = Visibility.Visible;
             rider.Seated = false;
-            rider.Mood(rKind == 5 ? "post" : "fly");   // к карточке — с письмом в лапах
+            rider.Mood(rKind == 5 ? (cardCarry == "bell" ? "bell" : "post") : "fly");   // к карточке — с письмом в лапах, к напоминанию — с колокольчиком
             SetRider(x0, y0, s0, 1, 1);
             Wake();
         }
@@ -599,7 +608,7 @@ namespace Kapsula
                     rFly = false;
                     rider.Seated = true;
                     rider.Mood(RiderMood());
-                    if (rKind == 5 && !ReducedMotion) rider.Play("give", 800);   // принёс уведомление — отдаёт письмо
+                    if (rKind == 5 && !ReducedMotion) RiderHandOver();   // принёс уведомление — отдаёт письмо (или звонит в колокольчик)
                 }
                 return;
             }
@@ -628,6 +637,44 @@ namespace Kapsula
                 ClaudeAfter(11000, delegate { WalkGo(true); walkUntil = Environment.TickCount + 60000; });
                 ClaudeAfter(13200, delegate { holdOpenUntil = Environment.TickCount + 60000; SetState(2); });
                 ClaudeAfter(15200, delegate { holdOpenUntil = 0; SetState(0); });
+                return;
+            }
+            // KAPSULA_CALLTEST=1: «звонок» — восемь секунд в капсуле (зверёк в эфире), потом «Главная» с карточкой звонка
+            if (callTest)
+            {
+                ClaudeAfter(8000, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(11000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDEHOME=1 (вместе с KAPSULA_BATTERY): на «Главной» вместо ярлыков — календарь, сеть и батарея
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEHOME") == "1")
+            {
+                ClaudeAfter(2000, delegate
+                {
+                    testCal = new CalEvent { Subject = "Созвон с командой", Start = DateTime.Now.AddMinutes(25), Location = "" };
+                    homeBoard.TestPlace("launcher", 0, 6, false);
+                    homeBoard.TestPlace("calendar", 0, 6, true);
+                    homeBoard.TestPlace("net", 4, 6, true);
+                    homeBoard.TestPlace("battery", 8, 6, true);
+                });
+                ClaudeAfter(2500, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ClaudeAfter(9000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDEROOM=1 (вместе с KAPSULA_HABITS): уголок зверька → примерка двух нарядов → напоминание с колокольчиком
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEROOM") == "1")
+            {
+                ClaudeAfter(2500, delegate { pinned = true; ShowPage(PPet); SetState(2); });
+                ClaudeAfter(5000, delegate { SetOutfit("crown"); RoomChanged(); });
+                ClaudeAfter(7000, delegate { SetOutfit("band"); RoomChanged(); });
+                ClaudeAfter(9000, delegate
+                {
+                    pinned = false;
+                    cardCarryNext = "bell";
+                    ShowCardEx(null, ((char)0xE787).ToString(), "Напоминание", "Полить цветы", delegate { }, "+10 мин", delegate { }, true);
+                    cardUntil = Environment.TickCount + 60000;
+                });
+                ClaudeAfter(13000, delegate { SetState(0); });
                 return;
             }
             // KAPSULA_RIDEOUTFIT=1 (вместе с KAPSULA_HABITS): корона получена → карточка → примерка всех нарядов → панель
@@ -707,7 +754,7 @@ namespace Kapsula
             if (!string.IsNullOrEmpty(env))
             {
                 var l = new List<int>();
-                foreach (string s in env.Split(',')) { int v; if (int.TryParse(s.Trim(), out v) && v >= 0 && v <= PDeck) l.Add(v); }
+                foreach (string s in env.Split(',')) { int v; if (int.TryParse(s.Trim(), out v) && v >= 0 && v <= PPet) l.Add(v); }
                 if (l.Count > 0) seq = l.ToArray();
             }
             // KAPSULA_RIDEMINI=1 — сначала мини-плеер (нужна играющая музыка или --demo), потом панель

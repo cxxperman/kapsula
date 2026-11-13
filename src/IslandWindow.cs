@@ -27,7 +27,7 @@ namespace Kapsula
         const double MW = 440, MH = 162, MR = 28;
         const double EW = 584, EH = 370, ER = 34;
         const double CardW = 390, CardH = 80, CmdW = 580;
-        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PDeck = 11;
+        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PDeck = 11, PPet = 12;
 
         // Экономный режим отрисовки жидкого края
         double liquidAt, appliedAt;
@@ -1486,6 +1486,7 @@ namespace Kapsula
         {
             cardNoAction = null;
             cardPage = -1; cardNote = false;   // вкладку и «улёт в историю» назначает тот, кто показывает карточку
+            cardCarry = cardCarryNext; cardCarryNext = "";   // что несёт зверёк-почтальон: письмо или колокольчик
             CardContentBack();
             shotDragPath = null; if (cardThumbBox != null) cardThumbBox.ToolTip = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
@@ -2484,9 +2485,9 @@ namespace Kapsula
             g.Children.Add(subTrack);
 
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система", "Claude Code", "Сегодня", "Уведомления", "Дека" };
+            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система", "Claude Code", "Сегодня", "Уведомления", "Дека", "Зверёк" };
             // Вкладки — значки; подпись видна только у активной.
-            string[] glyphs = { "", "", "", "", "", "", "", "", ClaudeGlyph, ((char)0xE787).ToString(), ((char)0xEA8F).ToString(), ((char)0xF0E2).ToString() };
+            string[] glyphs = { "", "", "", "", "", "", "", "", ClaudeGlyph, ((char)0xE787).ToString(), ((char)0xEA8F).ToString(), ((char)0xF0E2).ToString(), ((char)0xE76E).ToString() };
             tabs = new Border[names.Length];
             tabLabels = new TextBlock[names.Length];
             tabGlyphs = new TextBlock[names.Length];
@@ -2514,7 +2515,7 @@ namespace Kapsula
             tabs[PChat].ToolTip = "Чат и Claude Code";
             tabs[PWeather].ToolTip = "Погода и система";
             tabs[PHome].ToolTip = "Главная и дека";
-            tabs[PToday].ToolTip = "Сегодня, заметки и уведомления";
+            tabs[PToday].ToolTip = "Сегодня, заметки, уведомления и уголок зверька";
             // Подсветка активной вкладки — отдельная плашка под значками: она скользит между ними, а не перескакивает.
             tabGlow = new Border { Height = 30, CornerRadius = new CornerRadius(15), Background = TabOn, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tabGlowX, IsHitTestVisible = false };
             tabHost = new Grid { HorizontalAlignment = HorizontalAlignment.Center, Background = Brushes.Transparent };
@@ -2565,7 +2566,7 @@ namespace Kapsula
             gear.ToolTip = "Настройки";
             g.Children.Add(gear);
 
-            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildDeckPage() };
+            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildDeckPage(), BuildPetPage() };
             foreach (var p in pages) { Grid.SetRow(p, 2); g.Children.Add(p); }
             BuildDropZones(g);   // «На полку», «В ярлыки», «В чат» — поверх страницы, пока над островом тащат файл
             expandedHost.Children.Add(g);
@@ -2678,8 +2679,8 @@ namespace Kapsula
 
         // ---- вкладки собраны в группы, чтобы в строке было пять значков, а не девять:
         // Главная · Буфер (буфер, полка, текст) · Заметка · ИИ (чат, Claude) · Сводка (погода, система)
-        static readonly int[][] TabGroups = { new int[] { PHome, PDeck }, new int[] { PClip, PShelf, PText }, new int[] { PToday, PNote, PNotif }, new int[] { PChat, PClaude }, new int[] { PWeather, PSystem } };
-        static readonly int[] TabOrder = { PHome, PDeck, PClip, PShelf, PText, PToday, PNote, PNotif, PChat, PClaude, PWeather, PSystem };
+        static readonly int[][] TabGroups = { new int[] { PHome, PDeck }, new int[] { PClip, PShelf, PText }, new int[] { PToday, PNote, PNotif, PPet }, new int[] { PChat, PClaude }, new int[] { PWeather, PSystem } };
+        static readonly int[] TabOrder = { PHome, PDeck, PClip, PShelf, PText, PToday, PNote, PNotif, PPet, PChat, PClaude, PWeather, PSystem };
         int[] lastInGroup = { PHome, PClip, PToday, PChat, PWeather };   // на какой вкладке группы были в прошлый раз
 
         static int GroupOf(int p) { for (int g = 0; g < TabGroups.Length; g++) if (Array.IndexOf(TabGroups[g], p) >= 0) return g; return 0; }
@@ -2783,6 +2784,7 @@ namespace Kapsula
             if (idx == PShelf) RenderShelf();
             if (idx == PToday) RenderToday();
             if (idx == PNotif) RenderNotifPage();
+            if (idx == PPet) RenderPetPage();
             if (idx == PDeck) RenderDeck();
             pages[idx].Opacity = 0;
             var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(moving ? 280 : 180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
@@ -3156,6 +3158,7 @@ namespace Kapsula
                 hb.Add(HomeTileIds[i], HomeTileNames[i], homeTileList[i].Root, 8 + (i % 2) * 2, (i / 2) * 2, 2, 2, tilesOff.Contains(HomeTileIds[i]));
             hb.Add("volume", "Громкость", volCard, 0, 5, 8, 1, Store.Get("homeVolume") == "0");
             hb.Add("launcher", "Ярлыки", launchCard, 0, 6, 12, 2, Store.Get("homeLauncher") != "1");
+            AddHomeBlocks(hb);   // на выбор: календарь, сеть, батарея (по умолчанию спрятаны)
             WireBoard(hb);
             hb.Load();
             ApplyHomeLayout();
@@ -4655,6 +4658,7 @@ namespace Kapsula
             RenderReminders();
             string text = due.Text;
             System.Media.SystemSounds.Exclamation.Play();
+            cardCarryNext = "bell";   // напоминание зверёк приносит с колокольчиком и звонит в него
             ShowCardEx(null, "", "Напоминание", text, delegate { }, "+10 мин", delegate
             {
                 reminders.Add(new Reminder { At = DateTime.Now.AddMinutes(10), Text = text });
@@ -6675,7 +6679,7 @@ namespace Kapsula
                 else if (unchecked(now - petLowUntil) < 0) mood = "low";
             }
             if (!chr && !PetDancing() && TestMood == null) mood = "";
-            string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec"
+            string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec" : CallVisible() ? "call"
                 : steamDlApp != null || dlActive != null ? (steamDlApp != null && steamDlDone ? "carried" : "carry")
                 : toastOn && toastValue >= 0 ? (toastBright ? "bright" : toastCharge == 1 ? "charge" : "vol") : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
                 : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
@@ -6685,6 +6689,19 @@ namespace Kapsula
             else if (mood == "alarm") { PetFace(2, "!", RecRed); petShift.X = rnd.NextDouble() * 2.4 - 1.2; petShift.Y = rnd.NextDouble() * 1.6 - 0.8; }
             else if (mood == "notify") { PetFace(2, "!", accent); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 6)) * -1.8 * 2) / 2; }   // пришло сообщение: глаза круглые, подпрыгивает
             else if (act == "rec") { PetFace(0, "●", RecRed); petMark.Opacity = (now / 600) % 2 == 0 ? 1 : 0.3; }   // снимает: красный огонёк мигает
+            else if (act == "call")
+            {
+                // звонок: микрофон выключен — зверёк потупился, рядом красный крестик; в эфире — зелёный огонёк,
+                // а когда в разговоре звучит голос, зверёк кивает и огонёк пульсирует
+                bool voice = callVoiceAt != 0 && unchecked(now - callVoiceAt) < 900;
+                if (callMuted) { PetFace(1, "×", RecRed); petShift.Y = 0.5; }
+                else
+                {
+                    PetFace(voice ? 3 : 0, "●", ClaudeGreen);
+                    petMark.Opacity = voice ? 0.55 + 0.45 * Math.Abs(Math.Sin(t * 8)) : 0.35;
+                    if (voice) petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.2 * 2) / 2;
+                }
+            }
             else if (act == "carry") { PetFace(1, "▼", accent); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 6)) * -1.4 * 2) / 2; petShift.X = Math.Round(Math.Sin(t * 3) * 1.2 * 2) / 2; }   // несёт загрузку
             else if (act == "carried") { PetFace(3, "✓", ClaudeGreen); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; }
             else if (act == "vol")
@@ -9167,6 +9184,7 @@ namespace Kapsula
 
         void RenderHomeLive()
         {
+            if (state == 2 && page == PHome) RenderHomeBlocks();   // календарь, сеть, батарея — если их достали на «Главную»
             if (media.Has)
             {
                 bool hasTime = media.Dur > 1;
