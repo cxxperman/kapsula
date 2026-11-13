@@ -39,6 +39,7 @@ namespace Kapsula
         readonly TextBlock[] faceLetters = new TextBlock[Faces], faceBadgeGlyphs = new TextBlock[Faces];
         readonly Border[] faceBadges = new Border[Faces];
         StackPanel callFaces;
+        PetView callPet;   // зверёк в наушниках на карточке звонка
         Border callLive, callCam, callMusicArt;
         FrameworkElement callMusicRow, callMusicPlay, callMusicPause;
         Rectangle callDivider;
@@ -75,7 +76,17 @@ namespace Kapsula
             for (int i = 0; i < Faces; i++) callFaces.Children.Add(FaceSlot(i));
             callMore = new TextBlock { Foreground = Secondary, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             callFaces.Children.Add(callMore);
-            stack.Children.Add(callFaces);
+            // справа от собеседников — зверёк в наушниках: слушает разговор (попутчик острова садится на его место)
+            var facesRow = new Grid();
+            facesRow.Children.Add(callFaces);
+            callPet = new PetView(1.6, Ink);
+            callPet.OwnOutfit = "phones";
+            callPet.Root.HorizontalAlignment = HorizontalAlignment.Right;
+            callPet.Root.VerticalAlignment = VerticalAlignment.Bottom;
+            callPet.Root.Margin = new Thickness(0, 9, 0, 2);
+            callPet.Root.Visibility = Visibility.Collapsed;
+            facesRow.Children.Add(callPet.Root);
+            stack.Children.Add(facesRow);
 
             // 3. Кнопки, как в голосовой панели Discord: микрофон, звук, демка, настройки; справа — красная «отключиться»
             var row = new Grid { Margin = new Thickness(0, 10, 0, 0) };
@@ -312,7 +323,7 @@ namespace Kapsula
             callKeys[4].Visibility = live ? Visibility.Visible : Visibility.Collapsed;   // и демка
             CallKeyState(4, live && dvStream, dvStream ? "Идёт демка — нажмите, чтобы остановить" : "Показать экран (демка)");
             callKeys[4].Opacity = dvSourcesWanted != 0 ? 0.5 : 1;   // ждём от Discord, что можно показать
-            callTitle.Text = live ? (dvChannel.Length > 0 ? dvChannel : "Личный звонок") : "Звонок";
+            callTitle.Text = live ? DvCallName("Личный звонок") : "Звонок";
             callAppText.Text = live ? (dvGuild.Length > 0 ? dvGuild : "Discord") + (dvUsers > 1 ? " · " + Plural(dvUsers, "участник", "участника", "участников") : "")
                 : (callApp ?? "") + (muted ? " · микрофон выключен" : "");
             bool note = callNote != null && unchecked(Environment.TickCount - callNoteUntil) < 0;   // что-то не вышло — красной строкой
@@ -326,6 +337,11 @@ namespace Kapsula
             List<DvPerson> people = live ? dvPeople : null;
             int n = people == null ? 0 : people.Count;
             callFaces.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (callPet != null)
+            {
+                callPet.Root.Visibility = n > 0 && PetProps() ? Visibility.Visible : Visibility.Collapsed;
+                callPet.Mood(dvSpeaking && !dvMute ? "dance" : "idle");   // вы говорите — кивает в наушниках
+            }
             for (int i = 0; i < Faces; i++)
             {
                 if (i >= n) { faceSlots[i].Visibility = Visibility.Collapsed; continue; }
@@ -361,7 +377,9 @@ namespace Kapsula
         readonly Dictionary<string, Brush> faceCache = new Dictionary<string, Brush>();
         readonly HashSet<string> faceLoading = new HashSet<string>();
 
-        Brush FaceImage(string url)
+        Brush FaceImage(string url) { return FaceImage(url, 64); }
+
+        Brush FaceImage(string url, int px)
         {
             if (string.IsNullOrEmpty(url)) return null;
             Brush img;
@@ -385,7 +403,7 @@ namespace Kapsula
                         try
                         {
                             var b = new BitmapImage();
-                            b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.DecodePixelWidth = 64; b.StreamSource = new System.IO.MemoryStream(data); b.EndInit(); b.Freeze();
+                            b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.DecodePixelWidth = px; b.StreamSource = new System.IO.MemoryStream(data); b.EndInit(); b.Freeze();
                             var brush = new ImageBrush(b) { Stretch = Stretch.UniformToFill };
                             brush.Freeze();
                             bi = brush;
@@ -394,6 +412,7 @@ namespace Kapsula
                     if (faceCache.Count > 200) faceCache.Clear();
                     faceCache[url] = bi;   // не вышло — запоминаем пустоту: будет буква на цветном круге, без новых попыток
                     PaintMute();
+                    RingFaceReady(url);
                 }));
             });
             return null;

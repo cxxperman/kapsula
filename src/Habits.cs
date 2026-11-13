@@ -26,6 +26,7 @@ namespace Kapsula
 
         void HabitsInit()
         {
+            if (Environment.GetEnvironmentVariable("KAPSULA_TEST_NIGHT") == "1") PetView.TestNight = 1;   // проверки: «ночь» — колпак и зевота
             string t = Environment.GetEnvironmentVariable("KAPSULA_HABITS");
             if (t != null)
             {
@@ -110,8 +111,13 @@ namespace Kapsula
         }
 
         // Раз в полсекунды: минуты музыки (сохраняются раз в пять минут) и отложенная карточка с нарядом
+        bool petNight;
         void HabitTick()
         {
+            // наступила ночь (или утро) — все зверьки надевают (снимают) колпак
+            bool night = PetView.NightNow();
+            if (night != petNight) { petNight = night; PetView.OutfitVersion++; }
+            PartyTick();   // всё на сегодня сделано — показать, как только капсула на виду
             if (media.Has && media.Playing)
             {
                 musicMs += 500;

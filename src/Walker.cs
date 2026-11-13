@@ -95,19 +95,68 @@ namespace Kapsula
             var sb = new StringBuilder(256);
             Native.GetClassName(fg, sb, 256);
             string c = sb.ToString();
-            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd" || c == "Windows.UI.Core.CoreWindow" || c == "XamlExplorerHostIslandWindow" || c == "TopLevelWindowForOverflowXamlIsland") return false;
+            // вы на рабочем столе (или щёлкнули по панели задач) — окон не видно: гуляет по верхнему краю панели задач
+            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return TaskbarTarget(out win, out r);
+            if (c == "Windows.UI.Core.CoreWindow" || c == "XamlExplorerHostIslandWindow" || c == "TopLevelWindowForOverflowXamlIsland") return false;
             if ((Native.GetWindowLongPtr(fg, Native.GWL_EXSTYLE).ToInt64() & Native.WS_EX_TOOLWINDOW) != 0) return false;
             int cloaked;
             if (DwmGetWindowAttribute(fg, 14, out cloaked, 4) == 0 && cloaked != 0) return false;   // скрытое окно (другой рабочий стол)
             if (DwmGetWindowAttribute(fg, 9, out r, Marshal.SizeOf(typeof(Native.RECT))) != 0 && !Native.GetWindowRect(fg, out r)) return false;
             if (FullscreenAppInFront()) return false;
             IntPtr mon = Native.MonitorFromWindow(fg, 2);
-            if (hwnd != IntPtr.Zero && mon != Native.MonitorFromWindow(hwnd, 2)) return false;   // окно на другом мониторе — туда не прыгает
+            // окно на другом мониторе — прыгает и туда, если масштаб у мониторов одинаковый (иначе зверёк оказался бы не там)
+            if (hwnd != IntPtr.Zero && mon != Native.MonitorFromWindow(hwnd, 2) && !SameDpi(mon, Native.MonitorFromWindow(hwnd, 2))) return false;
             var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO)) };
             if (!Native.GetMonitorInfo(mon, ref mi)) return false;
             if ((r.R - r.L) / dpi < 380 || (r.B - r.T) / dpi < 180) return false;
             if ((r.T - mi.rcWork.T) / dpi < 44) return false;   // окно прижато к верху — сидеть негде
             win = fg;
+            return true;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr mon, int type, out uint dx, out uint dy);
+
+        static bool SameDpi(IntPtr a, IntPtr b)
+        {
+            try
+            {
+                uint ax, ay, bx, by;
+                return GetDpiForMonitor(a, 0, out ax, out ay) == 0 && GetDpiForMonitor(b, 0, out bx, out by) == 0 && ax == bx && ay == by;
+            }
+            catch { return false; }
+        }
+
+        // Панель задач на мониторе острова — край для прогулки, если она внизу, видна и во всю ширину
+        bool TaskbarTarget(out IntPtr win, out Native.RECT r)
+        {
+            win = IntPtr.Zero; r = new Native.RECT();
+            if (hwnd == IntPtr.Zero || FullscreenAppInFront()) return false;
+            IntPtr mon = Native.MonitorFromWindow(hwnd, 2);
+            IntPtr bar = FindWindow("Shell_TrayWnd", null);
+            if (bar != IntPtr.Zero && Native.MonitorFromWindow(bar, 2) != mon)
+            {
+                // остров не на главном мониторе — у того монитора своя панель задач
+                bar = IntPtr.Zero;
+                IntPtr h = IntPtr.Zero;
+                while ((h = FindWindowEx(IntPtr.Zero, h, "Shell_SecondaryTrayWnd", null)) != IntPtr.Zero)
+                    if (Native.MonitorFromWindow(h, 2) == mon) { bar = h; break; }
+            }
+            if (bar == IntPtr.Zero || !IsWindowVisible(bar) || !Native.GetWindowRect(bar, out r)) return false;
+            var mi = new Native.MONITORINFO { cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO)) };
+            if (!Native.GetMonitorInfo(mon, ref mi) || !TaskbarUsable(r, mi.rcMonitor)) return false;
+            win = bar;
+            return true;
+        }
+
+        // Внизу экрана, видна (не спрятана автоскрытием), во всю ширину и не огромная
+        static bool TaskbarUsable(Native.RECT bar, Native.RECT mon)
+        {
+            int w = bar.R - bar.L, h = bar.B - bar.T;
+            if (w < (mon.R - mon.L) * 0.6 || h <= 0 || h > (mon.B - mon.T) / 4) return false;
+            if (bar.B < mon.B - 2) return false;    // сверху или сбоку — не гуляем
+            if (bar.T > mon.B - 12) return false;   // спрятана: видна только полоска
             return true;
         }
 
@@ -379,7 +428,8 @@ namespace Kapsula
                 walker.Pet.Seated = true;
                 walker.Pet.Mood(WalkMood());
                 walker.Pet.Context = "default";
-                walker.Pet.Play("hop", 500);
+                walker.Pet.Play(walkGotcha ? "gotcha" : "hop", walkGotcha ? 900 : 500);   // прыгал на курсор — «поймал!»
+                walkGotcha = false;
                 return;
             }
             // пружинит после посадки

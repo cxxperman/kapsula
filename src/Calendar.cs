@@ -26,9 +26,13 @@ namespace Kapsula
 
         public static List<CalEvent> Events() { lock (typeof(Calendar)) return new List<CalEvent>(events); }
 
+        // Только для проверок (отдельная папка настроек): выдуманные события вместо настоящего календаря
+        public static void TestSet(List<CalEvent> list) { if (!Store.Test) return; lock (typeof(Calendar)) events = new List<CalEvent>(list); }
+
         // Перечитать события — с запасом на месяц назад и три вперёд, для календаря во вкладке «Сегодня» (не чаще раза в пять минут)
         public static void Refresh(bool force)
         {
+            if (Store.Test) return;   // в проверках настоящий календарь не читаем — на снимках только выдуманное
             int now = Environment.TickCount;
             if (!force && loadedAt != 0 && unchecked(now - loadedAt) < 5 * 60000) return;
             if (Interlocked.Exchange(ref running, 1) != 0) return;

@@ -339,7 +339,7 @@ $cb.GetField('SettingsOverride').SetValue($null, $null)
 
 # --- QR-код для телефона: наш кодировщик → наш же декодер, для ссылок разной длины (версии 1–6)
 $qm = $asm.GetType('Kapsula.QrMake'); $qd = $asm.GetType('Kapsula.Qr')
-foreach ($s in @('hi', 'http://192.168.1.23:42073/?k=0123456789abcdef01234567', 'https://example.com/' + ('x' * 90))) {
+foreach ($s in @('hi', 'http://192.168.1.23:42075/?k=0123456789abcdef01234567', 'https://example.com/' + ('x' * 90))) {
     $m = $qm.GetMethod('Encode').Invoke($null, @($s))
     $n = $m.GetLength(0); $sc = 6
     $bmp = [System.Drawing.Bitmap]::new(($n + 8) * $sc, ($n + 8) * $sc)
@@ -456,6 +456,121 @@ try {
     Remove-Item Env:KAPSULA_TEST_APPDATA, Env:KAPSULA_TEST_LOCALAPPDATA, Env:KAPSULA_TEST_VENCORD_DIR -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# --- Задачи с датами на «Сегодня»: дата словами и цифрами (сегодня — среда, 11 ноября 2026)
+$tk = $asm.GetType('Kapsula.Tasks'); $wed = [datetime]'2026-11-11'
+function TP([string]$s) {
+    $r = $tk.GetMethod('Parse').Invoke($null, @($s, $wed))
+    ($r | ForEach-Object { $_.Day.ToString('yyyy-MM-dd') + ' ' + $(if ($null -ne $_.Time) { ([TimeSpan]$_.Time).ToString('hh\:mm') } else { '-' }) + ' ' + $_.Text + $(if ($_.Repeat) { ' [' + $_.Repeat + ']' } else { '' }) }) -join ' | '
+}
+# повторяющиеся задачи
+T 'повтор: каждый понедельник в 10' (TP 'каждый понедельник в 10 планёрка') '2026-11-16 10:00 Планёрка [w:0]'
+T 'повтор: ежедневно в 9' (TP 'ежедневно в 9 зарядка') '2026-11-11 09:00 Зарядка [d]'
+T 'повтор: по будням' (TP 'по будням в 8 будильник') '2026-11-11 08:00 Будильник [wd]'
+T 'повтор: по выходным' (TP 'по выходным уборка') '2026-11-14 - Уборка [we]'
+T 'повтор: по понедельникам и средам' (TP 'по понедельникам и средам бассейн') '2026-11-11 - Бассейн [w:0,2]'
+T 'повтор: каждую пятницу' (TP 'каждую пятницу отчёт') '2026-11-13 - Отчёт [w:4]'
+T 'повтор: каждое 15-е число' (TP 'каждое 15-е число квартплата') '2026-11-15 - Квартплата [m:15]'
+T 'повтор: каждый месяц 1-го' (TP 'каждый месяц 1-го счета') '2026-12-01 - Счета [m:1]'
+T 'повтор: каждую неделю' (TP 'каждую неделю созвон с мамой') '2026-11-11 - Созвон с мамой [w:2]'
+$nd = $tk.GetMethod('NextDay')
+T 'повтор: 31-е в ноябре — последний день' ($nd.Invoke($null, @('m:31', [datetime]'2026-11-20')).ToString('yyyy-MM-dd')) '2026-11-30'
+T 'повтор: после воскресенья — понедельник' ($nd.Invoke($null, @('w:0', [datetime]'2026-11-15')).ToString('yyyy-MM-dd')) '2026-11-16'
+T 'повтор: подпись' ($tk.GetMethod('RepeatLabel').Invoke($null, @('w:0,2'))) 'по пн, ср'
+# «Когда-нибудь» — задачи без дня
+T 'когда-нибудь: без дня' (TP 'когда-нибудь выучить испанский') '9999-12-31 - Выучить испанский'
+T 'когда-нибудь: без даты' (TP 'купить новый стол без даты') '9999-12-31 - Купить новый стол'
+# шаги в заметке к задаче
+$sc = $tk.GetMethod('StepCount'); $scArgs = @("Паспорт и билеты`n- билеты`n✓ зарядка`n[ ] вода`n-5 градусов — не шаг", 0)
+$total = $sc.Invoke($null, $scArgs)
+T 'шаги: сколько и сколько сделано' ("$($scArgs[1])/$total") '1/3'
+T 'шаги: отметить' ($tk.GetMethod('StepToggle').Invoke($null, @('  - билеты'))) '  ✓ билеты'
+T 'шаги: снять отметку' ($tk.GetMethod('StepToggle').Invoke($null, @('[x] вода'))) '- вода'
+T 'шаги: обычная строка не меняется' ($tk.GetMethod('StepToggle').Invoke($null, @('Паспорт и билеты'))) 'Паспорт и билеты'
+T 'задачи: в пятницу' (TP 'в пятницу отчёт') '2026-11-13 - Отчёт'
+T 'задачи: во вторник в 10' (TP 'во вторник в 10 врач') '2026-11-17 10:00 Врач'
+T 'задачи: «в среду» в среду — следующая' (TP 'в среду созвон') '2026-11-18 - Созвон'
+T 'задачи: в следующую пятницу' (TP 'в следующую пятницу дедлайн') '2026-11-20 - Дедлайн'
+T 'задачи: в следующий понедельник' (TP 'в следующий понедельник планёрка') '2026-11-16 - Планёрка'
+T 'задачи: к пятнице' (TP 'к пятнице презентация') '2026-11-13 - Презентация'
+T 'задачи: пт в 18' (TP 'пт в 18 кино') '2026-11-13 18:00 Кино'
+T 'задачи: в 10 утра в пятницу' (TP 'в 10 утра в пятницу зал') '2026-11-13 10:00 Зал'
+T 'задачи: «среда» как слово — не день' (TP 'настроить среду разработки') '2026-11-11 - Настроить среду разработки'
+T 'задачи: через 3 дня' (TP 'через 3 дня ремонт') '2026-11-14 - Ремонт'
+T 'задачи: через неделю' (TP 'через неделю отпуск') '2026-11-18 - Отпуск'
+T 'задачи: через пару дней' (TP 'через пару дней позвонить маме') '2026-11-13 - Позвонить маме'
+T 'задачи: 15 ноября' (TP '15 ноября день рождения') '2026-11-15 - День рождения'
+T 'задачи: 1 января — следующий год' (TP 'праздник 1 января') '2027-01-01 - Праздник'
+T 'задачи: в 10 мая — прошло, значит следующий год' (TP 'в 10 мая отпуск') '2027-05-10 - Отпуск'
+T 'задачи: на 20.11' (TP 'билеты на 20.11') '2026-11-20 - Билеты'
+T 'задачи: 25.12.2026' (TP 'ёлка 25.12.2026') '2026-12-25 - Ёлка'
+T 'задачи: на выходных' (TP 'уборка на выходных') '2026-11-14 - Уборка'
+T 'задачи: 14.30 — время, не дата' (TP 'в 14.30 созвон') '2026-11-11 14:30 Созвон'
+T 'задачи: две задачи через «потом»' (TP 'отчёт, потом в 14:00 созвон') '2026-11-11 - Отчёт | 2026-11-11 14:00 Созвон'
+T 'задачи: завтра в 9' (TP 'завтра в 9 спортзал') '2026-11-12 09:00 Спортзал'
+
+# --- Вид «Неделя»: понедельник недели, подпись диапазона, будущие разы повторяющихся задач
+$sf = [Reflection.BindingFlags]'NonPublic,Static'
+$wo = $iwT.GetMethod('WeekOf', $sf)
+T 'неделя: суббота — с понедельника' ($wo.Invoke($null, @([datetime]'2026-11-14 18:30')).ToString('yyyy-MM-dd')) '2026-11-09'
+T 'неделя: воскресенье — та же неделя' ($wo.Invoke($null, @([datetime]'2026-11-15')).ToString('yyyy-MM-dd')) '2026-11-09'
+T 'неделя: понедельник — сам' ($wo.Invoke($null, @([datetime]'2026-11-16')).ToString('yyyy-MM-dd')) '2026-11-16'
+$wr = $iwT.GetMethod('WeekRange', $sf); $ru = [Globalization.CultureInfo]::GetCultureInfo('ru-RU'); $yr = (Get-Date).Year
+T 'неделя: подпись в одном месяце' ($wr.Invoke($null, @([datetime]"$yr-03-02", $ru))) '2–8 марта'
+T 'неделя: подпись через месяц' ($wr.Invoke($null, @([datetime]"$yr-03-28", $ru))) '28 марта – 3 апреля'
+T 'неделя: подпись через год' ($wr.Invoke($null, @([datetime]'2030-12-28', $ru))) '28 декабря 2030 – 3 января 2031'
+$ro = $iwT.GetMethod('RepeatsOn', $sf)
+function RT([string]$repeat, [string]$day, [string]$on, [string]$today) {
+    $t = [Activator]::CreateInstance($asm.GetType('Kapsula.DayTask'))
+    $t.GetType().GetField('Repeat').SetValue($t, $repeat); $t.GetType().GetField('Day').SetValue($t, [datetime]$day)
+    $ro.Invoke($null, @($t, [datetime]$on, [datetime]$today))
+}
+T 'неделя: «пн и ср» — бледно в среду' (RT 'w:0,2' '2026-11-16' '2026-11-18' '2026-11-14') $true
+T 'неделя: «пн и ср» — не в четверг' (RT 'w:0,2' '2026-11-16' '2026-11-19' '2026-11-14') $false
+T 'неделя: ближайший раз — обычной задачей, не бледной' (RT 'd' '2026-11-14' '2026-11-14' '2026-11-14') $false
+T 'неделя: каждый день — завтра бледно' (RT 'd' '2026-11-14' '2026-11-15' '2026-11-14') $true
+T 'неделя: просроченная повторяющаяся — не в прошедшие дни' (RT 'd' '2026-11-11' '2026-11-13' '2026-11-14') $false
+T 'неделя: обычная задача не повторяется' (RT '' '2026-11-14' '2026-11-15' '2026-11-14') $false
+
+# --- Погладить зверька: курсор ходит над ним туда-сюда (каждые 33 мс, как опрос острова)
+$stT = $asm.GetType('Kapsula.Stroke')
+function StrokeRun([scriptblock]$path, [int]$need) {
+    $s = [Activator]::CreateInstance($stT); $mv = $stT.GetMethod('Move')
+    for ($i = 0; $i -lt 60; $i++) {
+        $t = $i * 33; $p = & $path $t
+        if ($mv.Invoke($s, @([double]$p[0], [double]$p[1], [double]8, $need, (100000 + $t)))) { return $true }
+    }
+    $false
+}
+T 'гладить: туда-сюда — гладят' (StrokeRun { param($t) @((100 + 30 * [math]::Sin($t / 1000 * [math]::PI * 2 * 2)), 50) } 2) $true
+T 'гладить: вверх-вниз — тоже' (StrokeRun { param($t) @(100, (50 + 25 * [math]::Sin($t / 1000 * [math]::PI * 2 * 2))) } 2) $true
+T 'гладить: провели мимо — нет' (StrokeRun { param($t) @((100 + $t * 0.3), 50) } 2) $false
+T 'гладить: дрожь руки — нет' (StrokeRun { param($t) @((100 + 2 * [math]::Sin($t / 1000 * [math]::PI * 2 * 4)), 50) } 2) $false
+T 'гладить: один разворот (подвели и ушли) — нет' (StrokeRun { param($t) @((100 + 30 * [math]::Sin([math]::Min($t, 700) / 700 * [math]::PI)), 50) } 2) $false
+
+# --- Прогулка по панели задач: только внизу экрана, видимая и во всю ширину
+$tu = $iwT.GetMethod('TaskbarUsable', $sf); $rt = $asm.GetType('Kapsula.Native+RECT')
+function RC([int]$l, [int]$t, [int]$r, [int]$b) { $o = [Activator]::CreateInstance($rt); $rt.GetField('L').SetValue($o, $l); $rt.GetField('T').SetValue($o, $t); $rt.GetField('R').SetValue($o, $r); $rt.GetField('B').SetValue($o, $b); ,$o }
+$mon = RC 0 0 1920 1080
+T 'панель задач: внизу — гуляет' ($tu.Invoke($null, @((RC 0 1032 1920 1080), $mon))) $true
+T 'панель задач: спрятана — нет' ($tu.Invoke($null, @((RC 0 1078 1920 1126), $mon))) $false
+T 'панель задач: сверху — нет' ($tu.Invoke($null, @((RC 0 0 1920 48), $mon))) $false
+T 'панель задач: сбоку — нет' ($tu.Invoke($null, @((RC 0 0 62 1080), $mon))) $false
+
+# --- Ночной колпак: ночью — на свободной голове, не поверх короны
+$pvT = $asm.GetType('Kapsula.PetView'); $oc = $pvT.GetMethod('OutfitCells', $sf)
+$pvT.GetField('TestNight').SetValue($null, 1)
+T 'колпак: ночью с бабочкой — колпак есть, повязка — без него' (($oc.Invoke($null, @('band'))).Length -eq 3 -and ($oc.Invoke($null, @('bow'))).Length -gt 6) $true
+T 'колпак: корона остаётся короной' (($oc.Invoke($null, @('crown'))).Length) 5
+T 'колпак: «без наряда» — без колпака' (($oc.Invoke($null, @('none'))).Length) 0
+$pvT.GetField('TestNight').SetValue($null, 0)
+T 'колпак: днём бабочка без колпака' (($oc.Invoke($null, @('bow'))).Length) 6
+$pvT.GetField('TestNight').SetValue($null, -1)
+
+# --- Порты Kapsula на этом компьютере не пересекаются (в 0.6.1–0.6.3 пульт и звонки Discord делили 42073)
+$ports = @('DiscordBridge', 'SteamBridge', 'ClaudeBridge', 'DiscordVoiceServer', 'PhoneCam', 'Phone') | ForEach-Object { $asm.GetType('Kapsula.' + $_).GetField('Port').GetValue($null) }
+T 'порты: у каждой связи свой' (($ports | Sort-Object -Unique).Count) 6
+T 'порты: звонки Discord — 42073, как в плагине' ($asm.GetType('Kapsula.DiscordVoiceServer').GetField('Port').GetValue($null)) 42073
 
 # --- Команды острова плагину в Discord: несколько сразу, кавычки в имени экрана не ломают JSON
 $dvs = $asm.GetType('Kapsula.DiscordVoiceServer')

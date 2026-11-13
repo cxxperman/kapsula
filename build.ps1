@@ -48,6 +48,7 @@ $refs = @(
     "$meta\Windows.Globalization.winmd",
     "$meta\Windows.UI.winmd",
     "$meta\Windows.ApplicationModel.winmd",
+    "$meta\Windows.Networking.winmd",
     "$here\lib\webview2\Microsoft.Web.WebView2.Core.dll",
     "$here\lib\webview2\Microsoft.Web.WebView2.Wpf.dll"
 )

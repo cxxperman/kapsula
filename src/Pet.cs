@@ -77,7 +77,24 @@ namespace Kapsula
         {
             if (outfit == "none") return new int[0][];
             int k = Array.IndexOf(HabitIds, outfit);
-            return k >= 0 ? HabitOutfits[k] : Outfits[Season()];
+            int[][] cells = k >= 0 ? HabitOutfits[k] : Outfits[Season()];
+            if (!NightNow()) return cells;
+            // ночью — колпак, если голова свободна (у шапки, короны, наушников и повязки свои места)
+            foreach (int[] c in cells) if (c[1] <= 2 && c[0] >= 1 && c[0] <= 9) return cells;
+            var withCap = new List<int[]>(cells);
+            withCap.AddRange(NightCapCells);
+            return withCap.ToArray();
+        }
+
+        // ---- ночной колпак: с 23:00 до 6:00 (вместе с сезонными нарядами выключается в настройках)
+        public static int TestNight = -1;   // проверки: 1 — «ночь» (KAPSULA_TEST_NIGHT=1), 0 — «день», -1 — по часам
+        static readonly int[][] NightCapCells = { new int[] { 2, 0, 7, 4 }, new int[] { 3, -1, 5, 4 }, new int[] { 5, -2, 3, 4 }, new int[] { 7, -3, 2, 4 }, new int[] { 9, -3, 1, 1 }, new int[] { 9, -2, 1, 1 } };
+        public static bool NightNow()
+        {
+            if (TestNight >= 0) return TestNight == 1;
+            if (Store.Get("petSeason") == "0") return false;
+            int h = DateTime.Now.Hour;
+            return h >= 23 || h < 6;
         }
 
         public static void Dress(Canvas c, double px) { Dress(c, px, Outfit); }
@@ -289,6 +306,35 @@ namespace Kapsula
             mark.RenderTransform = Transform.Identity;
         }
 
+        // ---- что зверёк держит в лапах (пиксельный реквизит): кубок — за достижение в Steam
+        static readonly Brush Gold = new SolidColorBrush(Color.FromRgb(0xF7, 0xC9, 0x48)), GoldDark = new SolidColorBrush(Color.FromRgb(0xC9, 0x8E, 0x1E));
+        static readonly string[] CupShape = { "GGGGG", "GGGGG", ".GGG.", "..D..", ".DDD." };
+        Canvas held;
+        readonly TranslateTransform heldLift = new TranslateTransform();
+        string heldKind = "";
+
+        void Held(string kind)
+        {
+            if (kind == heldKind) return;
+            heldKind = kind;
+            if (held != null) { body.Children.Remove(held); held = null; }
+            if (kind != "cup") return;
+            held = new Canvas { IsHitTestVisible = false, RenderTransform = heldLift };
+            for (int y = 0; y < CupShape.Length; y++)
+                for (int x = 0; x < CupShape[y].Length; x++)
+                    if (CupShape[y][x] != '.') Pixel(held, x, y, 1, 1, CupShape[y][x] == 'D' ? GoldDark : Gold);
+            Canvas.SetLeft(held, 10 * px); Canvas.SetTop(held, 2 * px);   // в правой лапе, на уровне груди
+            body.Children.Add(held);
+        }
+
+        // Та же сценка ещё идёт — продлить её, не начиная заново (поглаживание продолжается); иначе — начать
+        public void Extend(string e, int ms)
+        {
+            int now = Environment.TickCount;
+            if (ev == e && unchecked(now - evAt) < evDur) { evDur = unchecked(now - evAt) + ms; forced = true; return; }
+            Play(e, ms);
+        }
+
         // Посмотреть в сторону: −1 влево, 1 вправо, 0 прямо — на ms миллисекунд (в спокойном настроении)
         public void Glance(int dir, int ms) { lookDir = Math.Max(-1, Math.Min(1, dir)); lookAt = Environment.TickCount + ms; }
         public string Prop = "";        // значок рядом со зверьком в спокойном состоянии: зонтик, снежинка…
@@ -312,7 +358,9 @@ namespace Kapsula
             mark.Foreground = signBrush ?? Grey;
         }
         static readonly FontFamily IconFont = new FontFamily("Segoe MDL2 Assets");
+        public const string PhoneSign = "";   // телефонная трубка — зверёк несёт входящий звонок
         public const string BellSign = "";   // колокольчик — зверёк несёт напоминание
+        public const string BudsSign = "";   // наушники — зверёк несёт их на карточку подключения
 
         // ---- Случайные сценки. Где живёт зверёк (Context), то он и делает: на полке таскает коробки, в чате «печатает»,
         // в погоде отряхивается от дождя или ловит снежинки, у таймера постукивает ногой. Раз в 6–14 секунд, на 1–2,5 секунды.
@@ -465,6 +513,76 @@ namespace Kapsula
                     mark.RenderTransform = new RotateTransform(Math.Sin(p * Math.PI * 9) * 24 * (1 - p), mark.ActualWidth / 2, 0);
                     shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 3)) * hop * 0.5;
                     break;
+                case "budson":   // принёс наушники: надел — и пританцовывает, ноты мигают
+                    if (p < 0.3) { Face(2, BudsSign, Paper); shift.Y = -Math.Sin(p / 0.3 * Math.PI) * hop * 0.8; }
+                    else
+                    {
+                        double beat = (p - 0.3) * Math.PI * 8;
+                        Face(3, (now / 260) % 2 == 0 ? "♪" : "♫", Orange);
+                        shift.Y = -Math.Abs(Math.Sin(beat)) * hop * 0.6;
+                        tilt.Angle = Math.Sin(beat / 2) * 6;
+                        mark.Opacity = 0.5 + 0.5 * Math.Abs(Math.Cos(beat));
+                    }
+                    break;
+                case "ringphone": // принёс входящий звонок: трубка трясётся, как у звонящего телефона
+                    Face(p < 0.15 ? 2 : 3, PhoneSign, Green);
+                    mark.RenderTransform = new RotateTransform(Math.Sin(p * Math.PI * 14) * 16 * (1 - p * 0.6), mark.ActualWidth / 2, mark.ActualHeight / 2);
+                    shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 3)) * hop * 0.5;
+                    break;
+                case "cupraise": // достижение: поднимает кубок над головой, вокруг искры
+                    Face(3, "✦", (now / 160) % 2 == 0 ? Yellow : Gold);
+                    heldLift.Y = -Math.Abs(Math.Sin(Math.Min(1, p * 1.6) * Math.PI / 2)) * px * 3;
+                    mark.RenderTransform = new TranslateTransform(0, -px * 2.5);
+                    mark.Opacity = 0.35 + 0.65 * Math.Abs(Math.Sin(t * 9));
+                    shift.Y = p > 0.35 ? -Math.Abs(Math.Sin((p - 0.35) * Math.PI * 4)) * hop * 0.7 : 0;
+                    break;
+                case "hunt":     // курсор замер рядом: припал к земле и виляет хвостом — сейчас прыгнет
+                    Face(0, "", null); LookEyes(lookDir, 0);
+                    squash.ScaleY = 0.84; squash.ScaleX = 1.07;
+                    shift.X = Math.Sin(t * 34) * px * 0.4 * Math.Min(1, p * 3);
+                    shift.Y = px * 0.6;
+                    break;
+                case "pounce":   // прыжок на курсор: глаза круглые, летит в его сторону
+                    Face(2, "!", Orange);
+                    shift.Y = -Math.Sin(p * Math.PI) * hop * 2.2;
+                    shift.X = lookDir * Math.Sin(p * Math.PI / 2) * px * 3;
+                    squash.ScaleY = 1 + 0.12 * Math.Sin(p * Math.PI); squash.ScaleX = 1 - 0.06 * Math.Sin(p * Math.PI);
+                    break;
+                case "gotcha":   // «поймал!» — довольный, искра
+                    Face(3, "✦", Yellow); shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 2)) * hop * 0.6; mark.Opacity = 1 - p * 0.6; break;
+                case "party":    // всё на сегодня сделано: прыгает, вокруг разноцветные искры-конфетти
+                {
+                    Brush[] confetti = { Yellow, Pink, Green, Ice, Orange };
+                    Face(3, (now / 200) % 2 == 0 ? "✦" : "✧", confetti[(now / 200) % confetti.Length]);
+                    mark.RenderTransform = new TranslateTransform(Math.Sin(t * 11) * px, -Math.Abs(Math.Sin(t * 6)) * px * 2);
+                    shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 4)) * hop * 0.9;
+                    tilt.Angle = Math.Sin(p * Math.PI * 4) * 8;
+                    break;
+                }
+                case "dig":      // завалило письмами: сидит под кучей конвертов, потом выкапывается
+                    if (p < 0.55) { Face(1, "✉✉✉", Paper); squash.ScaleY = 0.78; squash.ScaleX = 1.08; shift.Y = px * 1.2; shift.X = Math.Sin(t * 18) * px * 0.3; }
+                    else
+                    {
+                        double q = (p - 0.55) / 0.45;
+                        Face(2, "✉", Paper);
+                        mark.RenderTransform = new TranslateTransform(px * 3 * q, -px * 6 * q);
+                        mark.Opacity = 1 - q;
+                        shift.Y = -Math.Sin(q * Math.PI) * hop * 1.2;
+                    }
+                    break;
+                case "bye":      // кто-то вышел: машет вслед, глаза вниз
+                    Face(1, "✋", Grey); mark.RenderTransform = new RotateTransform(Math.Sin(t * 5) * 18, px * 2, px * 4); break;
+                case "purr":     // гладят: зажмурился от удовольствия, ластится то одним боком, то другим, мурлычет — над ним всплывают сердечки
+                {
+                    Face(3, "♥", Pink);
+                    double c = (now % 900) / 900.0;   // сердечко поднимается, покачиваясь, и тает; следом новое
+                    mark.RenderTransform = new TranslateTransform(Math.Sin(c * Math.PI * 2) * px * 0.6, -px * 3.2 * c);
+                    mark.Opacity = c < 0.15 ? c / 0.15 : 1 - (c - 0.15) / 0.85;
+                    tilt.Angle = Math.Sin(t * 4.2) * 6;
+                    double hum = 0.5 + 0.5 * Math.Sin(t * 22);   // мурчание — мелкая дрожь
+                    squash.ScaleY = 1 - 0.035 * hum; squash.ScaleX = 1 + 0.02 * hum;
+                    break;
+                }
                 case "give":     // отдаёт письмо: конверт взлетает и тает, а сам радостно подпрыгивает
                     Face(p < 0.3 ? 2 : 3, "✉", Paper);
                     mark.RenderTransform = new TranslateTransform(px * 2.5 * p, -px * 7 * p);
@@ -543,6 +661,8 @@ namespace Kapsula
                     Canvas.SetTop(legs[i], home[1] - (up ? px * 0.6 : 0));
                 }
             }
+            Held(mood == "cup" || ev == "cupraise" && unchecked(now - evAt) < evDur ? "cup" : "");   // кубок — пока несёт его или поднимает
+            heldLift.Y = 0;
             if (EventTick(now, t, hop)) return;   // случайная сценка поверх обычного поведения
             if (mood != "hello" && mark.RenderTransform != Transform.Identity) mark.RenderTransform = Transform.Identity;
             switch (mood)
@@ -556,6 +676,18 @@ namespace Kapsula
                     break;
                 case "bell":    // несёт напоминание — колокольчик
                     Face(2, BellSign, Yellow);
+                    shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
+                    break;
+                case "buds":    // несёт наушники — подключили наушники
+                    Face(2, BudsSign, Paper);
+                    shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
+                    break;
+                case "cup":     // несёт кубок — достижение в Steam
+                    Face(2, "", null);
+                    shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
+                    break;
+                case "phone":   // несёт телефонную трубку — вам звонят
+                    Face(2, PhoneSign, Green);
                     shift.Y = -Math.Abs(Math.Sin(t * 7)) * hop * 0.3;
                     break;
                 case "walk":    // идёт по краю окна: покачивается в такт шагам, смотрит, куда идёт

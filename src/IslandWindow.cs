@@ -244,6 +244,8 @@ namespace Kapsula
             WalkInit();     // зверёк иногда гуляет по краю окна, в котором вы работаете
             HabitsInit();   // наряды за привычки: что сейчас носит зверёк
             DiscordVoiceInit();   // звонки Discord напрямую — от плагина Kapsula в Discord
+            ShotWatchStart();     // снимок экрана в папке «Снимки экрана» — зверёк щурится от вспышки
+            NetWatchStart();      // пропал интернет — зверёк встревожен, вернулся — радуется
             { double pw, ph; if (double.TryParse(Store.Get("pillW"), out pw)) pillExtraW = Math.Max(0, Math.Min(240, pw)); if (double.TryParse(Store.Get("pillH"), out ph)) pillH = Math.Max(CH, Math.Min(60, ph)); }
             ShowNotifications = Store.Get("notifications") == "1";
             int mi;
@@ -625,12 +627,19 @@ namespace Kapsula
             PreviewMouseWheel += OnWheel;
 
             var poll = pollTimer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(33) };
-            poll.Tick += delegate { OnPoll(); };
+            poll.Tick += delegate { long p0 = Prof.T(); OnPoll(); Prof.Add("опрос (OnPoll)", p0); };
             poll.Start();
 
             var slow = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-            slow.Tick += delegate { OnTick(); };
+            slow.Tick += delegate { long p0 = Prof.T(); OnTick(); Prof.Add("такт (OnTick)", p0); };
             slow.Start();
+            if (Prof.On)
+            {
+                // замер нагрузки (проверка): с 30-й по 60-ю секунду — в profile.txt
+                Prof.UiThread = Prof.GetCurrentThreadId();
+                ClaudeAfter(30000, delegate { Prof.Mark(); });
+                ClaudeAfter(60000, delegate { try { System.IO.File.WriteAllText(System.IO.Path.Combine(Store.Dir, "profile.txt"), Prof.Report()); } catch { } });
+            }
 
             watcher.Updated += delegate(MediaInfo m) { Dispatcher.BeginInvoke(new Action(delegate { if (Demo) return; HoldPausePosition(m); media = m; RenderMedia(); })); };
             watcher.Preferred = Store.Get("player");
@@ -676,6 +685,7 @@ namespace Kapsula
                     if (icon == null) icon = Steam.IconBytes(appid);   // «загрузка завершена» и подобные: значок игры с диска
                     bool hasFriend = System.Text.RegularExpressions.Regex.IsMatch(steamid, "^\\d{5,20}$");
                     bool message = hasFriend && !invite && get("kind").ToLowerInvariant() == "friend message";
+                    bool achievement = !invite && get("kind").ToLowerInvariant().Contains("achievement");   // зверёк принесёт кубок
                     // Куда ведёт клик: чат с этим другом, страница игры в библиотеке, иначе — то, что предложил сам Steam.
                     Action open;
                     if (hasFriend) open = delegate { SteamBridge.Send("{\"cmd\":\"openChat\",\"steamid\":\"" + steamid + "\"}"); };
@@ -684,7 +694,7 @@ namespace Kapsula
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
                         if (invite) SteamInvite(title, body, icon, url, steamid);
-                        else SteamNotify(title, body, icon, open, message ? steamid : null);
+                        else { steamCupNext = achievement; SteamNotify(title, body, icon, open, message ? steamid : null); }
                     }));
                 }
                 else if ((type as string) == "download")
@@ -1491,6 +1501,7 @@ namespace Kapsula
             CardContentBack();
             shotDragPath = null; if (cardThumbBox != null) cardThumbBox.ToolTip = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
+            RingCardReset();   // после карточки звонка кнопки снова обычные
             for (int i = 0; i < 2; i++) if (cardAlt[i] != null) { cardAlt[i].Visibility = Visibility.Collapsed; cardAltAction[i] = null; }
             if (cardPet != null) cardPet.Root.Visibility = Visibility.Collapsed;
             if (budsPanel != null)
@@ -2021,6 +2032,7 @@ namespace Kapsula
                 if (pq.StartsWith("наушн") || pq.StartsWith("airpods") || pq.StartsWith("аирпод") || pq.StartsWith("эирпод")) { FillEarbuds(); RenderCmd(); if (state == 4) SetTargets(); return; }
                 if (pq.StartsWith("не бесп") || pq.StartsWith("тихо") || pq.StartsWith("тишин") || pq == "dnd") { FillQuiet(); RenderCmd(); if (state == 4) SetTargets(); return; }
                 if (pq.StartsWith("уведомл") || pq.StartsWith("истори")) { FillHistory(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (TaskListWord(pq)) { FillTaskList(); RenderCmd(); if (state == 4) SetTargets(); return; }   // «задачи» — на сегодня, с отметкой
                 if (pq.StartsWith("ошибк") || pq.StartsWith("сообщить") || pq.StartsWith("баг")) AddCmd("Сообщить об ошибке", "сведения скопируются, откроется страница на GitHub", "", null, delegate { ReportBug(); });
                 // Закреплённые в буфере фразы находятся по любому слову из них и вставляются одним нажатием
                 foreach (ClipItem ci in clips)
@@ -2032,6 +2044,7 @@ namespace Kapsula
                     if (cmdItems.Count >= 3) break;
                 }
                 FillAgentCmd(q, pq);
+                FillTaskCmd(q, pq);    // «задача в пятницу отчёт» — видно, на какой день ляжет
                 FillFocusCmd(q, pq);
                 foreach (string askWord in new string[] { "спроси ", "спросить ", "ask " })
                     if (pq.StartsWith(askWord) && q.Length > askWord.Length + 1)
@@ -2567,6 +2580,7 @@ namespace Kapsula
             gear.ToolTip = "Настройки";
             g.Children.Add(gear);
 
+            // Все вкладки строятся сразу: замер (0.7) — вместе около 0,1 с и 1,5 МБ, откладывать их нет смысла
             pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildDeckPage(), BuildPetPage() };
             foreach (var p in pages) { Grid.SetRow(p, 2); g.Children.Add(p); }
             BuildDropZones(g);   // «На полку», «В ярлыки», «В чат» — поверх страницы, пока над островом тащат файл
@@ -2602,6 +2616,7 @@ namespace Kapsula
             Board b = BoardFor(p);
             if (b == null) return;
             if (on && page != p) ShowPage(p);
+            if (on && p == PToday && todayWeek) { todayWeek = false; Store.Set("todayView", ""); RenderToday(); ApplyTodayMode(false); }   // правят раскладку «месяц и день», а не неделю
             b.SetEditing(on);
             if (b == homeBoard) ApplyHomeLayout();
             SetTargets(); RefreshPencil();
@@ -3407,6 +3422,7 @@ namespace Kapsula
             // Копия без альфа-канала: у картинок из буфера он часто пустой, и они выходят прозрачными.
             var copy = new WriteableBitmap(new FormatConvertedBitmap(img, PixelFormats.Bgr24, null, 0));
             copy.Freeze();
+            if (ShotLike(copy.PixelWidth, copy.PixelHeight)) ShotSeen();   // снимок экрана — зверёк щурится от вспышки
             // Windows сообщает об одной скопированной картинке несколько раз — сверяем по отпечатку и не плодим дубли.
             int stride = copy.PixelWidth * 3;
             var px = new byte[stride * copy.PixelHeight];
@@ -5848,6 +5864,7 @@ namespace Kapsula
         // Сообщение или звонок из Discord (приходит от плагина XSOverlay в Vencord)
         public void DiscordNotify(string title, string text, byte[] icon)
         {
+            if (DiscordLive && title == "Incoming call") return;   // звонок показывает своя карточка — с кнопками «Принять» и «Отклонить»
             if (TestDemoCard == null && Quiet("Discord", title, text)) { UnreadAdd(true); return; }
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
@@ -6424,6 +6441,10 @@ namespace Kapsula
                     petEyes[m].Add(PetPixel(c, 11 - e[0] - e[2], e[1], e[2], e[3], Ink));
                 }
             }
+            // громкость на максимуме: прижал кончики ушей и зажал уши лапами (обычно спрятано)
+            petPaws.Add(PetPixel(c, 1, 0, 1, 1, Ink)); petPaws.Add(PetPixel(c, 9, 0, 1, 1, Ink));
+            petPaws.Add(PetPixel(c, 0, 1, 2, 2, PawShade)); petPaws.Add(PetPixel(c, 9, 1, 2, 2, PawShade));
+            foreach (Rectangle r in petPaws) r.Visibility = Visibility.Collapsed;
             int dressFrom = c.Children.Count;
             PetView.Dress(c, PetPx);
             for (int i = dressFrom; i < c.Children.Count; i++) petOutfit.Add(c.Children[i]);
@@ -6435,6 +6456,16 @@ namespace Kapsula
             sp.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { if (PetProps() && state == 0) { PetPoke(); e.Handled = true; } };
             PetFace(0, "", null);
             return sp;
+        }
+
+        readonly List<Rectangle> petPaws = new List<Rectangle>();
+        static readonly Brush PawShade = new SolidColorBrush(Color.FromRgb(0xC8, 0x62, 0x2A));
+        bool petPawsOn;
+        void PetPaws(bool on)
+        {
+            if (on == petPawsOn) return;
+            petPawsOn = on;
+            foreach (Rectangle r in petPaws) r.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // Глаза: 0 обычные, 1 вниз, 2 круглые, 3 довольные, 4 закрытые. Значок справа от зверька — «!», «✓», «z», «…».
@@ -6603,6 +6634,8 @@ namespace Kapsula
         // ---- «настроение дня»: сколько сегодня сделано кругов помодоро и как давно вы без перерыва
         int activeSince = Environment.TickCount;
         bool breakHinted;
+        int breakAt, petWaveUntil;   // когда начался перерыв; до какого момента зверёк машет «привет»
+        static readonly bool TestBack = Environment.GetEnvironmentVariable("KAPSULA_TEST_BACK") == "1";
         int DoneToday()
         {
             string[] p = Store.Get("petDone").Split(':');
@@ -6615,13 +6648,20 @@ namespace Kapsula
         void MoodTick()
         {
             int now = Environment.TickCount;
-            if (Native.IdleMs() > 5 * 60000)
+            int idle = Native.IdleMs();
+            if (TestBack && !onBreak && unchecked(now - bootAt) > 22000 && unchecked(now - bootAt) < 26000) idle = 11 * 60000;   // проверка: «отошли» на 11 минут
+            if (idle > 5 * 60000)
             {
                 // отошли минут на пять после долгой работы — это перерыв (к повязке)
-                if (!onBreak && unchecked(now - activeSince) > 45 * 60000) HabitAdd(0, 1);
+                if (!onBreak) { if (unchecked(now - activeSince) > 45 * 60000) HabitAdd(0, 1); breakAt = now - idle; }
                 onBreak = true; activeSince = now; breakHinted = false;
             }
-            else onBreak = false;
+            else
+            {
+                // вернулись после перерыва дольше десяти минут — зверёк машет лапой: «привет!»
+                if (onBreak && unchecked(now - breakAt) > 10 * 60000 && PetProps() && !QuietNow) { petWaveUntil = now + 3200; if (petWaveUntil == 0) petWaveUntil = 1; }
+                onBreak = false;
+            }
             if (PetProps() && NeedsBreak() && !breakHinted && state == 0 && !toastOn && !hiddenFs && !QuietNow)
             {
                 breakHinted = true;
@@ -6634,6 +6674,7 @@ namespace Kapsula
             {
                 Store.Set("petMorning", today);
                 petStretchUntil = now + 4000;
+                petWaveUntil = 0;   // утром — потягивается, а не машет
             }
             TrayIconTick();
         }
@@ -6686,16 +6727,40 @@ namespace Kapsula
                 else if (unchecked(now - petLowUntil) < 0) mood = "low";
             }
             if (!chr && !PetDancing() && TestMood == null) mood = "";
-            string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec" : CallVisible() ? "call"
+            string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec"
+                : Until(petFriendUntil) ? (petFriendJoin ? "hi" : "bye") : Until(petPartyUntil) ? "party" : CallVisible() ? "call"
                 : steamDlApp != null || dlActive != null ? (steamDlApp != null && steamDlDone ? "carried" : "carry")
-                : toastOn && toastValue >= 0 ? (toastBright ? "bright" : toastCharge == 1 ? "charge" : "vol") : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
-                : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
+                : toastOn && toastValue >= 0 ? (toastBright ? "bright" : toastCharge == 1 ? "charge" : "vol") : Until(petNetUntil) ? (netOnline ? "online" : "offline") : Until(petUpdUntil) ? "update" : Until(petBudsUntil) ? "buds" : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
+                : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : Until(petWaveUntil) ? "wave" : Until(petLoveUntil) ? "love" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
             petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
+            if (act != "update" && act != "wave" && act != "hi" && act != "bye" && petMark.RenderTransform != Transform.Identity) petMark.RenderTransform = Transform.Identity;   // крутился значок «обновить» или махала лапа — выпрямить
+            PetPaws(act == "vol" && toastValue >= 0.98);   // громкость на максимуме — зажал уши лапами
 
             if (claudeState == 2) { PetFace(2, "!", ClaudeOrange); petMark.Opacity = (now / 420) % 2 == 0 ? 1 : 0.25; }
             else if (mood == "alarm") { PetFace(2, "!", RecRed); petShift.X = rnd.NextDouble() * 2.4 - 1.2; petShift.Y = rnd.NextDouble() * 1.6 - 0.8; }
             else if (mood == "notify") { PetFace(2, "!", accent); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 6)) * -1.8 * 2) / 2; }   // пришло сообщение: глаза круглые, подпрыгивает
             else if (act == "rec") { PetFace(0, "●", RecRed); petMark.Opacity = (now / 600) % 2 == 0 ? 1 : 0.3; }   // снимает: красный огонёк мигает
+            else if (act == "hi")
+            {
+                // в ваш голосовой канал зашли: машет — «привет!»
+                PetFace(3, "✋", Amber);
+                petMark.RenderTransform = new RotateTransform(Math.Sin(t * 10) * 22, petMark.ActualWidth / 2, petMark.ActualHeight);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 5)) * -1.2 * 2) / 2;
+            }
+            else if (act == "bye")
+            {
+                // кто-то вышел из канала: машет вслед, глаза вниз
+                PetFace(1, "✋", Dim);
+                petMark.RenderTransform = new RotateTransform(Math.Sin(t * 5) * 18, petMark.ActualWidth / 2, petMark.ActualHeight);
+            }
+            else if (act == "party")
+            {
+                // всё на сегодня сделано: прыгает, искры-конфетти меняют цвет
+                Brush[] confetti = { Amber, LovePink, ClaudeGreen, accent };
+                PetFace(3, (now / 200) % 2 == 0 ? "✦" : "✧", confetti[(now / 200) % confetti.Length]);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 8)) * -2 * 2) / 2;
+                petShift.X = Math.Round(Math.Sin(t * 4) * 1 * 2) / 2;
+            }
             else if (act == "call")
             {
                 // звонок: микрофон выключен — зверёк потупился, рядом красный крестик; в эфире — зелёный огонёк,
@@ -6721,12 +6786,54 @@ namespace Kapsula
             else if (act == "carried") { PetFace(3, "✓", ClaudeGreen); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; }
             else if (act == "vol")
             {
-                // громкость: на громком прижимает уши и жмурится, на нуле — молчит с закрытыми глазами
-                if (toastValue <= 0.005) PetFace(4, "×", Dim);
+                // громкость: на максимуме зажимает уши лапами и дрожит, на громком жмурится, без звука — блаженно дремлет
+                if (toastValue <= 0.005) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 2.4)); petShift.Y = 0.5; }
+                else if (toastValue >= 0.98) { PetFace(4, "", null); petShift.X = rnd.NextDouble() * 1.8 - 0.9; petShift.Y = 1; }
                 else if (toastValue > 0.8) { PetFace(4, "", null); petShift.X = rnd.NextDouble() * 1.6 - 0.8; petShift.Y = 1; }
                 else PetFace(toastValue > 0.45 ? 2 : 0, "", null);
             }
             else if (act == "charge") { PetFace(3, "⚡", ClaudeGreen); petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2; petMark.Opacity = 0.45 + 0.55 * Math.Abs(Math.Sin(t * 5)); }   // зарядку подключили: радуется, молния мигает
+            else if (act == "offline")
+            {
+                // пропал интернет: встревожен, красный значок сети мигает, зверёк поёживается
+                PetFace(2, "", RecRed);
+                petMark.Opacity = (now / 450) % 2 == 0 ? 1 : 0.35;
+                petShift.X = Math.Round(Math.Sin(t * 14) * 0.6 * 2) / 2;
+            }
+            else if (act == "wave")
+            {
+                // вернулись после перерыва: машет лапой — «привет!»
+                PetFace(3, "✋", Amber);
+                petMark.RenderTransform = new RotateTransform(Math.Sin(t * 10) * 22, petMark.ActualWidth / 2, petMark.ActualHeight);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 5)) * -1.2 * 2) / 2;
+            }
+            else if (act == "love")
+            {
+                // недавно гладили: довольно жмурится, рядом мягко мигает сердечко
+                PetFace(3, "♥", LovePink);
+                petMark.Opacity = 0.35 + 0.65 * Math.Abs(Math.Sin(t * 2.2));
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 2.6)) * -1 * 2) / 2;
+            }
+            else if (act == "update")
+            {
+                // обновления ждут перезагрузки: значок «обновить» медленно крутится, зверёк кивает — мол, пора
+                PetFace(0, "", accent);
+                petMark.RenderTransform = new RotateTransform((now / 6) % 360, petMark.ActualWidth / 2, petMark.ActualHeight / 2);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 3)) * -1.2 * 2) / 2;
+            }
+            else if (act == "online")
+            {
+                // вернулся: радуется, зелёный значок сети, пара прыжков
+                PetFace(3, "", ClaudeGreen);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 7)) * -1.6 * 2) / 2;
+            }
+            else if (act == "buds")
+            {
+                // подключили наушники: надел их и пританцовывает
+                PetFace(3, PetView.BudsSign, accent);
+                petShift.Y = Math.Round(Math.Abs(Math.Sin(t * 6.5)) * -1.6 * 2) / 2;
+                petShift.X = Math.Round(Math.Sin(t * 3.25) * 0.8 * 2) / 2;
+            }
             else if (act == "bright")
             {
                 // яркость: на ярком щурится от солнца, в темноте таращит глаза
@@ -6813,7 +6920,7 @@ namespace Kapsula
                 if (unchecked(now - petBlinkAt) >= 0) { petBlinkUntil = now + 140; petBlinkAt = now + 2500 + rnd.Next(4500); }
                 string wm = NeedsBreak() && chr ? "☕" : PetWeatherMark();
                 int hour = DateTime.Now.Hour;
-                bool night = hour < 5 || act == "night";
+                bool night = hour < 5 || hour >= 23 || PetView.TestNight == 1 || act == "night";   // поздно — в колпаке и клюёт носом
                 if (night && unchecked(petBlinkUntil - now) > 100 && unchecked(petBlinkUntil - now) <= 140) petBlinkUntil = now + 900;   // ночью клюёт носом: глаза закрываются надолго
                 bool emoting = TestEmote != null || petEmote != "" && unchecked(now - petEmoteUntil) < 0;   // во время эмоции не моргает
                 if (unchecked(now - petBlinkUntil) < 0 && !emoting) { PetFace(4, night ? "z" : wm, night ? Faint : Dim); if (night) petShift.Y = 1; return; }
@@ -6863,6 +6970,29 @@ namespace Kapsula
                     case "dizzy": PetFace(2, "@", Dim); petShift.X = Math.Round(Math.Sin(t * 22) * 1.4 * 2) / 2; petShift.Y = Math.Round(Math.Cos(t * 17) * 0.8 * 2) / 2; sx = (now / 110) % 2 == 0 ? 1 : -1; eyeSet = 2; break;
                     case "shy": eyeSet = 3; PetFace(3, "♥", PetLove); petShift.Y = 0.5; break;
                     case "bored": PetFace(0, "", null); sx = Math.Sin(t * 2.2) > 0 ? 1 : -1; break;
+                    case "sneeze":
+                    {
+                        // чихнул: зажмурился, набрал воздуха — «апчхи!» — и дёрнулся вперёд
+                        double p = Math.Min(1, unchecked(now - petEmoteAt) / 1300.0);
+                        eyeSet = 4;
+                        if (p < 0.55) { PetFace(4, "", null); petShift.Y = Math.Round(-p / 0.55 * 1.2 * 2) / 2; }
+                        else { PetFace(4, "✱", Dim); petShift.X = Math.Round(Math.Sin((p - 0.55) / 0.45 * Math.PI) * 1.6 * 2) / 2; petShift.Y = 0.5; }
+                        break;
+                    }
+                    case "fly":
+                    {
+                        // ловит мушку: точка кружит у головы, глаза за ней — и цап!
+                        double p = Math.Min(1, unchecked(now - petEmoteAt) / 2200.0);
+                        if (p < 0.82)
+                        {
+                            double fx = Math.Sin(p * Math.PI * 5) * 5, fy = Math.Cos(p * Math.PI * 7) * 3 - 3;
+                            PetFace(0, "·", Fg);
+                            petMark.RenderTransform = new TranslateTransform(fx - 4, fy);
+                            sx = fx > 1 ? 1 : fx < -1 ? -1 : 0; sy = 0;
+                        }
+                        else { eyeSet = 3; PetFace(3, "!", Amber); petShift.Y = Math.Round(Math.Sin((p - 0.82) / 0.18 * Math.PI) * -1.6 * 2) / 2; }
+                        break;
+                    }
                     default: PetFace(0, wm, Dim); break;
                 }
                 // глаза смотрят на курсор в любом настроении; подмигивание и прищур — у обычных глаз
@@ -6896,7 +7026,7 @@ namespace Kapsula
         double petSpeedAvg, petLastDist = 9999;
         string petEmote = "", petLastEmote = "";
         static readonly Brush PetLove = new SolidColorBrush(Color.FromRgb(0xFF, 0x5C, 0x8A));
-        static readonly string[] PetRandomEmotes = { "surprised", "happy", "wink", "love", "confused", "suspicious", "yawn", "proud" };
+        static readonly string[] PetRandomEmotes = { "surprised", "happy", "wink", "love", "confused", "suspicious", "yawn", "proud", "sneeze", "fly" };
 
         double PetHop(int now, int ms, double height)
         {
@@ -6926,7 +7056,9 @@ namespace Kapsula
             {
                 string e;
                 do e = PetRandomEmotes[rnd.Next(PetRandomEmotes.Length)]; while (e == petLastEmote);
-                StartEmote(e, e == "yawn" ? 1400 : 1000 + rnd.Next(600), now);
+                int hr = DateTime.Now.Hour;
+                if ((hr >= 23 || hr < 5 || PetView.TestNight == 1) && rnd.Next(2) == 0) e = "yawn";   // поздно — зевает чаще
+                StartEmote(e, e == "yawn" ? 1400 : e == "sneeze" ? 1300 : e == "fly" ? 2200 : 1000 + rnd.Next(600), now);
             }
             return petEmote;
         }
@@ -6992,6 +7124,7 @@ namespace Kapsula
                     card = delegate { ShowCardEx(null, ((char)0xE787).ToString(), "Через 10 минут: созвон", "Так остров напоминает о событиях календаря", delegate { }, null, null, false); };
                     break;
                 case "layout": Toast("", "Раскладка: RU", null, -1, null); return;
+                case "soon": SoonDemo(); return;
                 case "gamer": Toast(((char)0xE7FC).ToString(), "Игровой режим включён", null, -1, accent); return;
                 case "track": Toast("", media.Has ? (string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist) : "Новый трек — Исполнитель", null, -1, accent); return;
                 case "unread": Toast(((char)0xE8BD).ToString(), "Красный кружок — непрочитанное в Discord и Steam", null, -1, null); return;
@@ -7036,6 +7169,7 @@ namespace Kapsula
         {
             seenNotes.Add(new Seen { At = DateTime.Now, Source = source, Title = title ?? "", Text = text ?? "" });
             if (seenNotes.Count > 60) seenNotes.RemoveAt(0);
+            LetterCounted();   // пять за минуту — зверька заваливает письмами
             return QuietNow;
         }
 
@@ -7125,6 +7259,7 @@ namespace Kapsula
         {
             if (QuietNow || s.Lowest < 0) return;
             budsCardAt = Environment.TickCount | 1;
+            cardCarryNext = "buds";   // зверёк приносит на карточку наушники, надевает их и пританцовывает
             bool overEar = s.Single >= 0 || s.Model.Contains("Max");
             if (overEar && BudsFrames() != null) { ShowBudsCard(s); return; }
             ShowCardEx(null, BudsGlyph, s.Model, s.Text, delegate { }, null, null, false);
@@ -7504,9 +7639,13 @@ namespace Kapsula
         }
 
         // Всплывающее уведомление Steam (приходит от плагина Kapsula для Millennium)
+        bool steamCupNext;   // это достижение — зверёк принесёт на карточку кубок
+
         public void SteamNotify(string title, string text, byte[] icon, Action open, string replyTo)
         {
+            bool cup = steamCupNext; steamCupNext = false;
             if (TestDemoCard == null && Quiet("Steam", title, text)) { if (replyTo != null) UnreadAdd(false); return; }
+            if (cup) cardCarryNext = "cup";
             // У сообщения друга есть кнопка «Ответить»: ответ набирается прямо на острове.
             if (replyTo != null) ShowCardEx(ImageFrom(icon), "", title, text, open, "Ответить", delegate { StartReply(replyTo, title); }, false);
             else ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
@@ -8132,6 +8271,7 @@ namespace Kapsula
                     if (TestDemoCard == "message") SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0");
                     else if (TestDemoCard == "invite") SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", "");
                     else if (TestDemoCard == "discord") DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8)));
+                    else if (TestDemoCard == "achievement") { steamCupNext = true; SteamNotify("Первые шаги", "Достижение · Пиксельный поход", DemoAvatar("★", Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0xE0, 0x8A, 0x1E)), delegate { }, null); }
                     else if (TestCard) ShowCard(null,"", "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null);
                     else { ToggleCommand(); cmdBox.Text = TestCmd; }
                 };
@@ -8364,6 +8504,7 @@ namespace Kapsula
             bool w = weather != null && weather.Error == null;
             double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() && !PetDancing() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
             if (CallVisible()) return 330;
+            if (soonNow != null && timerEnd <= DateTime.Now) return 330;   // «Созвон · через 12 мин»
             if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270) + sec;
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
@@ -8475,12 +8616,37 @@ namespace Kapsula
             CompositionTarget.Rendering += OnFrame;
         }
 
+        // Как часто обновляется край, когда пляшет только он. Каждое обновление — перерисовка всего прозрачного окна
+        // острова, поэтому на мониторе с высокой частотой (120, 144, 165 Гц) свёрнутой капсуле хватает около 40 раз
+        // в секунду (замер 0.7: 3,6 % ядра вместо 5,4–8,3 % при 64). На обычном мониторе 60–90 Гц край, как и раньше,
+        // меняется на каждом кадре: через кадр было бы уже заметно рывками. В раскрытой панели — до 64 раз в секунду.
+        // KAPSULA_LIQUIDHZ — для замеров.
+        static readonly double LiquidGap = 1.0 / 64.5, LiquidGapPill = 1.0 / LiquidHz();
+        double frameDt;   // сколько в среднем длится кадр монитора: 0,0069 — 144 Гц, 0,0167 — 60 Гц
+
+        double LiquidGapNow() { return state == 0 && frameDt > 0 && frameDt < 0.0105 ? LiquidGapPill : LiquidGap; }
+
+        static double LiquidHz()
+        {
+            double hz;
+            string v = Environment.GetEnvironmentVariable("KAPSULA_LIQUIDHZ");
+            return v != null && double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out hz) && hz >= 10 && hz <= 240 ? hz : 40.5;
+        }
+
         void OnFrame(object sender, EventArgs e)
+        {
+            long f0 = Prof.T();
+            try { FrameStep(e); }
+            finally { Prof.Add("кадр анимации (OnFrame)", f0); }
+        }
+
+        void FrameStep(EventArgs e)
         {
             double t = ((RenderingEventArgs)e).RenderingTime.TotalSeconds;
             if (t == lastFrame) return;
             if (lastFrame == 0) { liquidAt = t - 0.004; appliedAt = 0; }
             double dt = lastFrame == 0 ? 0.004 : Math.Min(0.05, t - lastFrame);
+            if (lastFrame != 0 && t - lastFrame < 0.05) frameDt = frameDt == 0 ? t - lastFrame : frameDt * 0.95 + (t - lastFrame) * 0.05;
             lastFrame = t;
             bool springs = sw.Step(dt);
             springs |= sh.Step(dt);
@@ -8490,8 +8656,9 @@ namespace Kapsula
             springs |= FloatFrame(dt);   // отцепленный остров: уши, растворение, перелёт и подъём окна
             bool riderBusy = RiderBusy();   // зверёк-попутчик в прыжке или пружинит после посадки
             // Пока движется форма острова, рисуем каждый кадр монитора. Когда пляшет только жидкий край,
-            // хватает около 60 обновлений в секунду: глаз разницы не видит, а нагрузка падает в разы.
-            if (springs || riderBusy || heroOn || t - appliedAt >= 0.0155)
+            // хватает около 60 обновлений в секунду, а в капсуле на мониторе с высокой частотой — около 40 (LiquidGapNow):
+            // глаз разницы не видит, а нагрузка падает в разы.
+            if (springs || riderBusy || heroOn || t - appliedAt >= LiquidGapNow())
             {
                 liquidLive = StepLiquid(Math.Min(0.05, t - liquidAt));
                 liquidAt = t;
@@ -8502,11 +8669,46 @@ namespace Kapsula
                 appliedAt = t;
             }
             bool moving = springs || liquidLive || riderBusy || heroOn;
-            if (!moving)
+            bool edgeOnly = liquidLive && !springs && !riderBusy && !heroOn;
+            if (!moving || edgeOnly && EdgeTimerOn && state == 0 && frameDt > 0 && frameDt < 0.0105)
             {
                 CompositionTarget.Rendering -= OnFrame;
                 frameOn = false;
+                if (moving) EdgeTimerStart();   // пляшет только край капсулы — дальше по своему таймеру
             }
+        }
+
+        // Капсула на мониторе с высокой частотой, а движется только край (играет музыка): не просыпаться на каждый
+        // кадр монитора (до 144 раз в секунду), а обновлять край по своему таймеру — около 32–40 раз в секунду.
+        // Как только снова движется форма острова или его раскрыли, Wake() возвращает кадры монитора.
+        // KAPSULA_EDGETIMER=0 — по-старому (для замеров).
+        static readonly bool EdgeTimerOn = Environment.GetEnvironmentVariable("KAPSULA_EDGETIMER") != "0";
+        DispatcherTimer edgeTimer;
+        System.Diagnostics.Stopwatch edgeClock;
+        double edgeAt;
+
+        void EdgeTimerStart()
+        {
+            if (edgeTimer == null)
+            {
+                edgeTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(25) };
+                edgeTimer.Tick += delegate { long f0 = Prof.T(); EdgeTick(); Prof.Add("край по своему таймеру", f0); };
+                edgeClock = System.Diagnostics.Stopwatch.StartNew();
+            }
+            edgeAt = edgeClock.Elapsed.TotalSeconds;
+            edgeTimer.Start();
+        }
+
+        void EdgeTick()
+        {
+            if (frameOn) { edgeTimer.Stop(); return; }                  // снова кадры монитора — они и ведут край
+            if (state != 0) { edgeTimer.Stop(); Wake(); return; }       // раскрыли — плавно, по кадрам
+            double t = edgeClock.Elapsed.TotalSeconds;
+            liquidLive = StepLiquid(Math.Min(0.05, t - edgeAt));
+            edgeAt = t;
+            ApplyFrame();
+            RiderPlace();
+            if (!liquidLive) edgeTimer.Stop();                          // музыка кончилась, край улёгся
         }
 
         static double Clamp01(double v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
@@ -8883,7 +9085,8 @@ namespace Kapsula
             // Точка Claude Code: цветная — работает, оранжевая — ждёт вас, зелёная — только что закончил
             bool plain = !toastOn && !Recorder.Active && steamDlApp == null && dlActive == null;
             PlacePet();
-            bool petProp = PetProps() && (Recorder.Active || steamDlApp != null || dlActive != null || toastOn && toastValue >= 0);   // запись, загрузка, громкость — зверёк с реквизитом
+            bool petProp = PetProps() && (Recorder.Active || steamDlApp != null || dlActive != null || toastOn && toastValue >= 0 || Until(petBudsUntil) || Until(petNetUntil) || Until(petUpdUntil)
+                || Until(petFriendUntil) || Until(petPartyUntil));   // запись, загрузка, громкость, наушники, интернет, обновления, друг в канале, всё сделано — зверёк с реквизитом
             claudeDot.Visibility = (claudeState != 0 || PetIsCharacter() || PetDancing()) && plain || petProp ? Visibility.Visible : Visibility.Collapsed;
             // свой стикер: зверёк уступает ему место (кроме случаев, когда зверёк что-то сообщает — Claude Code, загрузка, запись)
             bool stickerOn = stickerFrames != null && claudeState == 0 && !petProp;
@@ -8976,7 +9179,7 @@ namespace Kapsula
             if (CallVisible() && !timing)
             {
                 bool live = DiscordLive;   // плагин в Discord: канал, мут, полный мут и демонстрация — точно
-                cText.Text = (live && dvChannel.Length > 0 ? dvChannel : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
+                cText.Text = (live ? DvCallName("Звонок") : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
                 bool mutedNow = live ? dvMute : Audio.MicMuted();
                 // Состояние звонка показывает зверёк. Значки справа — только когда его в капсуле нет
                 cRight.Inlines.Clear();
@@ -8990,6 +9193,17 @@ namespace Kapsula
                 else { CallIcon(0xE720, ClaudeGreen); tip.Add("в эфире: вас слышно"); }
                 cRight.ToolTip = string.Join(" · ", tip.ToArray());
                 eq.Visibility = Visibility.Collapsed;
+                return;
+            }
+            // Скоро встреча или задача со временем — как «живая активность» на iPhone: значок и название слева,
+            // а сколько осталось — справа, акцентом, всегда целиком («Созвон с командой … 12 мин»)
+            if (soonNow != null && !timing)
+            {
+                cGlyph.Visibility = Visibility.Visible; cGlyph.Text = soonNow.Glyph; cGlyph.Foreground = accent;
+                cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
+                cText.Text = soonNow.Title; cText.MaxWidth = 170;
+                cRight.Visibility = Visibility.Visible; cRight.Text = SoonLeft(soonNow); cRight.Foreground = accent;
+                if (state == 1) SetClock(nClock);
                 return;
             }
             // Без музыки и таймера: часы по центру, погода — справа, а не одной строкой посередине
@@ -9783,6 +9997,8 @@ namespace Kapsula
         {
             pollN++;
             UpdateHover();
+            StrokeTick();   // зверька гладят курсором?
+            HuntTick();     // или курсор замер рядом — прыгнуть на него
             // Esc заканчивает правку вкладки (окно острова фокус не берёт — смотрим клавишу сами)
             { Board eb = EditingBoard(); bool esc = eb != null && (GetAsyncKeyState(0x1B) & 0x8000) != 0; if (esc && !escDown) eb.SetEditing(false); escDown = esc; }
 
@@ -9855,6 +10071,9 @@ namespace Kapsula
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
             if (tick % 4 == 1) { MoodTick(); MorningTick(); }
+            if (tick % 4 == 3) { TaskRemindTick(); SoonTick(); HeadphonesTick(); NetTick(); UpdateTick(); }   // задача — карточкой в свой час, а до того — отсчёт в капсуле; наушники; интернет; обновления Windows
+            if (state != 0) lastOpenAt = Environment.TickCount;
+            if (tick % 60 == 7) TrimTick();     // панель давно закрыта — неиспользуемую память отдаём системе
             ExtrasTick();
             if (tick % 4 == 2) EarbudsTick();
             if (tick % 2 == 1) BatteryTick();   // батарея ноутбука: зарядка, «садится»

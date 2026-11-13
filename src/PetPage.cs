@@ -13,7 +13,7 @@ namespace Kapsula
     partial class IslandWindow
     {
         PetView roomPet;
-        TextBlock roomWearing, roomStats;
+        TextBlock roomWearing, roomStats, roomPets;
         readonly Border[] roomSlots = new Border[4];
         readonly PetView[] roomMinis = new PetView[4];
         readonly TextBlock[] roomSlotSub = new TextBlock[4];
@@ -46,6 +46,9 @@ namespace Kapsula
             room.Children.Add(roomPet.Root);
             roomWearing = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 190, 0, 0) };
             room.Children.Add(roomWearing);
+            // как его погладить (пока ни разу не гладили) или сколько раз уже гладили
+            roomPets = new TextBlock { Foreground = Faint, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 210, 14, 0) };
+            room.Children.Add(roomPets);
             room.Children.Add(new TextBlock { Text = "Уголок зверька", Foreground = Faint, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 14, 0, 0) });
             g.Children.Add(roomCard);
 
@@ -130,6 +133,10 @@ namespace Kapsula
             roomWearing.Text = wear == "none" ? "Без наряда" : wear == "" ? (PetView.Season() > 0 ? "В сезонном наряде" : "Без наряда")
                 : "В наряде: " + OutfitNames[Array.IndexOf(OutfitIds, wear)].ToLower();
             roomStats.Text = "Накоплено: перерывов " + HabitCount(0) + " · задач " + HabitCount(1) + " · музыки " + HabitCount(2) / 60 + " ч · помодоро " + HabitCount(3);
+            int pets;
+            int.TryParse(Store.Get("petPets"), out pets);
+            roomPets.Text = pets > 0 ? "Гладили " + Plural(pets, "раз", "раза", "раз") : "Погладьте его: поводите курсором туда-сюда";
+            roomPets.Foreground = pets > 0 ? (Brush)LovePink : Faint;
         }
     }
 }

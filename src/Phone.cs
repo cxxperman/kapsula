@@ -18,7 +18,9 @@ namespace Kapsula
 {
     static class Phone
     {
-        public const int Port = 42073;
+        // 42075: с 0.6.1 порт 42073 занят звонками Discord (плагин Kapsula в Discord обращается туда), и пульт
+        // с ними не уживался — кто запускался вторым, тот не работал. После переезда пульт открывают по QR-коду заново.
+        public const int Port = 42075;
         static TcpListener listener;
         static IslandWindow island;
         static readonly List<string> shared = new List<string>();
@@ -78,9 +80,11 @@ namespace Kapsula
         {
             island = w;
             if (listener != null) return;
+            int port = Port, p;
+            if (int.TryParse(Environment.GetEnvironmentVariable("KAPSULA_PHONE_PORT"), out p) && p > 0) port = p;   // проверки рядом с вашей Kapsula
             try
             {
-                listener = new TcpListener(IPAddress.Any, Port);
+                listener = new TcpListener(IPAddress.Any, port);
                 listener.Start();
                 var t = new Thread(Loop) { IsBackground = true, Name = "Phone" };
                 t.Start();
@@ -245,6 +249,7 @@ namespace Kapsula
                         break;
                     }
                 case "app": { int i; if (int.TryParse(v, out i)) island.Dispatcher.BeginInvoke(new Action(delegate { island.RunDeckSlot(i); })); break; }
+                case "pet": island.Dispatcher.BeginInvoke(new Action(island.PhonePetTap)); break;   // погладили зверька на экране телефона
                 case "lock": Native.LockWorkStation(); break;
                 case "sleep": Native.SetSuspendState(false, false, false); break;
                 case "shutdown": try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { } break;
@@ -277,7 +282,9 @@ namespace Kapsula
                 if (names != null) for (int n = 0; n < names.Length; n++) apps.Append(n > 0 ? "," : "").Append(Json(names[n]));
             }
             catch { }
-            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"apps\":[" + apps + "]}";
+            string pet = "";   // что делает зверёк на острове — на пульте он такой же
+            try { pet = island.Dispatcher.Invoke(new Func<string>(island.PhonePetMood)) as string ?? ""; } catch { }
+            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"apps\":[" + apps + "],\"pet\":" + Json(pet) + "}";
         }
 
         static string Json(string s)
@@ -311,7 +318,14 @@ input{width:100%;padding:14px;border-radius:14px;border:1px solid #2a2a31;backgr
 .track{font-weight:600;margin-bottom:10px;min-height:20px}.bar{height:6px;border-radius:3px;background:#26262c;overflow:hidden;margin:6px 0 12px}.bar i{display:block;height:100%;background:#f2f2f5}
 a.file{display:block;padding:13px;border-radius:12px;background:#1d1d22;color:#fff;text-decoration:none;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sec{display:none}.sec.on{display:block}.muted{color:#77777f;font-size:13px}
+h1,.sub{padding-right:64px}
+#petbox{position:absolute;top:12px;right:16px;display:none;align-items:flex-start;gap:3px;cursor:pointer;padding:6px}
+#petsvg svg{display:block;transform-origin:50% 100%}#petmk{font-size:15px;margin-top:-6px;min-width:12px}
+.bob #petsvg svg{animation:bob .45s ease-in-out infinite alternate}.breathe #petsvg svg{animation:br 2.6s ease-in-out infinite}
+.hop #petsvg svg{animation:hop .5s ease-out}
+@keyframes bob{to{transform:translateY(-4px)}}@keyframes br{50%{transform:scaleY(.93)}}@keyframes hop{40%{transform:translateY(-12px) scaleY(1.06)}}
 </style></head><body>
+<div id=petbox onclick=petTap() title='Погладить'><span id=petsvg></span><b id=petmk></b></div>
 <h1>Kapsula</h1><div class=sub>Пульт для компьютера · только в вашей сети</div>
 <div class=tabs id=tabs><b data-s=music class=on>Музыка</b><b data-s=pad>Курсор</b><b data-s=keys>Текст</b><b data-s=slides>Слайды</b><b data-s=apps>Программы</b><b data-s=files>Файлы</b><b data-s=pc>Компьютер</b></div>
 <div class='sec on' id=music><div class=card><div class=track id=track>—</div>
@@ -342,8 +356,24 @@ acc[0]+=dx*1.8;acc[1]+=dy*1.8;two=e.touches.length>1;if(!q)q=setTimeout(flush,30
 function flush(){q=null;var x=Math.round(acc[0]),y=Math.round(acc[1]);acc=[0,0];if(!x&&!y)return;if(two)d('scroll','0,'+Math.round(y/3));else d('move',x+','+y)}
 pad.addEventListener('touchend',function(e){if(moved<8&&Date.now()-t0<300)d('click');e.preventDefault()},{passive:false});
 function esc(s){var e=document.createElement('i');e.textContent=s;return e.innerHTML}
+var PS=['.B.......B.','.BB.....BB.','.BBBBBBBBB.','BBBBBBBBBBB','BBBBBBBBBBB','BBBBBBBBBBB','BBBBBBBBBBB','.BBBBBBBBB.','.B.B...B.B.'];
+var EY={n:[[2,4,1,2]],d:[[2,5,1,2]],r:[[2,3,2,3]],h:[[1,5,1,1],[2,4,1,1],[3,5,1,1]],c:[[1,5,3,1]]};
+var EM={dance:'h',happy:'h',love:'h',party:'h',sleep:'c',night:'c',ask:'r',work:'d'};
+var MK={dance:['♪','#ff9f0a'],happy:['✦','#f7c948'],love:['♥','#ff5c8a'],party:['✦','#f7c948'],sleep:['z','#77777f'],night:['z','#77777f'],ask:['!','#ff9f0a'],work:['…','#9a9aa3'],call:['●','#30d158'],rec:['●','#ff453a']};
+var petNow=null,petLove=0;
+function petSvg(m){var s='<svg width=44 height=48 viewBox=\'0 -3 11 12\' shape-rendering=crispEdges>';
+PS.forEach(function(r,y){for(var x=0;x<11;x++)if(r[x]=='B')s+='<rect x='+x+' y='+y+' width=1.03 height=1.03 fill=#f08a4b />'});
+(EY[EM[m]||'n']).forEach(function(e){s+='<rect x='+e[0]+' y='+e[1]+' width='+e[2]+' height='+e[3]+' fill=#0b0b0d /><rect x='+(11-e[0]-e[2])+' y='+e[1]+' width='+e[2]+' height='+e[3]+' fill=#0b0b0d />'});
+if(m=='night')[[2,0,7],[3,-1,5],[5,-2,3],[7,-3,2]].forEach(function(c){s+='<rect x='+c[0]+' y='+c[1]+' width='+c[2]+' height=1.03 fill=#4f8fe0 />'}),s+='<rect x=9 y=-3 width=1 height=2 fill=#f4f4f6 />';
+return s+'</svg>'}
+function pet(m){var b=document.getElementById('petbox');if(!m){b.style.display='none';return}b.style.display='flex';
+if(Date.now()<petLove)m='love';if(m!==petNow){petNow=m;document.getElementById('petsvg').innerHTML=petSvg(m);
+var k=MK[m]||['',''],mk=document.getElementById('petmk');mk.textContent=k[0];mk.style.color=k[1];
+b.className=(m=='dance'||m=='happy'||m=='party'||m=='love')?'bob':(m=='sleep'||m=='night')?'breathe':''}}
+function petTap(){d('pet');petLove=Date.now()+4000;var b=document.getElementById('petbox');petNow=null;pet('love');b.className='hop';setTimeout(function(){b.className='bob'},520)}
 function poll(){fetch('/stats?k='+K).then(function(r){return r.json()}).then(function(j){
 document.getElementById('track').textContent=j.track||'Ничего не играет';
+if(j.pet!==undefined)pet(j.pet);
 document.getElementById('cpu').textContent=j.cpu+'%';document.getElementById('cpub').style.width=j.cpu+'%';
 document.getElementById('ram').textContent=j.ram+'%';document.getElementById('ramb').style.width=j.ram+'%';
 if(j.files.length){document.getElementById('filelist').innerHTML=j.files.map(function(f,i){return ""<a class=file href='/file?k=""+K+""&i=""+i+""'>⬇ ""+esc(f)+""</a>""}).join('')}

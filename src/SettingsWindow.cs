@@ -690,6 +690,7 @@ namespace Kapsula
             sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
             sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, Kapsula убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия Kapsula). Пока Kapsula закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
             sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке острова.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Отсчёт до встречи в капсуле", "За 15 минут до события из календаря или задачи со временем капсула показывает «Созвон · через 12 мин». Пока играет музыка — только последние 5 минут.", Toggle(Store.Get("soonPill") != "0", delegate(bool v) { Store.Set("soonPill", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
 
             BuildExtrasSection(Sec("Дополнительно"));
@@ -1031,6 +1032,7 @@ namespace Kapsula
             {
                 case "Уведомления Windows на острове": case "Уведомления только на острове": case "Скрывать текст уведомлений": return "notif";
                 case "Напоминать о событиях календаря": return "calendar";
+                case "Отсчёт до встречи в капсуле": return "soon";
                 case "Смена раскладки": return "layout";
                 case "Яркость на острове": return "bright";
                 case "Зверёк гуляет по окнам": return "walk";

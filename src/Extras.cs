@@ -113,7 +113,7 @@ namespace Kapsula
             if (pollTimer != null)
             {
                 Native.POINT pt;
-                bool near = Native.GetCursorPos(out pt) && pt.Y / dpi < Top + 160;
+                bool near = Native.GetCursorPos(out pt) && (pt.Y / dpi < Top + 160 || NearWalker(pt));   // у зверька на окне — тоже: вдруг его гладят
                 bool idle = state == 0 && !frameOn && !toastOn && !near && !timerRinging;
                 var want = TimeSpan.FromMilliseconds(idle ? 120 : 33);
                 if (pollTimer.Interval != want) pollTimer.Interval = want;
@@ -419,6 +419,7 @@ namespace Kapsula
         void CallTick()
         {
             callTickN++;
+            RingTick();   // входящий звонок: показать после другой карточки, убрать, если Discord закрыли
             if (DiscordLive) { DiscordCallTick(); return; }   // плагин в Discord сообщает всё сам — догадки по микрофону не нужны
             int now = Environment.TickCount;
             if (callTest) callCandidate = "Discord";

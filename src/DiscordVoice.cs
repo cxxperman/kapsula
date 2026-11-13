@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace Kapsula
@@ -178,6 +179,8 @@ namespace Kapsula
             bool wasLive = DiscordLive;
             int nowT = Environment.TickCount;
             bool wasCall = dvInCall, wasStreamSeen = dvStreamSeen, wasVideo = dvVideo;
+            string wasChannel = dvChannel, wasGuild = dvGuild;
+            List<DvPerson> wasPeople = dvPeople;
             dvHeardAt = nowT;
             // Нажатую на острове кнопку не откатываем, пока Discord не подтвердит (или полторы секунды)
             bool inCall = DFlag(d, "inCall"), inMute = DFlag(d, "mute"), inDeaf = DFlag(d, "deaf");
@@ -200,6 +203,15 @@ namespace Kapsula
                     if (p == null) continue;
                     people.Add(new DvPerson { Id = DText(p, "id"), Name = DText(p, "name"), Avatar = DText(p, "avatar"), Speaking = DFlag(p, "speaking"), Mute = DFlag(p, "mute"), Deaf = DFlag(p, "deaf"), Video = DFlag(p, "video"), Stream = DFlag(p, "stream"), Me = DFlag(p, "me") });
                 }
+            // В ваш канал зашли или из него вышли — зверёк машет (не когда вы сами вошли или перешли в другой канал;
+            // плагин присылает до двенадцати человек — в большом канале список сдвигается, там не машем)
+            if (wasLive && wasCall && dvInCall && wasChannel == dvChannel && wasGuild == dvGuild && wasPeople.Count > 0 && wasPeople.Count < 12 && people.Count < 12)
+            {
+                DvPerson came = people.Find(delegate(DvPerson p) { return !p.Me && !wasPeople.Exists(delegate(DvPerson w) { return w.Id == p.Id; }); });
+                DvPerson gone = came != null ? null : wasPeople.Find(delegate(DvPerson w) { return !w.Me && !people.Exists(delegate(DvPerson p) { return p.Id == w.Id; }); });
+                if (came != null) FriendWave(came.Name, true, people.Count);
+                else if (gone != null) FriendWave(gone.Name, false, people.Count);
+            }
             dvPeople = people;
             // Зверёк кивает только на ваш голос, а не на чужой: «говорите вы» — от плагина или из списка участников
             object ms;
@@ -231,6 +243,142 @@ namespace Kapsula
             string notice = DText(d, "notice");
             if (notice == "no-permission") CallNotice("В этом канале нельзя показывать экран");
             else if (notice == "no-stream") CallNotice("Discord не запустил демку");
+            // Кто звонит вам прямо сейчас (личный или групповой звонок) — карточкой с кнопками, как на телефоне
+            object io;
+            var inc = d.TryGetValue("incoming", out io) ? io as Dictionary<string, object> : null;
+            dvRingId = inc != null ? DText(inc, "channel") : "";
+            dvRingName = inc != null ? DText(inc, "name") : "";
+            dvRingCaller = inc != null ? DText(inc, "caller") : "";
+            dvRingAvatar = inc != null ? DText(inc, "avatar") : "";
+            dvRingGroup = inc != null && DFlag(inc, "group");
+            RingTick();
+        }
+
+        // ---- Входящий звонок Discord: аватарка, имя, красная «Отклонить» и зелёная «Принять». Висит, пока звонят
+        string dvRingId = "", dvRingName = "", dvRingCaller = "", dvRingAvatar = "";
+        bool dvRingGroup;
+        string ringShownId;   // карточка этого звонка сейчас на острове
+        string ringDoneId;    // на этот звонок уже ответили с острова (или пошли отвечать в Discord) — больше не показывать
+        string ringSeenId;    // этот звонок уже записан в историю уведомлений
+        ScaleTransform ringPulse;
+
+        void RingTick()
+        {
+            bool live = DiscordLive;
+            if (!live || dvRingId.Length == 0) { ringDoneId = null; ringSeenId = null; }   // звонок кончился — следующий снова карточкой
+            bool ringing = live && dvRingId.Length > 0 && dvRingId != ringDoneId;
+            if (!ringing)
+            {
+                // перестали звонить, ответили в самом Discord или здесь — карточка уходит
+                if (ringShownId != null) { ringShownId = null; RingPulseStop(); if (state == 3) SetState(0); }
+                return;
+            }
+            if (ringSeenId != dvRingId)
+            {
+                ringSeenId = dvRingId;
+                if (Quiet("Discord", RingTitle(), RingSub())) { ringDoneId = dvRingId; return; }   // «Не беспокоить»: звонок только в истории
+            }
+            if (ringShownId == dvRingId)
+            {
+                if (state == 3) { cardUntil = Environment.TickCount + 60000; return; }
+                // карточку убрали сами (например, открыли панель) — не навязываем её снова: ответить можно и в Discord
+                ringDoneId = dvRingId; ringShownId = null; RingPulseStop();
+                return;
+            }
+            if (state == 3 || TestCharacter != null) return;   // на острове другая карточка — звонок покажется сразу после неё
+            ShowRing();
+        }
+
+        string RingTitle() { return dvRingName.Length > 0 ? dvRingName : dvRingCaller.Length > 0 ? dvRingCaller : "Входящий звонок"; }
+        string RingSub() { return dvRingGroup ? (dvRingCaller.Length > 0 ? dvRingCaller + " зовёт в групповой звонок" : "Групповой звонок в Discord") : "Звонит в Discord"; }
+
+        void ShowRing()
+        {
+            string id = dvRingId;
+            cardCarryNext = "phone";   // зверёк приносит телефонную трубку — она трясётся, как у звонящего телефона
+            ShowCardEx(RingFace(), "", RingTitle(), RingSub(), delegate { RingOpen(id); }, null, delegate { RingAnswer(id, false); }, true);
+            if (state != 3) return;
+            ringShownId = id;
+            // как на телефоне: красная «Отклонить» и справа зелёная «Принять»
+            cardBtn.Background = AppleRed; cardBtn.ToolTip = "Отклонить";
+            cardBtnLabel.Text = ""; cardBtnLabel.Foreground = Brushes.White;
+            var yes = cardNo.Child as TextBlock;
+            if (yes != null) { yes.Text = ""; yes.Foreground = Brushes.White; yes.FontSize = 15; }
+            cardNo.Background = AppleGreen; cardNo.ToolTip = "Принять";
+            cardNoAction = delegate { RingAnswer(id, true); };
+            cardNo.Visibility = Visibility.Visible;
+            cardThumb.CornerRadius = new CornerRadius(26);   // аватарка круглая, как у звонка на телефоне
+            SetCardBadge(SourceIcon("discord"));
+            FitCard();
+            cardUntil = Environment.TickCount + 60000;
+            if (ReducedMotion) return;
+            // зелёная кнопка мягко «дышит», пока звонят
+            if (ringPulse == null) { ringPulse = new ScaleTransform(1, 1); cardNo.RenderTransformOrigin = new Point(0.5, 0.5); cardNo.RenderTransform = ringPulse; }
+            var beat = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+            var ease = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut };
+            beat.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(1, System.Windows.Media.Animation.KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            beat.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(1.12, System.Windows.Media.Animation.KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(420)), ease));
+            beat.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(1, System.Windows.Media.Animation.KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(860)), ease));
+            beat.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(1, System.Windows.Media.Animation.KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1500))));
+            System.Windows.Media.Animation.Timeline.SetDesiredFrameRate(beat, 30);   // мягкому «дыханию» хватает и 30 кадров — вдвое меньше работы
+            ringPulse.BeginAnimation(ScaleTransform.ScaleXProperty, beat);
+            ringPulse.BeginAnimation(ScaleTransform.ScaleYProperty, beat);
+        }
+
+        // Обычной карточке — обычные кнопки: звонок перекрашивал их в красную и зелёную
+        void RingCardReset()
+        {
+            ringShownId = null;
+            if (cardBtn == null || cardNo == null) return;
+            cardBtn.Background = Chip; cardBtn.ToolTip = null;
+            cardBtnLabel.Foreground = Fg;
+            var no = cardNo.Child as TextBlock;
+            if (no != null) { no.Text = ""; no.Foreground = Fg; no.FontSize = 13; }
+            cardNo.Background = Chip; cardNo.ToolTip = null;
+            if (cardThumb != null) cardThumb.CornerRadius = new CornerRadius(10);
+            RingPulseStop();
+        }
+
+        // Карточка ушла — «дыхание» зелёной кнопки тоже: иначе оно крутилось бы невидимо и тратило процессор
+        void RingPulseStop()
+        {
+            if (ringPulse == null) return;
+            ringPulse.BeginAnimation(ScaleTransform.ScaleXProperty, null); ringPulse.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            ringPulse.ScaleX = 1; ringPulse.ScaleY = 1;
+        }
+
+        // Аватарка звонящего: пока грузится (или её нет) — первая буква имени на цветном круге
+        ImageSource RingFace()
+        {
+            var b = FaceImage(dvRingAvatar, 128) as ImageBrush;
+            if (b != null) return b.ImageSource;
+            string who = dvRingCaller.Length > 0 ? dvRingCaller : RingTitle();
+            return ImageFrom(DemoAvatar(System.Globalization.StringInfo.GetNextTextElement(who).ToUpper(), Color.FromRgb(0x58, 0x65, 0xF2), Color.FromRgb(0x8A, 0x5C, 0xF6)));
+        }
+
+        // Аватарка догрузилась, а карточка звонка ещё на острове — поставить её вместо буквы
+        void RingFaceReady(string url)
+        {
+            if (ringShownId == null || state != 3 || url != dvRingAvatar || cardThumb == null) return;
+            Brush b;
+            if (faceCache.TryGetValue(url, out b) && b != null) cardThumb.Background = b;
+        }
+
+        void RingAnswer(string id, bool accept)
+        {
+            ringDoneId = id; ringShownId = null; RingPulseStop();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^\\d{1,25}$")) return;
+            DiscordVoiceServer.Command((accept ? "accept:" : "decline:") + id);
+            if (accept) Toast("", "Подключаемся…", null, -1, AppleGreen);
+            else Toast("", "Звонок отклонён", null, -1, AppleRed);
+        }
+
+        // Щелчок по самой карточке — открыть этот разговор в Discord и ответить там
+        void RingOpen(string id)
+        {
+            ringDoneId = id; ringShownId = null; RingPulseStop();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^\\d{1,25}$")) return;
+            try { System.Diagnostics.Process.Start("discord://-/channels/@me/" + id); } catch { }
         }
 
         bool dvStreamSeen;     // демка по словам самого Discord (dvStream — с учётом только что нажатой кнопки)
@@ -250,6 +398,17 @@ namespace Kapsula
         {
             if (on) { Toast("", "Камера включена", null, -1, AppleGreen); toastUntil = Environment.TickCount + 3000; }
             else Toast("", "Камера выключена", null, -1, null);
+        }
+
+        // Как назвать звонок: голосовой канал, а личный звонок — по тем, с кем вы говорите
+        string DvCallName(string fallback)
+        {
+            if (dvChannel.Length > 0) return dvChannel;
+            var names = new List<string>();
+            foreach (DvPerson p in dvPeople) if (!p.Me && p.Name.Length > 0) names.Add(p.Name);
+            if (names.Count == 0) return fallback;
+            if (names.Count == 1) return names[0];
+            return names[0] + ", " + names[1] + (names.Count > 2 ? " и ещё " + (names.Count - 2) : "");
         }
 
         static bool DFlag(Dictionary<string, object> d, string k) { object o; return d.TryGetValue(k, out o) && o is bool && (bool)o; }

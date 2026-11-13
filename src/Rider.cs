@@ -388,7 +388,12 @@ namespace Kapsula
         // Долетел до карточки: отдаёт письмо, а напоминание — звонит в колокольчик
         void RiderHandOver()
         {
-            if (cardCarry == "bell") rider.Play("ring", 1300); else rider.Play("give", 800);
+            if (cardCarry == "bell") rider.Play("ring", 1300);
+            else if (cardCarry == "buds") rider.Play("budson", 2200);   // наушники: надевает и пританцовывает
+            else if (cardCarry == "cup") rider.Play("cupraise", 2200);  // достижение: поднимает кубок, вокруг искры
+            else if (cardCarry == "phone") rider.Play("ringphone", 1600);   // входящий звонок: трубка трясётся
+            else if (riderDigNext) { riderDigNext = false; rider.Play("dig", 2600); }   // пятое письмо за минуту — выкапывается из кучи
+            else rider.Play("give", 800);
         }
 
         // Новая карточка пришла, пока зверёк сидит на прежней, — он отдаёт и её
@@ -508,7 +513,7 @@ namespace Kapsula
             rider.Root.Opacity = 1;
             rider.Root.Visibility = Visibility.Visible;
             rider.Seated = false;
-            rider.Mood(rKind == 5 ? (cardCarry == "bell" ? "bell" : "post") : "fly");   // к карточке — с письмом в лапах, к напоминанию — с колокольчиком
+            rider.Mood(rKind == 5 ? (cardCarry == "bell" ? "bell" : cardCarry == "buds" ? "buds" : cardCarry == "cup" ? "cup" : cardCarry == "phone" ? "phone" : "post") : "fly");   // к карточке — с письмом в лапах, к напоминанию — с колокольчиком, к наушникам — с наушниками, к достижению — с кубком, к звонку — с трубкой
             SetRider(x0, y0, s0, 1, 1);
             Wake();
         }
@@ -639,6 +644,77 @@ namespace Kapsula
                 ClaudeAfter(15200, delegate { holdOpenUntil = 0; SetState(0); });
                 return;
             }
+            // KAPSULA_RIDEPET=1: уголок зверька — его «гладят» (курсор изображает проверка), потом капсула с сердечком;
+            // =2 (вместе с KAPSULA_WALKRECT): гладят зверька, который гуляет по краю окна
+            string rp = Environment.GetEnvironmentVariable("KAPSULA_RIDEPET");
+            if (rp == "1")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PPet); SetState(2); });
+                ClaudeAfter(6000, delegate { testStrokeFrom = Environment.TickCount; testStrokeUntil = testStrokeFrom + 3500; });
+                ClaudeAfter(11500, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            if (rp == "2")
+            {
+                ClaudeAfter(3000, delegate { WalkGo(true); walkUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(7000, delegate { testStrokeFrom = Environment.TickCount; testStrokeUntil = testStrokeFrom + 3500; });
+                ClaudeAfter(13000, delegate { WalkHome(); });
+                return;
+            }
+            // =3: уголок зверька — «курсор» замер справа от него: припал, вильнул, прыгнул, «поймал!»
+            if (rp == "3")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PPet); SetState(2); });
+                ClaudeAfter(5500, delegate { testHuntFrom = Environment.TickCount; testHuntUntil = testHuntFrom + 3000; });
+                ClaudeAfter(10500, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // =4 (вместе с KAPSULA_WALKRECT): зверёк на краю окна прыгает на замерший рядом «курсор»
+            if (rp == "4")
+            {
+                ClaudeAfter(3000, delegate { WalkGo(true); walkUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(7000, delegate { testHuntFrom = Environment.TickCount; testHuntUntil = testHuntFrom + 3000; });
+                ClaudeAfter(13000, delegate { WalkHome(); });
+                return;
+            }
+            // =5: капсула — громкость на максимуме и без звука, чих, мушка, друг зашёл и вышел, «всё сделано» (музыка не играет)
+            if (rp == "5")
+            {
+                ClaudeAfter(1200, delegate { media = new MediaInfo(); RenderMedia(); });   // после выдуманной песни --demo — тишина
+                ClaudeAfter(3000, delegate { Toast("", null, "100%", 1.0, null); });
+                ClaudeAfter(5500, delegate { Toast("", null, "0%", 0, null); });
+                ClaudeAfter(8000, delegate { StartEmote("sneeze", 1300, Environment.TickCount); });
+                ClaudeAfter(10000, delegate { StartEmote("fly", 2200, Environment.TickCount); });
+                ClaudeAfter(13000, delegate { FriendWave("Марк", true, 3); });
+                ClaudeAfter(16000, delegate { FriendWave("Марк", false, 3); });
+                ClaudeAfter(19000, delegate { petPartyUntil = Environment.TickCount + 4200; Toast("", "Всё на сегодня сделано!", null, -1, accent); });
+                return;
+            }
+            // =6: пять уведомлений за пять секунд — пятое попутчик не отдаёт, а выкапывается из писем
+            if (rp == "6")
+            {
+                string[] who = { "Саша", "Лена", "Марк", "Дима", "Аня" };
+                for (int i = 0; i < 5; i++)
+                {
+                    int k = i;
+                    ClaudeAfter(3000 + i * 1300, delegate { DiscordNotify(who[k], "сообщение " + (k + 1), DemoAvatar(who[k].Substring(0, 1), Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6))); });
+                }
+                return;
+            }
+            // =8: остров просто в капсуле — для карточек --democard (кубок за достижение): вкладки не листаются
+            if (rp == "8") return;
+            // =7: «Сегодня» — отмечена последняя открытая задача дня: праздник, потом капсула с конфетти
+            if (rp == "7")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(5500, delegate
+                {
+                    DayTask open = Tasks.Load().Find(delegate(DayTask t) { return t.Day == DateTime.Today && !t.Done; });
+                    if (open != null) TaskToggle(open.Id);
+                });
+                ClaudeAfter(7200, delegate { pinned = false; SetState(0); });
+                return;
+            }
             // KAPSULA_RIDEDISCORD=1: двенадцать секунд в капсуле (состояние звонка присылает проверка вместо плагина), потом «Главная»
             if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "1")
             {
@@ -648,6 +724,115 @@ namespace Kapsula
             }
             // KAPSULA_RIDEDISCORD=2: всё время в капсуле — надписи «Демка запущена / остановлена», зверёк в звонке
             if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "2") return;
+            // KAPSULA_RIDETODAY=1: вкладка «Сегодня» с задачами и «Скоро» (=2 — просто капсула: ждём карточку задачи)
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "1")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(11000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "2") return;
+            // KAPSULA_RIDETODAY=7: «Сегодня» → «Неделя», задача переезжает на завтра (колонка вспыхивает), следующая неделя, снова «Месяц»
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "7")
+            {
+                DateTime mon = WeekOf(DateTime.Today);
+                Calendar.TestSet(new List<CalEvent> {
+                    new CalEvent { Subject = "Планёрка", Location = "", Start = mon.AddDays(1).AddHours(10) },
+                    new CalEvent { Subject = "День рождения Лены", Location = "", Start = mon.AddDays(6), AllDay = true },
+                    new CalEvent { Subject = "Стоматолог", Location = "", Start = mon.AddDays(10).AddHours(15.5) } });
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(5500, delegate { SetTodayWeek(true); });
+                ClaudeAfter(9000, delegate
+                {
+                    DayTask t = Tasks.Load().Find(delegate(DayTask x) { return x.Text.StartsWith("Купить билеты"); });
+                    if (t != null) TaskMove(t.Id, t.Day.AddDays(1));
+                });
+                ClaudeAfter(12000, delegate { weekStart = weekStart.AddDays(7); weekSetOn = DateTime.Today; RenderToday(); });
+                ClaudeAfter(13500, delegate { AddWeekTasks("в чт в 19 кино"); });   // как будто набрали в поле внизу: ляжет на четверг этой (следующей) недели
+                ClaudeAfter(15500, delegate { SetTodayWeek(false); });
+                ClaudeAfter(18000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDETODAY=6: в капсуле — отсчёт до задачи со временем (её время — через несколько минут после запуска)
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "6") return;
+            // KAPSULA_RIDETODAY=5: заметка к задаче — раскрыть под первой задачей, «написать» (без клавиатуры), свернуть
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "5")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(5000, delegate
+                {
+                    DayTask first = Tasks.Load().Find(delegate(DayTask t) { return t.Day == DateTime.Today && !t.Done; });
+                    if (first != null) TaskNoteToggle(first.Id);
+                });
+                ClaudeAfter(6500, delegate { if (taskNoteBox != null) taskNoteBox.Text = "Места у сцены, вход с 18:00\n- взять паспорт\n- зарядить телефон\n- распечатать билеты"; });
+                ClaudeAfter(8000, delegate
+                {
+                    // «щёлкнули» по первому шагу — он отмечается
+                    if (taskNoteBox == null) return;
+                    string[] lines = taskNoteBox.Text.Split('\n');
+                    if (lines.Length > 1) { lines[1] = Tasks.StepToggle(lines[1]); taskNoteBox.Text = string.Join("\n", lines); }
+                });
+                ClaudeAfter(10000, delegate { if (taskOpenId != null) TaskNoteToggle(taskOpenId); });
+                ClaudeAfter(13000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDETODAY=4: строка команд без фокуса — «задача в пятницу в 10 отчёт», потом «задачи» и отметка первой
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "4")
+            {
+                ClaudeAfter(3000, delegate { cmdBox.Text = ""; cmdItems.Clear(); RenderCmd(); SetState(4); cmdBox.Text = "задача в пятницу в 10 отчёт"; });
+                ClaudeAfter(7000, delegate { cmdBox.Text = "задачи"; });
+                ClaudeAfter(10000, delegate { RunCmd(0); });
+                ClaudeAfter(13500, delegate { SetState(0); });
+                return;
+            }
+            // KAPSULA_RIDETODAY=3: «Сегодня», и первая задача дня переезжает на послезавтра — как будто её перетащили на число
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDETODAY") == "3")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(6000, delegate
+                {
+                    DayTask first = Tasks.Load().Find(delegate(DayTask t) { return t.Day == DateTime.Today && !t.Done; });
+                    if (first != null) TaskMove(first.Id, DateTime.Today.AddDays(2));
+                });
+                ClaudeAfter(11000, delegate { pinned = false; SetState(0); });
+                return;
+            }
+            // KAPSULA_TRIMTEST=1: замер памяти до и после того, как Kapsula отдала неиспользуемое системе
+            if (Environment.GetEnvironmentVariable("KAPSULA_TRIMTEST") == "1")
+            {
+                // и самая длинная пауза в работе окна (таймер каждые 16 мс) за 5 с до и 10 с после
+                int probeLast = 0, maxBefore = 0, maxAfter = 0;
+                bool after2 = false;
+                var probe = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+                probe.Tick += delegate
+                {
+                    int n = Environment.TickCount;
+                    if (probeLast != 0) { int gap = unchecked(n - probeLast); if (after2) maxAfter = Math.Max(maxAfter, gap); else maxBefore = Math.Max(maxBefore, gap); }
+                    probeLast = n;
+                };
+                ClaudeAfter(15000, delegate { probe.Start(); });
+                ClaudeAfter(20000, delegate
+                {
+                    string before = MemNow();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    TrimMemory();
+                    sw.Stop();
+                    after2 = true;
+                    string after = MemNow();
+                    ClaudeAfter(10000, delegate
+                    {
+                        probe.Stop();
+                        try { System.IO.File.WriteAllText(System.IO.Path.Combine(Store.Dir, "trim.txt"), "до: " + before + "\r\nсразу после (" + sw.ElapsedMilliseconds + " мс): " + after + "\r\nчерез 10 с: " + MemNow() + "\r\nсамая длинная пауза окна: до " + maxBefore + " мс, после " + maxAfter + " мс\r\n"); } catch { }
+                    });
+                });
+                return;
+            }
+            // KAPSULA_RIDEBUDS=1: подключились Bluetooth-наушники с зарядом — зверёк приносит на карточку наушники (после запуска)
+            if (Environment.GetEnvironmentVariable("KAPSULA_RIDEBUDS") == "1")
+            {
+                ClaudeAfter(21000, delegate { BudsAnnounce(new EarbudsState { Model = "AirPods Pro", Single = 80, At = Environment.TickCount }); });
+                return;
+            }
             // KAPSULA_RIDEDISCORD=3: кнопка демки — «Главная», нажатие (вместо меню берётся первый экран), потом «стоп»
             if (Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD") == "3")
             {
@@ -657,6 +842,27 @@ namespace Kapsula
                 ClaudeAfter(15000, delegate { pinned = false; SetState(0); });
                 return;
             }
+            // KAPSULA_RIDEDISCORD=4: входящий звонок (его присылает проверка) — карточка, потом «Принять»; =5 — «Отклонить»; =6 — не отвечать
+            string ring = Environment.GetEnvironmentVariable("KAPSULA_RIDEDISCORD");
+            if (ring == "4" || ring == "5")
+            {
+                ClaudeAfter(11000, delegate
+                {
+                    if (state != 3 || ringShownId == null) return;
+                    var a = ring == "4" ? cardNoAction : cardBtnAction;   // то же, что нажатие зелёной или красной кнопки
+                    hoverBlock = true;
+                    SetState(0);
+                    if (a != null) a();
+                });
+                if (ring == "4")
+                {
+                    // ответили — на «Главной» карточка звонка с тем, кто звонил
+                    ClaudeAfter(17000, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                    ClaudeAfter(21000, delegate { pinned = false; SetState(0); });
+                }
+                return;
+            }
+            if (ring == "6") return;
             // KAPSULA_CALLTEST=1: «звонок» — восемь секунд в капсуле (зверёк в эфире), потом «Главная» с карточкой звонка
             if (callTest)
             {
@@ -859,6 +1065,8 @@ namespace Kapsula
             return "default";
         }
 
+        string riderOwn;   // свой наряд попутчика сейчас (наушники на карточке звонка) или null — общий
+
         // Опрос (30 раз в секунду): следить, куда зверьку пора, и что у него на душе
         void RiderPoll()
         {
@@ -871,6 +1079,9 @@ namespace Kapsula
             // Страница только что перерисовалась и ещё не разложена — её зверьки не на местах; решать в следующий раз
             bool settling = state == 2 && pages != null && (!pages[page].IsMeasureValid || !pages[page].IsArrangeValid);
             if (!rFly && rFadeAt == 0 && !settling) { RiderCapture(); RiderRetarget(); }
+            // сел на место зверька карточки звонка — надевает наушники, как он
+            string ownWant = rKind == 2 && rSeat != null && rSeat == callPet ? "phones" : null;
+            if (ownWant != riderOwn) { riderOwn = ownWant; rider.OwnOutfit = ownWant; }
             if (rOut && !rFly)
             {
                 rider.Hat = EditingBoard() != null;
