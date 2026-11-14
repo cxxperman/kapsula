@@ -3646,6 +3646,7 @@ namespace Kapsula
 
         void DuckTick()
         {
+            if (Demo) return;   // в демо сайт чата не открываем
             bool want = Ai.Duck && state == 2 && page == PChat && !hiddenFs && !autoHidden
                 && so[2].X > 0.55 && Math.Abs(sw.X - sw.Target) < 24 && Math.Abs(sy.X - sy.Target) < 3;
             if (!want)
@@ -3680,6 +3681,13 @@ namespace Kapsula
                 RenderWebRow();
                 chatEmpty.Children.Clear();
                 chatEmpty.Visibility = Visibility.Visible;
+                if (Demo)
+                {
+                    // демо: сайт не открываем — вместо него зверёк и что здесь будет
+                    chatEmpty.Children.Add(PetSpot("idle", 0, 12, "chat"));
+                    chatEmpty.Children.Add(new TextBlock { Text = "Здесь откроется " + WebNames[WebIndex()] + " — без ключа и без входа", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 });
+                    return;
+                }
                 bool bad = duck != null && duck.Error != null;
                 // страница уже загружена — под окном браузера ничего не пишем, иначе при каждом открытии мелькает «Открываю…»
                 if (!bad && duck != null && duck.Loaded) return;
@@ -4227,9 +4235,10 @@ namespace Kapsula
         {
             try
             {
-                string t = Clipboard.ContainsText() ? Clipboard.GetText() : "";
+                string full = Demo ? DemoText : Clipboard.ContainsText() ? Clipboard.GetText() : "";   // в демо — выдуманный текст, буфер не читаем
+                string t = full;
                 if (t.Length > 400) t = t.Substring(0, 400);
-                if (textStats != null) textStats.Text = t == "" ? "" : TextTools.Stats(Clipboard.GetText());
+                if (textStats != null) textStats.Text = t == "" ? "" : TextTools.Stats(full);
                 textPreview.Text = t == "" ? "Пусто — скопируйте текст" : t;
                 textPreview.Foreground = t == "" ? Dim : Fg;
             }
@@ -4758,7 +4767,7 @@ namespace Kapsula
             skyTop.Children.Add(wIconHost);
             wSymbol = new TextBlock();   // текстовый значок больше не показывается — вместо него рисунок
             wTemp = new TextBlock { Foreground = Brushes.White, FontSize = 52, FontWeight = FontWeights.Light, Margin = new Thickness(-3, -2, 0, -6) };
-            wDesc = new TextBlock { Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.SemiBold };
+            wDesc = new TextBlock { Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, LineHeight = 17, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };   // «Переменная облачность» — в две строки, а не обрезком
             wFeels = new TextBlock { Foreground = Brushes.White, Opacity = 0.85, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) };
             wHiLo = new TextBlock { Foreground = Brushes.White, Opacity = 0.85, FontSize = 11.5 };
             skyTop.Children.Add(wTemp); skyTop.Children.Add(wDesc); skyTop.Children.Add(wFeels); skyTop.Children.Add(wHiLo);
@@ -5071,6 +5080,7 @@ namespace Kapsula
 
         void RefreshWeather(string city)
         {
+            if (Demo) return;   // в демо — выдуманный прогноз, в сеть не ходим
             if (string.IsNullOrEmpty(city) || weatherBusy) return;
             weatherBusy = true;
             weatherAt = Environment.TickCount;
@@ -5169,7 +5179,8 @@ namespace Kapsula
             if (weather == null || weather.Error != null)
             {
                 string msg = weather != null ? weather.Error : "Введите город и нажмите «Показать».\nТолько после этого приложение обратится в сеть — к open-meteo.com (если он недоступен — к OpenStreetMap и MET Norway).";
-                weatherBody.Children.Add(new TextBlock { Text = msg, Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 60, 0, 0), LineHeight = 20 });
+                weatherBody.Children.Add(PetSpot(weather != null ? "sad" : "idle", 18, 10, "weather"));   // пустая погода — тоже со зверьком, как остальные пустые списки
+                weatherBody.Children.Add(new TextBlock { Text = msg, Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 60, 0, 0), LineHeight = 20 });
                 return;
             }
             FillWeather();
@@ -5253,7 +5264,7 @@ namespace Kapsula
             var stats = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8) };
             // процессор и память — в одну строку, чтобы над ними поместились яркость и питание
             var rows = new UniformGrid { Rows = 1, Columns = 2 };
-            double statW = (PageW - 32 - 24) / 2 - 96 - 48 + 4 - (BatteryPresent() ? 38 : 0);   // у ноутбука справа — заряд батареи
+            double statW = (PageW - 32 - 24) / 2 - 96 - 48 + 4 - (BatteryPresent() ? 38 : 0) - 19;   // у ноутбука справа — заряд батареи, за ним чашка «Не засыпать»
             cpuBar = new Bar(statW, 5, accent, 22);
             ramBar = new Bar(statW, 5, new SolidColorBrush(Color.FromRgb(0x5A, 0xA9, 0xFF)), 22);
             rows.Children.Add(StatRow("Процессор", cpuBar, out cpuText));
@@ -5264,6 +5275,11 @@ namespace Kapsula
             statsRow.Children.Add(rows);
             FrameworkElement chip = BuildBatChip();
             Grid.SetColumn(chip, 1); statsRow.Children.Add(chip);
+            // «Не засыпать» — чашка рядом с батареей: всё про питание в одном месте
+            statsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Border cup = AwakeBtn(32);
+            cup.Margin = new Thickness(6, 0, -4, 0); cup.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(cup, 2); statsRow.Children.Add(cup);
             stats.Child = statsRow;
             sb.Add("load", "Нагрузка", stats, 0, 3, 4, 1, false);
             WireBoard(sb);
@@ -5380,6 +5396,7 @@ namespace Kapsula
 
         void ScanWifi()
         {
+            if (Demo) { wifiNets = DemoWifi(); RenderWifi(); return; }   // в демо — придуманные сети
             if (wifiBusy) return;
             wifiBusy = true;
             if (wifiNets == null) { wifiList.Children.Clear(); wifiList.Children.Add(new TextBlock { Text = "Ищу сети…", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 70, 0, 0) }); }
@@ -5475,6 +5492,7 @@ namespace Kapsula
         // Состояние сети, Bluetooth и VPN опрашивается в фоне, чтобы интерфейс не замирал.
         void RefreshControl()
         {
+            if (Demo) { control = DemoControl(); RenderControl(); return; }   // в демо — придуманные сеть и Bluetooth
             if (controlBusy) return;
             controlBusy = true;
             ThreadPool.QueueUserWorkItem(delegate
@@ -7371,6 +7389,7 @@ namespace Kapsula
         void BudsChipRefresh()
         {
             if (!Earbuds.Enabled) { budsChipPct = -1; return; }
+            if (Demo) { budsChipName = "Наушники"; budsChipPct = 80; BudsChipRender(); return; }   // в демо — выдуманные наушники, свои не опрашиваем
             if (System.Threading.Interlocked.Exchange(ref budsChipBusy, 1) != 0) return;
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -8226,7 +8245,7 @@ namespace Kapsula
             if (src != null && src.CompositionTarget != null) dpi = src.CompositionTarget.TransformToDevice.M11;
             SetNoActivate(true);
             HwndSource.FromHwnd(hwnd).AddHook(WndProc);
-            Native.AddClipboardFormatListener(hwnd);
+            if (!Demo) Native.AddClipboardFormatListener(hwnd);   // в демо буфер обмена не читается
             // Остров не попадает на скриншоты, записи и трансляции.
             ApplyCapture();
             PlaceWindow();
@@ -8334,6 +8353,7 @@ namespace Kapsula
                 media = new MediaInfo { Has = true, Playing = true, Title = "Ночной маршрут", Artist = "Kapsula Demo", Cover = DemoCover(), Pos = 47, Dur = 204, PosAt = DateTime.UtcNow };
                 RenderMedia();
                 LoadLauncher();
+                DemoSeed();   // буфер, погода — выдуманные
                 if (Environment.GetEnvironmentVariable("KAPSULA_TRACKTEST") == "1")
                 {
                     // проверка перехода: каждые 2,5 с другой трек (обложка — перевёрнутая, чтобы было видно её смену)

@@ -979,12 +979,12 @@ namespace Kapsula
                 // как в настройках macOS: белый значок на цветной скруглённой плитке с бликом сверху
                 row.Children.Add(new Border
                 {
-                    Width = 24, Height = 24, CornerRadius = new CornerRadius(7), Background = Glass.Tinted(tint), BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(0.8),
+                    Width = 22, Height = 22, CornerRadius = new CornerRadius(6.5), Background = Glass.Tinted(tint), BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(0.8),
                     Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
-                    Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.45, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.35, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
                 row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 36, CornerRadius = new CornerRadius(11), Padding = new Thickness(7, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
+                var item = new Border { Height = 30, CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS: все разделы видны без прокрутки */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
                 item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
                 Fx.Press(item, 0.97);

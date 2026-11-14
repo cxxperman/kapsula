@@ -587,6 +587,15 @@ T 'гладили: 22 раза' ($tm.Invoke($null, @(22))) 'раза'
 $pg = $asm.GetType('Kapsula.Ui').GetProperty('PawGeometry', [Reflection.BindingFlags]'Public,Static').GetValue($null, $null)
 T 'лапка: рисунок 9×8' ('{0}x{1}' -f $pg.Bounds.Width, $pg.Bounds.Height) '9x8'
 
+# --- Демо-режим: на снимках только выдуманное
+$dw = $iwT.GetMethod('DemoWeather', $sf).Invoke($null, @())
+T 'демо: погода — 12 часов и 7 дней' ('{0}/{1}' -f $dw.Hours.Count, $dw.Days.Count) '12/7'
+T 'демо: прогноз начинается с «Сегодня»' $dw.Days[0][0] 'Сегодня'
+$dn = $iwT.GetMethod('DemoWifi', $sf).Invoke($null, @())
+T 'демо: из сетей подключена одна' (@($dn | Where-Object { $_.Connected }).Count) 1
+$dc = $iwT.GetMethod('DemoControl', $sf).Invoke($null, @())
+T 'демо: Bluetooth — придуманные устройства' ($dc.Bt.Count) 2
+
 # --- Прогулка по панели задач: только внизу экрана, видимая и во всю ширину
 $tu = $iwT.GetMethod('TaskbarUsable', $sf); $rt = $asm.GetType('Kapsula.Native+RECT')
 function RC([int]$l, [int]$t, [int]$r, [int]$b) { $o = [Activator]::CreateInstance($rt); $rt.GetField('L').SetValue($o, $l); $rt.GetField('T').SetValue($o, $t); $rt.GetField('R').SetValue($o, $r); $rt.GetField('B').SetValue($o, $b); ,$o }

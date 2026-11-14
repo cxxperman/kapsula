@@ -703,6 +703,23 @@ namespace Kapsula
             }
             // =8: остров просто в капсуле — для карточек --democard (кубок за достижение): вкладки не листаются
             if (rp == "8") return;
+            // =10: полный обход для обзора дизайна (всё в демо-данных): капсула, все вкладки по очереди, мини-плеер,
+            // карточки сообщения, Discord и приглашения, командная строка
+            if (rp == "10")
+            {
+                int[] tour = { PHome, PPet, PClip, PShelf, PText, PToday, PNote, PNotif, PChat, PWeather, PSystem };
+                for (int i = 0; i < tour.Length; i++) { int p = tour[i]; ClaudeAfter(3000 + i * 2600, delegate { pinned = true; ShowPage(p); SetState(2); }); }
+                int t = 3000 + tour.Length * 2600;
+                ClaudeAfter(t, delegate { SetState(0); });
+                ClaudeAfter(t + 1200, delegate { ForceOpen = -2; SetState(1); });   // мини-плеер (без курсора — держим его открытым)
+                ClaudeAfter(t + 4200, delegate { ForceOpen = -1; pinned = false; SetState(0); });
+                ClaudeAfter(t + 5400, delegate { SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                ClaudeAfter(t + 10400, delegate { DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
+                ClaudeAfter(t + 15400, delegate { SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
+                ClaudeAfter(t + 20400, delegate { SetState(0); ToggleCommand(); cmdBox.Text = "2400 * 15%"; });
+                ClaudeAfter(t + 24400, delegate { SetState(0); });
+                return;
+            }
             // =9: оформление — «Главная», потом карточка с выбором (стеклянные кнопки), потом «Сегодня»
             if (rp == "9")
             {
