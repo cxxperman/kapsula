@@ -566,6 +566,27 @@ T 'не засыпать: caffeinate 2h' (AP 'caffeinate 2h') '120 мин'
 T 'не засыпать: «кофейня» — не команда' (AP 'кофейня') 'нет'
 T 'не засыпать: «кофе с молоком» — не команда' (AP 'кофе с молоком') 'нет'
 
+# --- Зверёк — главное: своя вкладка сразу после «Главной», первый раздел настроек, лапка
+$pp = $iwT.GetField('PPet', $sf).GetValue($null)
+$tg = $iwT.GetField('TabGroups', $sf).GetValue($null)
+$own = $false; foreach ($g in $tg) { if ($g.Length -eq 1 -and $g[0] -eq $pp) { $own = $true } }
+T 'вкладки: у зверька своя группа' $own $true
+T 'вкладки: зверёк сразу после «Главной»' ([int]$tg[1][0]) ([int]$pp)
+$to = $iwT.GetField('TabOrder', $sf).GetValue($null)
+T 'вкладки: каждая страница в порядке один раз' (@($to | Sort-Object -Unique).Count) 13
+$swT = $asm.GetType('Kapsula.SettingsWindow')
+$so = $swT.GetField('SectionOrder', $sf).GetValue($null)
+T 'настройки: «Зверёк» — первый раздел' $so[0] 'Зверёк'
+$sg = $swT.GetField('SectionGlyphs', $sf).GetValue($null); $sh = $swT.GetField('SectionHints', $sf).GetValue($null); $sc = $swT.GetField('SectionColors', $sf).GetValue($null)
+T 'настройки: у каждого раздела значок, подсказка и цвет' (($so.Length -eq $sg.Length) -and ($so.Length -eq $sh.Length) -and ($so.Length -eq $sc.Length)) $true
+$tm = $swT.GetMethod('Times', $sf)
+T 'гладили: 1 раз' ($tm.Invoke($null, @(1))) 'раз'
+T 'гладили: 3 раза' ($tm.Invoke($null, @(3))) 'раза'
+T 'гладили: 12 раз' ($tm.Invoke($null, @(12))) 'раз'
+T 'гладили: 22 раза' ($tm.Invoke($null, @(22))) 'раза'
+$pg = $asm.GetType('Kapsula.Ui').GetProperty('PawGeometry', [Reflection.BindingFlags]'Public,Static').GetValue($null, $null)
+T 'лапка: рисунок 9×8' ('{0}x{1}' -f $pg.Bounds.Width, $pg.Bounds.Height) '9x8'
+
 # --- Прогулка по панели задач: только внизу экрана, видимая и во всю ширину
 $tu = $iwT.GetMethod('TaskbarUsable', $sf); $rt = $asm.GetType('Kapsula.Native+RECT')
 function RC([int]$l, [int]$t, [int]$r, [int]$b) { $o = [Activator]::CreateInstance($rt); $rt.GetField('L').SetValue($o, $l); $rt.GetField('T').SetValue($o, $t); $rt.GetField('R').SetValue($o, $r); $rt.GetField('B').SetValue($o, $b); ,$o }

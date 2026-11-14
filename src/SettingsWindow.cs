@@ -242,6 +242,7 @@ namespace Kapsula
         {
             var b = new Border { Background = main ? Sel : ChipBg, CornerRadius = new CornerRadius(15), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
                 Child = new TextBlock { Text = text, Foreground = main ? Brushes.White : Txt, FontSize = 13, FontWeight = FontWeights.SemiBold } };
+            if (main) b.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF)); else Glass.DarkButton(b);   // как кнопки острова: главная залита синим, остальные — стекло
             Fx.Press(b, 0.95);
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             return b;
@@ -343,6 +344,7 @@ namespace Kapsula
             // Версия и обновление — первой строкой, чтобы не искать
             var checkLabel = new TextBlock { Text = "Проверить обновления", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
             var checkBtn = new Border { Background = OnBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = checkLabel };
+            Glass.DarkButton(checkBtn);
             var verRow = Row("Kapsula " + Updater.CurrentText, "—", checkBtn, false);
             TextBlock verStatus = ((StackPanel)((Grid)((Border)verRow).Child).Children[0]).Children[1] as TextBlock;
             Action showStatus = delegate
@@ -702,14 +704,16 @@ namespace Kapsula
             PreviewKeyDown += OnCaptureKey;
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
             try { Arrange(); } catch (Exception ex) { Store.LogError("порядок настроек", ex); }
+            try { Sec("Зверёк").Children.Insert(0, PetHero()); } catch (Exception ex) { Store.LogError("зверёк в настройках", ex); }
             try { BuildLayout(); } catch (Exception ex) { Store.LogError("окно настроек", ex); Content = new TextBlock { Text = ex.ToString(), Foreground = Txt, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(16) }; }
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Общее", "Внешний вид", "Поведение", "Главная", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Зверёк", "Общее", "Внешний вид", "Поведение", "Главная", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
+            "Характер, прогулки по окнам, наряды и свой стикер",
             "Версия, обновления, запуск, монитор",
             "Цвет, размер, анимации, кромка, зверёк",
             "Когда остров прячется и что подсказывает",
@@ -738,8 +742,9 @@ namespace Kapsula
 
         static readonly string[][] Layout =
         {
+            new[] { "Зверёк", "#Характер", "Зверёк в капсуле", "Зверёк в переходах", "Зверёк гуляет по окнам", "#Наряды", "Наряд зверька", "Сезонные наряды зверька", "#Вместо зверька", "Свой стикер вместо зверька" },
             new[] { "Общее", "Украинский проект", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
-            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Шрифт острова", "Матовое стекло", "Светлая кромка", "Тень под островом", "Секунды в часах", "#Анимации", "Характер анимаций", "Блоки по очереди", "#Форма капсулы", "Ширина капсулы", "Высота капсулы", "#Зверёк", "Зверёк в капсуле", "Зверёк в переходах", "Зверёк гуляет по окнам", "Свой стикер вместо зверька", "Наряд зверька", "Сезонные наряды зверька" },
+            new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Шрифт острова", "Матовое стекло", "Светлая кромка", "Тень под островом", "Секунды в часах", "#Анимации", "Характер анимаций", "Блоки по очереди", "#Форма капсулы", "Ширина капсулы", "Высота капсулы" },
             new[] { "Поведение", "#Где остров", "Остров можно отцепить", "Вернуть остров наверх", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки", "Яркость на острове" },
             new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "Мини-плеер: только текст песни", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
             new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
@@ -885,6 +890,7 @@ namespace Kapsula
         // Цвета значков разделов, в порядке SectionOrder
         static readonly Color[] SectionColors =
         {
+            Ui.PetColor,
             Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x64, 0xD2, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
             Color.FromRgb(0x30, 0xD1, 0x58), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
@@ -903,11 +909,38 @@ namespace Kapsula
                 if (b == null || (b.Tag as string) != "row") continue;
                 bool first = i == 0 || !((kids[i - 1] is Border) && ((Border)kids[i - 1]).Tag as string == "row");
                 bool last = i == kids.Count - 1 || !((kids[i + 1] is Border) && ((Border)kids[i + 1]).Tag as string == "row");
-                b.CornerRadius = new CornerRadius(first ? 16 : 0, first ? 16 : 0, last ? 16 : 0, last ? 16 : 0);
+                b.CornerRadius = new CornerRadius(first ? Ui.BlockR : 0, first ? Ui.BlockR : 0, last ? Ui.BlockR : 0, last ? Ui.BlockR : 0);   // углы — как у блоков острова
                 b.Margin = new Thickness(0, 0, 0, last ? 16 : 0);
                 b.BorderBrush = Divider;
                 b.BorderThickness = new Thickness(0, 0, 0, last ? 0 : 1);
             }
+        }
+
+        // Раздел «Зверёк» открывается самим зверьком: большой, живой — моргает и поглядывает по сторонам,
+        // рядом — кто он и сколько раз его гладили
+        FrameworkElement PetHero()
+        {
+            var pet = new PetView(4.0, RowBg);
+            pet.Context = "nav";
+            pet.Root.VerticalAlignment = VerticalAlignment.Center;
+            pet.Root.Margin = new Thickness(4, 0, 20, 0);
+            int pets;
+            int.TryParse(Store.Get("petPets"), out pets);
+            var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            texts.Children.Add(new TextBlock { Text = "Зверёк — душа Kapsula", Foreground = Txt, FontSize = 17, FontWeight = FontWeights.SemiBold });
+            texts.Children.Add(new TextBlock { Text = "Живёт в капсуле, переходит туда, куда вы смотрите, гуляет по окнам, приносит уведомления и получает наряды за привычки.", Foreground = Sub, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+            texts.Children.Add(new TextBlock { Text = pets > 0 ? "Вы погладили его " + pets + " " + Times(pets) + " — поводите по нему курсором ещё" : "Поводите по нему курсором туда-сюда — он это любит", Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0) });
+            var row = new DockPanel();
+            DockPanel.SetDock(pet.Root, Dock.Left);
+            row.Children.Add(pet.Root); row.Children.Add(texts);
+            return new Border { Background = RowBg, CornerRadius = new CornerRadius(Ui.BlockR), Padding = new Thickness(18, 16, 20, 16), Margin = new Thickness(0, 0, 0, 16), Child = row, Tag = "hero" };
+        }
+
+        // «1 раз», «2 раза», «5 раз», «11 раз», «22 раза»
+        static string Times(int n)
+        {
+            int h = n % 100, d = n % 10;
+            return h >= 11 && h <= 14 ? "раз" : d >= 2 && d <= 4 ? "раза" : "раз";
         }
 
         void BuildLayout()
@@ -928,10 +961,10 @@ namespace Kapsula
             nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 12) });
             // поиск по всем настройкам
             var sGrid = new Grid { Margin = new Thickness(2, 0, 2, 12) };
-            searchBox = new TextBox { Height = 32, Background = ChipBg, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 13 };
+            searchBox = new TextBox { Height = 32, Background = Brushes.Transparent, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 13 };
             var sIcon = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Sub, Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
             var sHint = new TextBlock { Text = "Поиск настроек", Foreground = Sub, FontSize = 13, Margin = new Thickness(32, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-            var sClip = new Border { CornerRadius = new CornerRadius(10), Background = ChipBg, Child = searchBox, ClipToBounds = true };
+            var sClip = new Border { CornerRadius = new CornerRadius(16), Background = ChipBg, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), Child = searchBox, ClipToBounds = true };   // поле поиска — капсула, как поля острова
             sGrid.Children.Add(sClip); sGrid.Children.Add(sIcon); sGrid.Children.Add(sHint);
             searchBox.TextChanged += delegate { sHint.Visibility = searchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; if (!searchMuted) RunSearch(searchBox.Text); };
             searchBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Escape) { searchBox.Text = ""; e.Handled = true; } };
@@ -948,7 +981,7 @@ namespace Kapsula
                 {
                     Width = 24, Height = 24, CornerRadius = new CornerRadius(7), Background = Glass.Tinted(tint), BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(0.8),
                     Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
-                    Child = new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.45, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
                 row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
                 var item = new Border { Height = 36, CornerRadius = new CornerRadius(11), Padding = new Thickness(7, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
@@ -987,7 +1020,7 @@ namespace Kapsula
             Content = root;
 
             string last = Store.Get("settingsTab");
-            ShowSection(sections.ContainsKey(last) && sections[last].Children.Count > 0 ? last : "Общее");
+            ShowSection(sections.ContainsKey(last) && sections[last].Children.Count > 0 ? last : "Зверёк");   // впервые — с раздела зверька
         }
 
         // Превью: живая копия острова прямо в окне настроек. В разделе «Главная» показывает главную панель,
@@ -1106,6 +1139,7 @@ namespace Kapsula
         FrameworkElement LinkButton(string text, string url)
         {
             var b = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = new TextBlock { Text = text, Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold } };
+            Glass.DarkButton(b);   // кнопки-ссылки — то же стекло, что и остальные
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(url); } catch { } };
             return b;
         }
@@ -1222,7 +1256,7 @@ namespace Kapsula
             double cur = Math.Max(min, Math.Min(max, value));
             var track = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = ChipBg, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(T / 2, 0, T / 2, 0) };
             var fill = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = OnBg, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(T / 2, 0, 0, 0) };
-            var thumb = new Ellipse { Width = T, Height = T, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            var thumb = new Ellipse { Width = T, Height = T, Fill = Brushes.White, Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 1, Direction = 270, Opacity = 0.35, Color = Colors.Black }, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
             var area = new Grid { Width = W, Height = 28, Background = Brushes.Transparent, Cursor = Cursors.Hand };
             area.Children.Add(track); area.Children.Add(fill); area.Children.Add(thumb);
             var label = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 1), Width = 56 };
@@ -1257,7 +1291,7 @@ namespace Kapsula
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             var items = new List<Border>();
             var tx = new TranslateTransform();
-            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = SegThumb, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
+            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = Glass.DarkStrong, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
             int cur = selected;
             var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
             Action<bool> move = delegate(bool animate)
@@ -1291,7 +1325,7 @@ namespace Kapsula
             }
             var grid = new Grid();
             grid.Children.Add(thumb); grid.Children.Add(row);
-            var track = new Border { Background = SegTrack, BorderBrush = SegLine, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
+            var track = new Border { Background = Glass.DarkFill, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
             row.SizeChanged += delegate { move(false); };
             track.Loaded += delegate { move(false); };
             return track;
@@ -1447,6 +1481,7 @@ namespace Kapsula
                 }
                 var addText = new TextBlock { Text = "+ Добавить программу", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Txt, VerticalAlignment = VerticalAlignment.Center };
                 var add = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = ChipBg, Child = addText };
+                Glass.DarkButton(add);
                 add.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
                     e.Handled = true;
@@ -1501,6 +1536,7 @@ namespace Kapsula
             var tb = new TextBlock { FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
             hotLabels[h] = tb;
             var chip = new Border { Height = 30, MinWidth = 120, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Background = ChipBg, Cursor = Cursors.Hand, Child = tb };
+            Glass.DarkButton(chip);
             tb.HorizontalAlignment = HorizontalAlignment.Center;
             chip.MouseLeftButtonDown += delegate
             {
@@ -1754,9 +1790,11 @@ namespace Kapsula
                 status.Text = Secrets.IsSaved("geminiKey") ? "Ключ сохранён." : (Secrets.GetKey("geminiKey", "GEMINI_API_KEY") != "" ? "Используется ключ из переменной среды GEMINI_API_KEY." : "Ключ не задан.");
             };
             var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            save.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate { if (pw.Password.Trim().Length == 0) return; Secrets.SetKey("geminiKey", pw.Password); pw.Clear(); paint(); };
             row.Children.Add(save);
             var del = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            Glass.DarkButton(del);
             del.MouseLeftButtonDown += delegate { Secrets.SetKey("geminiKey", ""); pw.Clear(); paint(); };
             row.Children.Add(del);
             var link = LinkButton("Получить ключ в Google AI Studio", "https://aistudio.google.com/apikey");
@@ -1780,6 +1818,7 @@ namespace Kapsula
                 status.Text = Secrets.Saved ? "Ключ сохранён." : (Secrets.GetKey() != "" ? "Используется ключ из переменной среды ANTHROPIC_API_KEY." : "Ключ не задан — чат не работает.");
             };
             var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            save.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate
             {
                 if (pw.Password.Trim().Length == 0) return;
@@ -1789,6 +1828,7 @@ namespace Kapsula
             };
             row.Children.Add(save);
             var del = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            Glass.DarkButton(del);
             del.MouseLeftButtonDown += delegate { island.SaveClaudeKey(""); pw.Clear(); paint(); };
             row.Children.Add(del);
             col.Children.Add(row);
@@ -1819,6 +1859,7 @@ namespace Kapsula
                 row.Children.Add(ring);
             }
             var custom = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "Свой…", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            Glass.DarkButton(custom);
             custom.MouseLeftButtonDown += delegate
             {
                 using (var dlg = new WF.ColorDialog { FullOpen = true, Color = System.Drawing.Color.FromArgb(island.IslandColor.R, island.IslandColor.G, island.IslandColor.B) })

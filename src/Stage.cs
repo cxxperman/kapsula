@@ -41,7 +41,7 @@ namespace Kapsula
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            stageCover = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Chip, VerticalAlignment = VerticalAlignment.Center };
+            stageCover = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Glass.Fill, VerticalAlignment = VerticalAlignment.Center };
             head.Children.Add(stageCover);
             stageTitle = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(9, 0, 8, 1) };
             Grid.SetColumn(stageTitle, 1); head.Children.Add(stageTitle);
@@ -67,7 +67,7 @@ namespace Kapsula
         {
             var tb = new TextBlock { Text = ((char)(toStage ? 0xE8D2 : 0xE8D6)).ToString(), FontFamily = Icons, FontSize = 12, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             var b = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Background = Brushes.Transparent, Child = tb, Cursor = Cursors.Hand, ToolTip = toStage ? "Только текст песни" : "Обычный мини-плеер" };
-            b.MouseEnter += delegate { b.Background = ChipHover; tb.Foreground = Fg; };
+            b.MouseEnter += delegate { b.Background = Glass.Hover; tb.Foreground = Fg; };
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; tb.Foreground = Dim; };
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; SetMiniLyricsOnly(toStage); };   // клик не раскрывает панель
             Fx.Press(b, 0.88);

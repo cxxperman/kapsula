@@ -12,6 +12,66 @@ using System.Windows.Media.Animation;
 
 namespace Kapsula
 {
+    // Единые правила оформления — один язык для острова, карточек, мини-плеера и настроек:
+    //   • блок (плитка, плеер, громкость, календарь, прибор погоды, карточка) — стекло, углы 18;
+    //   • строка списка (уведомление, задача, сеть Wi-Fi, строка буфера) — стекло, углы 14;
+    //   • кнопка — стекло-капсула; главная — залита цветом; значок — без подложки, под курсором стекло;
+    //   • выбранное (вкладка, раздел, режим) — плотное стекло с кромкой, одинаково во всех переключателях;
+    //   • шрифты (по этой шкале — всё новое и переделанное): заголовок 17, заголовок блока 13.5, текст 12.5,
+    //     подпись 11.5, мелкая подпись 10.5;
+    //   • зверёк — главное: своя вкладка с лапкой сразу после «Главной», первый раздел настроек, пустые списки
+    //     и подсказки — с ним; его цвет (PetColor) — только для того, что про него.
+    static class Ui
+    {
+        public const double BlockR = 18, RowR = 14;
+        public static readonly CornerRadius Block = new CornerRadius(BlockR), Row = new CornerRadius(RowR);
+
+        // Переключатель из нескольких вариантов (вкладки, режимы): выбранный — плотное стекло с кромкой
+        public static void Seg(Border b, bool on)
+        {
+            b.Background = on ? (Brush)Glass.Strong : Brushes.Transparent;
+            b.BorderBrush = on ? (Brush)Glass.Rim : Brushes.Transparent;
+            b.BorderThickness = new Thickness(1);
+        }
+
+        // Дорожка такого переключателя — стеклянная капсула
+        public static void Track(Border b)
+        {
+            b.Background = Glass.Fill; b.BorderBrush = Glass.Rim; b.BorderThickness = new Thickness(1);
+            if (!double.IsNaN(b.Height) && b.Height > 0) b.CornerRadius = new CornerRadius(b.Height / 2);
+        }
+
+        // Цвет зверька — им же помечено всё, что про него (раздел настроек, вкладка)
+        public static readonly Color PetColor = Color.FromRgb(0xF0, 0x8A, 0x4B);
+
+        // Пиксельная лапка — значок зверька во вкладке острова и в разделе настроек. Рисунок свой.
+        static readonly string[] PawMap = { "..XX.XX..", "..XX.XX..", "XX.....XX", "XX.XXX.XX", "..XXXXX..", ".XXXXXXX.", ".XXXXXXX.", "..XX.XX.." };
+        static Geometry pawGeo;
+        public static Geometry PawGeometry
+        {
+            get
+            {
+                if (pawGeo != null) return pawGeo;
+                var sb = new System.Text.StringBuilder("F1");
+                for (int y = 0; y < PawMap.Length; y++)
+                    for (int x = 0; x < PawMap[y].Length; x++)
+                        if (PawMap[y][x] == 'X') sb.Append(" M" + x + "," + y + "h1v1h-1z");
+                pawGeo = Geometry.Parse(sb.ToString());
+                pawGeo.Freeze();
+                return pawGeo;
+            }
+        }
+
+        public static System.Windows.Shapes.Path Paw(double cell, Brush fill)
+        {
+            return new System.Windows.Shapes.Path
+            {
+                Data = PawGeometry, Fill = fill, Width = 9 * cell, Height = 8 * cell, Stretch = Stretch.Fill,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
+            };
+        }
+    }
+
     static class Glass
     {
         // Стекло острова: кисти общие, тема острова (тёмная или светлая) перекрашивает их разом — Theme()

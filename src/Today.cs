@@ -385,7 +385,7 @@ namespace Kapsula
             DockPanel.SetDock(wd, Dock.Top); cal.Children.Add(wd);
             calGrid = new UniformGrid { Columns = 7, Rows = 6 };
             cal.Children.Add(calGrid);
-            var calCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Child = cal };
+            var calCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Child = cal };
 
             // ---- день
             var day = new DockPanel();
@@ -405,7 +405,7 @@ namespace Kapsula
             todayBox.TextChanged += delegate { dayHint.Visibility = todayBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
             todayBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; AddTasksFromText(todayBox.Text); todayBox.Text = ""; } };
             var field = new Grid(); field.Children.Add(dayHint); field.Children.Add(todayBox);
-            input.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(14, 0, 14, 0), Child = field });
+            input.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(14, 0, 14, 0), Child = field });
             DockPanel.SetDock(input, Dock.Bottom); day.Children.Add(input);
 
             todayList = new StackPanel();
@@ -482,7 +482,7 @@ namespace Kapsula
             weekBox.TextChanged += delegate { weekHint.Visibility = weekBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
             weekBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; AddWeekTasks(weekBox.Text); weekBox.Text = ""; } };
             var field = new Grid(); field.Children.Add(weekHint); field.Children.Add(weekBox);
-            input.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 0, 14, 0), Child = field });
+            input.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 0, 14, 0), Child = field });
             DockPanel.SetDock(input, Dock.Bottom); v.Children.Add(input);
             weekCols = new UniformGrid { Columns = 7, Rows = 1 };
             v.Children.Add(weekCols);
@@ -569,7 +569,7 @@ namespace Kapsula
                 Child = new TextBlock { Text = d.Day.ToString(), Foreground = isToday ? (Brush)Brushes.White : past ? Faint : Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             dayHead.Children.Add(num);
             DateTime dd = d;
-            dayHead.MouseEnter += delegate { if (!isToday) num.Background = ChipHover; };
+            dayHead.MouseEnter += delegate { if (!isToday) num.Background = Glass.Hover; };
             dayHead.MouseLeave += delegate { if (!isToday) num.Background = Brushes.Transparent; };
             dayHead.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
@@ -611,7 +611,7 @@ namespace Kapsula
                 if (RepeatsOn(t, dd, today)) items.Children.Add(WeekTask(t, true));
             dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = items });
 
-            var col = new Border { Background = Card, BorderBrush = isToday ? accent : Line, BorderThickness = new Thickness(isToday ? 1.4 : 1), CornerRadius = new CornerRadius(14),
+            var col = new Border { Background = Glass.Fill, BorderBrush = isToday ? (Brush)accent : Glass.Rim, BorderThickness = new Thickness(isToday ? 1.4 : 1), CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(2, 4, 2, 2), Margin = new Thickness(index == 0 ? 0 : 1.5, 0, index == 6 ? 0 : 1.5, 0), Child = dock };
             // сюда можно перетащить задачу — она переедет на этот день
             Brush ring = col.BorderBrush;
@@ -654,7 +654,7 @@ namespace Kapsula
             texts.Children.Add(new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, LineHeight = 13, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, MaxHeight = 26 });
             Grid.SetColumn(texts, 1); g.Children.Add(texts);
             var accentSolid = accent as SolidColorBrush;
-            Brush tint = accentSolid != null ? new SolidColorBrush(accentSolid.Color) { Opacity = 0.14 } : (Brush)Chip;
+            Brush tint = accentSolid != null ? new SolidColorBrush(accentSolid.Color) { Opacity = 0.14 } : (Brush)Glass.Fill;
             return new Border { CornerRadius = new CornerRadius(8), Background = tint, Padding = new Thickness(4, 3, 2, 4), Margin = new Thickness(0, 0, 0, 3), Child = g, Opacity = past ? 0.5 : 1,
                 ToolTip = ev.Subject + (ev.Location.Length > 0 ? " · " + ev.Location : "") };
         }
@@ -696,7 +696,7 @@ namespace Kapsula
             }
             b.Cursor = Cursors.Hand;
             b.ToolTip = repeatTip + (task.Note.Length > 0 ? "Есть заметка. " : "") + "Клик — отметить, перетащите на другой день — перенести, правый клик — удалить";
-            b.MouseEnter += delegate { b.Background = ChipHover; };
+            b.MouseEnter += delegate { b.Background = Glass.Hover; };
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
             bool pressed = false;
             Point pressAt = new Point();
@@ -797,7 +797,7 @@ namespace Kapsula
                 cell.Children.Add(dots);
                 var hit = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = cell, Opacity = inMonth ? 1 : 0.55 };
                 DateTime dd = d;
-                hit.MouseEnter += delegate { if (dd != today) circle.Background = ChipHover; };
+                hit.MouseEnter += delegate { if (dd != today) circle.Background = Glass.Hover; };
                 hit.MouseLeave += delegate { if (dd != today) circle.Background = Brushes.Transparent; };
                 hit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
@@ -863,7 +863,7 @@ namespace Kapsula
                     var inTxt = new TextBlock { Text = Calendar.In(ev.Start, now), Foreground = accent, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
                     Grid.SetColumn(inTxt, 2); row.Children.Add(inTxt);
                 }
-                todayList.Children.Add(new Border { CornerRadius = new CornerRadius(10), Background = Card, Child = row, Margin = new Thickness(0, 0, 0, 4) });
+                todayList.Children.Add(new Border { CornerRadius = new CornerRadius(14), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = row, Margin = new Thickness(0, 0, 0, 4) });
             }
 
             // задачи выбранного дня (и просроченные — сегодня, сверху)
@@ -999,7 +999,7 @@ namespace Kapsula
             var stack = new StackPanel();
             stack.Children.Add(steps);
             stack.Children.Add(field);
-            return new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(30, 0, 8, 6), Child = stack };
+            return new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(30, 0, 8, 6), Child = stack };
         }
 
         void TaskNoteSet(string id, string note)
@@ -1064,7 +1064,7 @@ namespace Kapsula
             Grid.SetColumn(chev, 3); row.Children.Add(chev);
             string tip = (task.Repeat.Length > 0 ? "Повтор: " + Tasks.RepeatLabel(task.Repeat) + ". " : "") + "Клик — отметить, перетащите на число в календаре — перенести, правый клик — удалить";
             var b = new Border { CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, ToolTip = tip };
-            b.MouseEnter += delegate { b.Background = ChipHover; chev.Opacity = 1; };
+            b.MouseEnter += delegate { b.Background = Glass.Hover; chev.Opacity = 1; };
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; if (!open) chev.Opacity = 0; };
             // щелчок — отметить; повели с зажатой кнопкой — перетаскивание на число в календаре
             bool pressed = false;

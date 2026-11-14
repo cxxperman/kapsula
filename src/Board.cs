@@ -52,7 +52,7 @@ namespace Kapsula
             CellH = (height - gap * (rows - 1)) / rows;
             Root = new Canvas { Width = width, Height = height, ClipToBounds = false };
             // подсветка места, куда встанет блок
-            target = new Border { CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(2), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            target = new Border { CornerRadius = Ui.Block, BorderThickness = new Thickness(2), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
             target.BorderBrush = OkLine; target.Background = OkFill;
             Panel.SetZIndex(target, 30);
             Root.Children.Add(target);
@@ -355,7 +355,7 @@ namespace Kapsula
             var line = Accent.Clone(); line.Opacity = 0.75;
             var ov = new Border
             {
-                Width = it.El.Width, Height = it.El.Height, Child = g, CornerRadius = new CornerRadius(16), Cursor = Cursors.SizeAll, ToolTip = it.Name + " — перетащите, чтобы переставить",
+                Width = it.El.Width, Height = it.El.Height, Child = g, CornerRadius = Ui.Block, Cursor = Cursors.SizeAll, ToolTip = it.Name + " — перетащите, чтобы переставить",
                 Background = new SolidColorBrush(Color.FromArgb(0x01, 0, 0, 0)), BorderBrush = line, BorderThickness = new Thickness(1.5)
             };
             // ---- перетаскивание: блок едет за курсором, остальные заранее расступаются

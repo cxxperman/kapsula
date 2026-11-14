@@ -715,6 +715,10 @@ namespace Kapsula
                 ClaudeAfter(14000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
                 ClaudeAfter(18000, delegate { pinned = false; SetState(0); });
                 ClaudeAfter(19500, delegate { SetAwake(true, TimeSpan.FromHours(2), true); });   // «Не засыпать»: надпись и чашка в капсуле
+                ClaudeAfter(22000, delegate { pinned = true; ShowPage(PPet); SetState(2); });     // своя вкладка зверька
+                ClaudeAfter(26500, delegate { ShowPage(PNote); });                                 // заметка и уведомления — те же стеклянные блоки и переключатели
+                ClaudeAfter(30000, delegate { ShowPage(PNotif); });
+                ClaudeAfter(33500, delegate { pinned = false; SetState(0); });
                 return;
             }
             // =7: «Сегодня» — отмечена последняя открытая задача дня: праздник, потом капсула с конфетти
@@ -1175,7 +1179,7 @@ namespace Kapsula
                 col.Children.Add(new TextBlock { Text = DropGlyphs[i], FontFamily = Icons, FontSize = 28, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center });
                 col.Children.Add(new TextBlock { Text = DropTitles[i], FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) });
                 col.Children.Add(new TextBlock { Text = DropSubs[i], FontSize = 11.5, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) });
-                var z = new Border { CornerRadius = new CornerRadius(22), Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.5), Margin = new Thickness(i == 0 ? 0 : 5, 14, i == 2 ? 0 : 5, 6), Child = col, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
+                var z = new Border { CornerRadius = new CornerRadius(22), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(i == 0 ? 0 : 5, 14, i == 2 ? 0 : 5, 6), Child = col, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(1, 1) };
                 Grid.SetColumn(z, i);
                 dropZones[i] = z;
                 dropHost.Children.Add(z);
@@ -1232,7 +1236,7 @@ namespace Kapsula
             {
                 bool on = i == hit;
                 dropZones[i].BorderBrush = on ? (Brush)accent : Line;
-                dropZones[i].Background = on ? TabOn : Card;
+                dropZones[i].Background = on ? Glass.Strong : Glass.Fill;
                 var st = (ScaleTransform)dropZones[i].RenderTransform;
                 var a = new DoubleAnimation(on ? 1.035 : 1, TimeSpan.FromMilliseconds(ReducedMotion ? 1 : 160)) { EasingFunction = SlideEase };
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, a); st.BeginAnimation(ScaleTransform.ScaleYProperty, a);
@@ -1258,7 +1262,7 @@ namespace Kapsula
             dropOn = false; dropHover = -1;
             foreach (Border z in dropZones)
             {
-                z.BorderBrush = Line; z.Background = Card;
+                z.BorderBrush = Glass.Rim; z.Background = Glass.Fill;
                 var st = (ScaleTransform)z.RenderTransform;
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, null); st.BeginAnimation(ScaleTransform.ScaleYProperty, null);
                 st.ScaleX = st.ScaleY = 1;

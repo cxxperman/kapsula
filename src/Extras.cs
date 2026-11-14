@@ -165,7 +165,7 @@ namespace Kapsula
                 ImageSource ic = null;
                 try { ic = SourceIcon(s.Source); } catch { }
                 FrameworkElement icon = ic != null ? (FrameworkElement)new Image { Source = ic, Width = 26, Height = 26 } :
-                    new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Chip, Child = new TextBlock { Text = ((char)0xEA8F).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+                    new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Glass.Fill, Child = new TextBlock { Text = ((char)0xEA8F).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
                 icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center;
                 row.Children.Add(icon);
                 var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -176,7 +176,7 @@ namespace Kapsula
                 var tm = new TextBlock { Text = ago.TotalMinutes < 1 ? "сейчас" : ago.TotalMinutes < 60 ? (int)ago.TotalMinutes + " мин" : s.At.ToString("H:mm"), Foreground = Faint, FontSize = 11, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 8, 10, 0) };
                 Grid.SetColumn(tm, 2); row.Children.Add(tm);
                 Seen copy = s;
-                var b = new Border { CornerRadius = new CornerRadius(12), Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand, ToolTip = "Клик — скопировать текст" };
+                var b = new Border { CornerRadius = Ui.Row, Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand, ToolTip = "Клик — скопировать текст" };
                 b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; CopyResult(copy.Title + (copy.Text.Length > 0 ? " — " + copy.Text : "")); };
                 notifList.Children.Add(b);
             }
@@ -282,12 +282,12 @@ namespace Kapsula
                     icon = src != null ? (FrameworkElement)new Image { Source = src, Width = 28, Height = 28 } : new TextBlock { Text = ((char)0xE8A5).ToString(), FontFamily = Icons, FontSize = 18, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 }
                 var g = new Grid { Width = 84, Height = 80 };
-                var sq = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(14), Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0), Child = icon };
+                var sq = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(14), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0), Child = icon };
                 g.Children.Add(sq);
                 g.Children.Add(new TextBlock { Text = (i + 1).ToString(), Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(14, 0, 0, 0) });
                 g.Children.Add(new TextBlock { Text = name, Foreground = Dim, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, MaxWidth = 80, Margin = new Thickness(0, 0, 0, 6) });
                 var b = new Border { Background = Brushes.Transparent, CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand, Child = g, ToolTip = name + " · Ctrl+Alt+" + (i + 1) };
-                b.MouseEnter += delegate { b.Background = ChipHover; };
+                b.MouseEnter += delegate { b.Background = Glass.Hover; };
                 b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
                 b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; RunDeckSlot(idx); };
                 b.MouseRightButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; List<DeckItem> cur = DeckLoad(); if (idx < cur.Count) { cur.RemoveAt(idx); DeckSave(cur); RenderDeck(); } };
@@ -489,7 +489,7 @@ namespace Kapsula
             bar.Root.MouseLeftButtonUp += delegate { bar.Root.ReleaseMouseCapture(); };
             bar.Root.SizeChanged += delegate { bar.Resize(Math.Max(40, bar.Root.ActualWidth)); };
             Grid.SetColumn(bar.Root, 1); bright.Children.Add(bar.Root);
-            g.Children.Add(new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = bright });
+            g.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = bright });
             // режим питания
             var chips = new StackPanel { Orientation = Orientation.Horizontal };
             string[] names = { "Экономия", "Баланс", "Мощность" };
@@ -498,8 +498,9 @@ namespace Kapsula
             {
                 int idx = i;
                 bool on = Power.Ids[i] == active;
-                var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(11, 0, 11, 1), Background = on ? TabOn : Brushes.Transparent, Cursor = Cursors.Hand,
+                var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(11, 0, 11, 1), Background = on ? (Brush)Glass.Strong : Brushes.Transparent, Cursor = Cursors.Hand,
                     Child = new TextBlock { Text = names[i], FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
+                Ui.Seg(c, on);
                 c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
                     e.Handled = true;
@@ -509,7 +510,7 @@ namespace Kapsula
                 };
                 chips.Children.Add(c);
             }
-            powerChips = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(3), Child = chips, ToolTip = "Схема питания Windows" };
+            powerChips = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(3), Child = chips, ToolTip = "Схема питания Windows" };
             Grid.SetColumn(powerChips, 2); g.Children.Add(powerChips);
             // ночной свет и заряд батареи
             var extra = new StackPanel { Orientation = Orientation.Horizontal };
@@ -520,7 +521,7 @@ namespace Kapsula
             var ps = WF.SystemInformation.PowerStatus;
             if (ps.BatteryChargeStatus != WF.BatteryChargeStatus.NoSystemBattery && ps.BatteryLifePercent <= 1)
                 extra.Children.Add(new TextBlock { Text = (int)Math.Round(ps.BatteryLifePercent * 100) + "%" + (ps.PowerLineStatus == WF.PowerLineStatus.Online ? " ⚡" : ""), Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0), ToolTip = "Заряд батареи" });
-            var extraCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(2), Child = extra };
+            var extraCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(2), Child = extra };
             Grid.SetColumn(extraCard, 4); g.Children.Add(extraCard);
             return g;
         }
@@ -558,8 +559,9 @@ namespace Kapsula
             {
                 int idx = i;
                 bool on = clipFilter == i;
-                var c = new Border { Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(11, 0, 11, 1), Background = on ? TabOn : Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 2, 0),
+                var c = new Border { Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(11, 0, 11, 1), Background = on ? (Brush)Glass.Strong : Brushes.Transparent, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 2, 0),
                     Child = new TextBlock { Text = names[i], FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
+                Ui.Seg(c, on);
                 c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; clipFilter = idx; RenderClips(); };
                 clipFilterRow.Children.Add(c);
             }

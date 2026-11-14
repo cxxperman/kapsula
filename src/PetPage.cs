@@ -1,5 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: PetPage.cs
-// Уголок зверька — вкладка «Зверёк» рядом с «Сегодня». Зверёк сидит на своей подушке, рядом гардероб с нарядами
+// Уголок зверька — своя вкладка «Зверёк» с пиксельной лапкой, сразу после «Главной». Зверёк сидит на своей подушке, рядом гардероб с нарядами
 // за привычки: на каждой вешалке — маленький зверёк в этом наряде. Полученные надеваются щелчком, у остальных
 // видно, сколько осталось. Внизу — что выбрано и что уже накоплено: перерывы, задачи, часы музыки, помодоро.
 using System;
@@ -31,7 +31,7 @@ namespace Kapsula
 
             // Уголок: зверёк стоит на подушке, под ним — во что он сейчас одет
             var room = new Grid();
-            var roomCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = room };
+            var roomCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = room };
             var glow = new Border { Width = 150, Height = 150, CornerRadius = new CornerRadius(75), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 46, 0, 0), IsHitTestVisible = false,
                 Background = new RadialGradientBrush(Color.FromArgb(0x30, 0xFF, 0xB0, 0x60), Color.FromArgb(0, 0xFF, 0xB0, 0x60)) };
             room.Children.Add(glow);
@@ -79,7 +79,7 @@ namespace Kapsula
                 roomSlotSub[i] = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
                 texts.Children.Add(roomSlotSub[i]);
                 Grid.SetColumn(texts, 1); sg.Children.Add(texts);
-                var slot = roomSlots[i] = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, i % 2 == 0 ? 6 : 0, i < 2 ? 6 : 0), Child = sg };
+                var slot = roomSlots[i] = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, i % 2 == 0 ? 6 : 0, i < 2 ? 6 : 0), Child = sg };
                 slot.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
                     e.Handled = true;
@@ -129,7 +129,7 @@ namespace Kapsula
                 roomSlots[i].Cursor = have ? Cursors.Hand : Cursors.Arrow;
                 roomSlots[i].ToolTip = have ? (on ? "Надет" : "Надеть") : "Нужно " + OutfitFor(i);
             }
-            for (int m = 0; m < 3; m++) roomModes[m].Background = pick == RoomModeIds[m] ? TabOn : Chip;
+            for (int m = 0; m < 3; m++) roomModes[m].Background = pick == RoomModeIds[m] ? Glass.Strong : Glass.Fill;
             roomWearing.Text = wear == "none" ? "Без наряда" : wear == "" ? (PetView.Season() > 0 ? "В сезонном наряде" : "Без наряда")
                 : "В наряде: " + OutfitNames[Array.IndexOf(OutfitIds, wear)].ToLower();
             roomStats.Text = "Накоплено: перерывов " + HabitCount(0) + " · задач " + HabitCount(1) + " · музыки " + HabitCount(2) / 60 + " ч · помодоро " + HabitCount(3);

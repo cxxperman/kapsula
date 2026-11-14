@@ -306,17 +306,17 @@ namespace Kapsula
 :root{color-scheme:dark}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:#0b0b0d;color:#f2f2f5;font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:14px 16px 40px}
 h1{font-size:20px;margin:6px 0 2px}.sub{color:#8a8a93;font-size:13px;margin-bottom:14px}
-.tabs{display:flex;gap:4px;background:#18181c;border-radius:14px;padding:4px;margin-bottom:14px;overflow-x:auto}
-.tabs b{flex:1;text-align:center;padding:9px 8px;border-radius:10px;color:#9a9aa3;font-weight:600;font-size:13px;white-space:nowrap}
-.tabs b.on{background:#2a2a30;color:#fff}
-.card{background:#151518;border:1px solid #26262c;border-radius:18px;padding:14px;margin-bottom:12px}
+.tabs{display:flex;gap:4px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:4px;margin-bottom:14px;overflow-x:auto}
+.tabs b{flex:1;text-align:center;padding:9px 8px;border-radius:999px;color:#9a9aa3;font-weight:600;font-size:13px;white-space:nowrap}
+.tabs b.on{background:linear-gradient(180deg,rgba(255,255,255,.27),rgba(255,255,255,.16));box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);color:#fff}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:14px;margin-bottom:12px}
 .row{display:flex;gap:10px}.row>*{flex:1}
-button{background:#232328;color:#f2f2f5;border:0;border-radius:14px;padding:16px 8px;font:600 15px system-ui;width:100%}
-button:active{background:#34343b;transform:scale(.97)}button.big{padding:26px 8px;font-size:22px}button.red{background:#3a1d1d;color:#ff8a80}
-#pad{height:300px;border-radius:18px;background:#1a1a1f;border:1px solid #2a2a31;touch-action:none;display:flex;align-items:center;justify-content:center;color:#55555d}
-input{width:100%;padding:14px;border-radius:14px;border:1px solid #2a2a31;background:#141417;color:#fff;font-size:16px}
+button{background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));color:#f2f2f5;border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:16px 8px;font:600 15px system-ui;width:100%}
+button:active{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.12));transform:scale(.97)}button.big{padding:26px 8px;font-size:22px}button.red{background:linear-gradient(180deg,#ff6b5e,#ff453a);color:#fff}
+#pad{height:300px;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);touch-action:none;display:flex;align-items:center;justify-content:center;color:#55555d}
+input{width:100%;padding:14px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:16px}
 .track{font-weight:600;margin-bottom:10px;min-height:20px}.bar{height:6px;border-radius:3px;background:#26262c;overflow:hidden;margin:6px 0 12px}.bar i{display:block;height:100%;background:#f2f2f5}
-a.file{display:block;padding:13px;border-radius:12px;background:#1d1d22;color:#fff;text-decoration:none;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+a.file{display:block;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);color:#fff;text-decoration:none;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sec{display:none}.sec.on{display:block}.muted{color:#77777f;font-size:13px}
 h1,.sub{padding-right:64px}
 #petbox{position:absolute;top:12px;right:16px;display:none;align-items:flex-start;gap:3px;cursor:pointer;padding:6px}

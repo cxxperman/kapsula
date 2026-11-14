@@ -230,7 +230,7 @@ namespace Kapsula
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(badge);
             sp.Children.Add(Label);
-            Root = new Border { CornerRadius = new CornerRadius(16), Child = sp, Cursor = Cursors.Hand };
+            Root = new Border { CornerRadius = Ui.Block, Child = sp, Cursor = Cursors.Hand };
             Glass.Button(Root);   // плитка — стекло, как модули Пункта управления
             Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(Root, 0.95);
@@ -268,7 +268,7 @@ namespace Kapsula
             Label.HorizontalAlignment = HorizontalAlignment.Left; Label.VerticalAlignment = VerticalAlignment.Bottom; Label.Margin = new Thickness(1, 0, 0, 0);
             g.Children.Add(badge); g.Children.Add(Label);
             Root.Child = g;
-            Root.CornerRadius = new CornerRadius(16);
+            Root.CornerRadius = Ui.Block;
             Root.ToolTip = tip;
             return this;
         }

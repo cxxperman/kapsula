@@ -115,7 +115,7 @@ namespace Kapsula
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             mg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            callMusicArt = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(7), Background = Chip };
+            callMusicArt = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(7), Background = Glass.Fill };
             mg.Children.Add(callMusicArt);
             var mt = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0) };
             callMusicTitle = new TextBlock { Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -134,7 +134,7 @@ namespace Kapsula
             callMusicRow = mg;
             stack.Children.Add(mg);
 
-            homeCallCard = new Border { Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(22), Child = stack, Visibility = Visibility.Collapsed };
+            homeCallCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Child = stack, Visibility = Visibility.Collapsed };
             Grid.SetRow(homeCallCard, 0);
             homeGrid.Children.Add(homeCallCard);
             PaintMute();
@@ -365,7 +365,7 @@ namespace Kapsula
             {
                 if (callMusicTitle.Text != media.Title) callMusicTitle.Text = media.Title ?? "";
                 if (callMusicArtist.Text != media.Artist) callMusicArtist.Text = media.Artist ?? "";
-                Brush art = coverBrush != null ? (Brush)coverBrush : Chip;
+                Brush art = coverBrush != null ? (Brush)coverBrush : Glass.Fill;
                 if (callMusicArt.Background != art) callMusicArt.Background = art;
                 callMusicPlay.Visibility = media.Playing ? Visibility.Collapsed : Visibility.Visible;
                 callMusicPause.Visibility = media.Playing ? Visibility.Visible : Visibility.Collapsed;
