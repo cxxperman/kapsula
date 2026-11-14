@@ -33,9 +33,8 @@ namespace Kapsula
             texts.Children.Add(title); texts.Children.Add(sub);
             var g = new Grid { Margin = new Thickness(wide ? 12 : 10, 9, 10, 8) };
             g.Children.Add(badge); g.Children.Add(texts);
-            var b = new Border { CornerRadius = new CornerRadius(16), Background = Tile.Off, BorderBrush = Tile.Line, BorderThickness = new Thickness(1), Child = g, Cursor = Cursors.Hand };
-            b.MouseEnter += delegate { b.Background = Tile.Hover; };
-            b.MouseLeave += delegate { b.Background = Tile.Off; };
+            var b = new Border { CornerRadius = new CornerRadius(16), Child = g, Cursor = Cursors.Hand };
+            Glass.Button(b);   // блок «Главной» — стекло, как плитки
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.96);
             return b;

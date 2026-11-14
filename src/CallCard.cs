@@ -22,7 +22,6 @@ namespace Kapsula
     {
         static readonly SolidColorBrush AppleGreen = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
         static readonly SolidColorBrush AppleRed = new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A));
-        static readonly SolidColorBrush GlassKey = new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush Secondary = new SolidColorBrush(Color.FromArgb(0x9E, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush Hairline = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush BadgeBack = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1E));
@@ -100,7 +99,7 @@ namespace Kapsula
                 int k = i;
                 var g = callKeyGlyphs[i] = new TextBlock { Text = glyphs[i], FontFamily = Icons, FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 UIElement face = i < 2 ? Strike(g, 18, 1.8, Brushes.White, out keyStrike[i]) : (UIElement)g;   // микрофон и наушники перечёркиваются, как в Discord
-                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? (Brush)AppleRed : GlassKey, Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i == 2 || i == 3 ? 0 : 10, 0) };
+                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? Glass.Tinted(Color.FromRgb(0xFF, 0x45, 0x3A)) : (Brush)Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i == 2 || i == 3 ? 0 : 10, 0) };
                 key.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; CallKey(k); };
                 Fx.Press(key, 0.9);
             }
@@ -303,7 +302,7 @@ namespace Kapsula
         // Включённая кнопка — белая с красным значком: так и на iPhone видно, и в Discord привычно
         void CallKeyState(int i, bool on, string tip)
         {
-            callKeys[i].Background = on ? Brushes.White : GlassKey;
+            callKeys[i].Background = on ? Brushes.White : (Brush)Glass.Fill;
             callKeyGlyphs[i].Foreground = on ? AppleRed : Brushes.White;
             if (i < keyStrike.Length) keyStrike[i].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             callKeys[i].ToolTip = tip;

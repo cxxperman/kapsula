@@ -703,6 +703,20 @@ namespace Kapsula
             }
             // =8: остров просто в капсуле — для карточек --democard (кубок за достижение): вкладки не листаются
             if (rp == "8") return;
+            // =9: оформление — «Главная», потом карточка с выбором (стеклянные кнопки), потом «Сегодня»
+            if (rp == "9")
+            {
+                ClaudeAfter(3000, delegate { pinned = true; ShowPage(PHome); SetState(2); });
+                ToolTip tip = null;   // подсказка-стекло под карандашом (мышь не двигаем — открываем её сами)
+                ClaudeAfter(5000, delegate { tip = new ToolTip { Content = pencilBtn.ToolTip, PlacementTarget = pencilBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, IsOpen = true }; });
+                ClaudeAfter(7400, delegate { if (tip != null) tip.IsOpen = false; });
+                ClaudeAfter(8000, delegate { pinned = false; SetState(0); });
+                ClaudeAfter(9000, delegate { SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
+                ClaudeAfter(14000, delegate { pinned = true; ShowPage(PToday); SetState(2); });
+                ClaudeAfter(18000, delegate { pinned = false; SetState(0); });
+                ClaudeAfter(19500, delegate { SetAwake(true, TimeSpan.FromHours(2), true); });   // «Не засыпать»: надпись и чашка в капсуле
+                return;
+            }
             // =7: «Сегодня» — отмечена последняя открытая задача дня: праздник, потом капсула с конфетти
             if (rp == "7")
             {

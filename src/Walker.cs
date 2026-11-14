@@ -250,6 +250,18 @@ namespace Kapsula
                 Native.SetWindowPos(walker.Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
         }
 
+        // Подсказки и другие всплывающие окошки — над островом. Остров раз в несколько секунд поднимает себя поверх
+        // всех окон (иначе его перекроют другие «поверх всех»), и без этого подсказка уходила бы под панель.
+        void PopupsTop()
+        {
+            foreach (PresentationSource ps in PresentationSource.CurrentSources)
+            {
+                var hs = ps as System.Windows.Interop.HwndSource;
+                if (hs == null || hs.IsDisposed || hs.RootVisual == null || hs.RootVisual.GetType().Name != "PopupRoot") continue;
+                if (IsWindowVisible(hs.Handle)) Native.SetWindowPos(hs.Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+            }
+        }
+
         // Долетел: дальше это попутчик острова (он ровно там же), а окошко зверька прячется
         void WalkJoin()
         {

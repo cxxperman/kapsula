@@ -548,6 +548,24 @@ T 'гладить: провели мимо — нет' (StrokeRun { param($t) @(
 T 'гладить: дрожь руки — нет' (StrokeRun { param($t) @((100 + 2 * [math]::Sin($t / 1000 * [math]::PI * 2 * 4)), 50) } 2) $false
 T 'гладить: один разворот (подвели и ушли) — нет' (StrokeRun { param($t) @((100 + 30 * [math]::Sin([math]::Min($t, 700) / 700 * [math]::PI)), 50) } 2) $false
 
+# --- Время звонка: после часа — с часами, как на iPhone
+$cc = $iwT.GetMethod('CallClock', $sf)
+T 'звонок: секунды' ($cc.Invoke($null, @([TimeSpan]::FromSeconds(7)))) '0:07'
+T 'звонок: минуты' ($cc.Invoke($null, @([TimeSpan]::FromSeconds(754)))) '12:34'
+T 'звонок: больше часа — с часами' ($cc.Invoke($null, @([TimeSpan]::FromSeconds(3923)))) '1:05:23'
+T 'звонок: сутки' ($cc.Invoke($null, @([TimeSpan]::FromHours(25.5)))) '25:30:00'
+
+# --- «Не засыпать»: команда в строке острова и на сколько
+$ap = $iwT.GetMethod('AwakeParse', $sf)
+function AP([string]$q) { $a = [object[]]@($q, [TimeSpan]::Zero); $ok = $ap.Invoke($null, $a); if (-not $ok) { return 'нет' }; if ($a[1] -eq [TimeSpan]::Zero) { return 'пока не выключат' }; return ([string]$a[1].TotalMinutes) + ' мин' }
+T 'не засыпать: просто' (AP 'не засыпать') 'пока не выключат'
+T 'не засыпать: на 2 часа' (AP 'не засыпать 2 ч') '120 мин'
+T 'не засыпать: «на 30 минут»' (AP 'Не засыпай на 30 минут') '30 мин'
+T 'не засыпать: кофе 45 мин' (AP 'кофе 45 мин') '45 мин'
+T 'не засыпать: caffeinate 2h' (AP 'caffeinate 2h') '120 мин'
+T 'не засыпать: «кофейня» — не команда' (AP 'кофейня') 'нет'
+T 'не засыпать: «кофе с молоком» — не команда' (AP 'кофе с молоком') 'нет'
+
 # --- Прогулка по панели задач: только внизу экрана, видимая и во всю ширину
 $tu = $iwT.GetMethod('TaskbarUsable', $sf); $rt = $asm.GetType('Kapsula.Native+RECT')
 function RC([int]$l, [int]$t, [int]$r, [int]$b) { $o = [Activator]::CreateInstance($rt); $rt.GetField('L').SetValue($o, $l); $rt.GetField('T').SetValue($o, $t); $rt.GetField('R').SetValue($o, $r); $rt.GetField('B').SetValue($o, $b); ,$o }

@@ -330,11 +330,11 @@ namespace Kapsula
         {
             ringShownId = null;
             if (cardBtn == null || cardNo == null) return;
-            cardBtn.Background = Chip; cardBtn.ToolTip = null;
+            cardBtn.Background = Glass.Fill; cardBtn.BorderBrush = Glass.Rim; cardBtn.ToolTip = null;
             cardBtnLabel.Foreground = Fg;
             var no = cardNo.Child as TextBlock;
             if (no != null) { no.Text = ""; no.Foreground = Fg; no.FontSize = 13; }
-            cardNo.Background = Chip; cardNo.ToolTip = null;
+            cardNo.Background = Glass.Fill; cardNo.BorderBrush = Glass.Rim; cardNo.ToolTip = null;
             if (cardThumb != null) cardThumb.CornerRadius = new CornerRadius(10);
             RingPulseStop();
         }

@@ -363,7 +363,15 @@ namespace Kapsula
         bool CallVisible() { return callApp != null && (DiscordLive || Store.Get("callMode") == "1" || callTest); }   // плагин в Discord — звонок точно, без «альфы»
         bool callTest = Environment.GetEnvironmentVariable("KAPSULA_CALLTEST") == "1";   // проверка: «звонок» в Discord с голосом через раз
         bool callMuted;   // микрофон выключен — запоминается раз в полсекунды, зверёк в капсуле показывает это
-        string CallTime() { TimeSpan t = DateTime.Now - callStart; return (int)t.TotalMinutes + ":" + t.Seconds.ToString("00"); }
+        string CallTime() { return CallClock(DateTime.Now - callStart); }
+
+        // Время звонка, как на iPhone: «0:07», «12:34», а после часа — «1:05:23»
+        static string CallClock(TimeSpan t)
+        {
+            if (t < TimeSpan.Zero) t = TimeSpan.Zero;
+            if (t.TotalHours >= 1) return (int)t.TotalHours + ":" + t.Minutes.ToString("00") + ":" + t.Seconds.ToString("00");
+            return t.Minutes + ":" + t.Seconds.ToString("00");
+        }
 
         static string CallAppNow()
         {
@@ -470,7 +478,7 @@ namespace Kapsula
             bright.Children.Add(new TextBlock { Text = ((char)0xE706).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center });
             var bv = new TextBlock { Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(bv, 2); bright.Children.Add(bv);
-            var bar = new Bar(150, 5, Fg, 22);
+            var bar = new Bar(150, 5, Fg, 22).Knob(17);
             bar.Root.Cursor = Cursors.Hand; bar.Root.HorizontalAlignment = HorizontalAlignment.Stretch;
             int cur = Brightness.Get();
             if (cur < 0) { bv.Text = "—"; bar.Root.Opacity = 0.35; bar.Root.ToolTip = "Этот монитор не даёт менять яркость программам"; }
@@ -507,6 +515,7 @@ namespace Kapsula
             var extra = new StackPanel { Orientation = Orientation.Horizontal };
             var night = IconBtn(((char)0xE708).ToString(), 32, delegate { try { System.Diagnostics.Process.Start("ms-settings:nightlight"); } catch { } });
             night.ToolTip = "Ночной свет — параметры Windows";
+            extra.Children.Add(AwakeBtn(32));   // «Не засыпать» — чашка
             extra.Children.Add(night);
             var ps = WF.SystemInformation.PowerStatus;
             if (ps.BatteryChargeStatus != WF.BatteryChargeStatus.NoSystemBattery && ps.BatteryLifePercent <= 1)

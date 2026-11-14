@@ -267,7 +267,8 @@ namespace Kapsula
             // На «матовом стекле» под текстом не ровный чёрный, а размытый фон: серые подписи делаем заметно светлее
             Dim.Color = Mix(text, island, GlassOn ? 0.22 : 0.42);
             Faint.Color = Mix(text, island, GlassOn ? 0.38 : 0.64);
-            Card.Color = Mix(island, text, light ? 0.06 : 0.085);
+            Card.Color = Mix(island, text, light ? 0.06 : 0.1);   // как карточки iOS на чёрном: чуть светлее фона
+            Glass.Theme(light);   // стекло кнопок, плиток и вкладок — под тему острова
             Chip.Color = Mix(island, text, light ? 0.09 : 0.115);
             ChipHover.Color = Mix(island, text, 0.18);
             TabOn.Color = Mix(island, text, 0.16);
@@ -787,9 +788,10 @@ namespace Kapsula
         Border IconBtn(string glyph, double size, Action click)
         {
             var tb = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 15, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, Child = tb, Cursor = Cursors.Hand };
-            b.MouseEnter += delegate { b.Background = ChipHover; };
-            b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
+            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Child = tb, Cursor = Cursors.Hand };
+            // значок без подложки; под курсором — кружок стекла
+            b.MouseEnter += delegate { b.Background = Glass.Hover; b.BorderBrush = Glass.Rim; };
+            b.MouseLeave += delegate { b.Background = Brushes.Transparent; b.BorderBrush = Brushes.Transparent; };
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.88);
             return b;
@@ -979,7 +981,7 @@ namespace Kapsula
             vr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
             miniVolIcon = new TextBlock { FontFamily = Icons, FontSize = 12, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Text = ((char)0xE767).ToString() };
             vr.Children.Add(miniVolIcon);
-            miniVolBar = new Bar(MW - 36 - 72, 4, Fg, 18);
+            miniVolBar = new Bar(MW - 36 - 72, 4, Fg, 18).Knob(13);
             miniVolBar.Root.Cursor = Cursors.Hand;
             miniVolBar.Root.HorizontalAlignment = HorizontalAlignment.Left;
             miniVolBar.Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; miniVolBar.Root.CaptureMouse(); SetMiniVolume(miniVolBar.ValueAt(e.GetPosition(miniVolBar.Root))); };
@@ -1062,13 +1064,15 @@ namespace Kapsula
             texts.Children.Add(cardTitle); texts.Children.Add(cardSub);
             Grid.SetColumn(texts, 2); g.Children.Add(texts);
             var open = new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            var openBtn = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, Child = open, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            var openBtn = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Child = open, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            Glass.Button(openBtn);
             Grid.SetColumn(openBtn, 3); g.Children.Add(openBtn);
             cardBtn = openBtn; cardBtnLabel = open;
             // Вторая кнопка — «отклонить» (крестик): есть только у карточек с выбором, например у приглашения в игру.
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            cardNo = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
+            cardNo = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
                 Child = new TextBlock { Text = "", FontFamily = Icons, FontSize = 13, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            Glass.Button(cardNo);
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             Grid.SetColumn(cardNo, 6); g.Children.Add(cardNo);
@@ -1077,7 +1081,8 @@ namespace Kapsula
             {
                 int idx = i;
                 var lbl = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 120, TextTrimming = TextTrimming.CharacterEllipsis };
-                var ab = new Border { Height = 36, CornerRadius = new CornerRadius(18), Background = Chip, Padding = new Thickness(12, 0, 12, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Child = lbl };
+                var ab = new Border { Height = 36, CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Child = lbl };
+                Glass.Button(ab);
                 ab.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
                     e.Handled = true;
@@ -2046,6 +2051,7 @@ namespace Kapsula
                 FillAgentCmd(q, pq);
                 FillTaskCmd(q, pq);    // «задача в пятницу отчёт» — видно, на какой день ляжет
                 FillFocusCmd(q, pq);
+                FillAwakeCmd(q);       // «не засыпать», «кофе 30 мин»
                 foreach (string askWord in new string[] { "спроси ", "спросить ", "ask " })
                     if (pq.StartsWith(askWord) && q.Length > askWord.Length + 1)
                     {
@@ -2436,6 +2442,7 @@ namespace Kapsula
             left.Children.Add(micDot);
             camDot = new Ellipse { Width = 7, Height = 7, Fill = ClaudeGreen, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(4, 0, 0, 0), ToolTip = "Камера включена" };
             left.Children.Add(camDot);
+            left.Children.Add(BuildAwakeDot());   // «Не засыпать» включено — чашка с паром
             claudeDot = BuildClaudePet();
             // Свой стикер вместо зверька (картинка из настроек); пока Claude Code чем-то занят, показывается зверёк — он это обозначает
             stickerImg = new Image { Height = 26, MaxWidth = 44, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 6, 0), Visibility = Visibility.Collapsed };
@@ -2531,11 +2538,12 @@ namespace Kapsula
             tabs[PHome].ToolTip = "Главная и дека";
             tabs[PToday].ToolTip = "Сегодня, заметки, уведомления и уголок зверька";
             // Подсветка активной вкладки — отдельная плашка под значками: она скользит между ними, а не перескакивает.
-            tabGlow = new Border { Height = 30, CornerRadius = new CornerRadius(15), Background = TabOn, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tabGlowX, IsHitTestVisible = false };
+            // плашка выбранной вкладки — плотное стекло с бликом, как у плавающей строки вкладок в iOS
+            tabGlow = new Border { Height = 30, CornerRadius = new CornerRadius(15), Background = Glass.Strong, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tabGlowX, IsHitTestVisible = false };
             tabHost = new Grid { HorizontalAlignment = HorizontalAlignment.Center, Background = Brushes.Transparent };
             tabRow.HorizontalAlignment = HorizontalAlignment.Left;
             // Значки вкладок лежат в общей дорожке, подсветка активной ездит внутри неё
-            tabHost.Children.Add(new Border { CornerRadius = new CornerRadius(18), Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), Margin = new Thickness(-3, -3, -3, -3), IsHitTestVisible = false });
+            tabHost.Children.Add(new Border { CornerRadius = new CornerRadius(18), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(-3, -3, -3, -3), IsHitTestVisible = false });   // строка вкладок — стеклянная капсула
             tabHost.Children.Add(tabGlow); tabHost.Children.Add(tabRow);
             // Колёсико мыши над вкладками листает их
             tabHost.MouseWheel += delegate(object s, MouseWheelEventArgs e) { e.Handled = true; StepPage(e.Delta < 0 ? 1 : -1); };
@@ -2818,10 +2826,9 @@ namespace Kapsula
         {
             var tb = new TextBlock { Text = text, Foreground = Fg, FontSize = glyph ? 14 : 12, FontWeight = glyph ? FontWeights.Normal : FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             if (glyph) tb.FontFamily = Icons;
-            var b = new Border { Height = h, CornerRadius = new CornerRadius(h / 2), Background = Chip, Child = tb, Cursor = Cursors.Hand };
+            var b = new Border { Height = h, CornerRadius = new CornerRadius(h / 2), Child = tb, Cursor = Cursors.Hand };
             if (w > 0) b.Width = w; else b.Padding = new Thickness(13, 0, 13, 1);
-            b.MouseEnter += delegate { b.Background = ChipHover; };
-            b.MouseLeave += delegate { b.Background = Chip; };
+            Glass.Button(b);   // стеклянная кнопка: светлеет под курсором
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.95);
             return b;
@@ -3122,7 +3129,7 @@ namespace Kapsula
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(OutChipW) });
             vol.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center });
-            volBar = new Bar(PageW - 12 - 188 - 32 - VolChipW - 40 - OutChipW, 5, Fg, 22);
+            volBar = new Bar(PageW - 12 - 188 - 32 - VolChipW - 40 - OutChipW, 5, Fg, 22).Knob(17);
             volBar.Root.Cursor = Cursors.Hand;
             volBar.Root.HorizontalAlignment = HorizontalAlignment.Left;
             volBar.Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { volBar.Root.CaptureMouse(); SetVolumeFrom(e.GetPosition(volBar.Root)); };
@@ -8433,6 +8440,10 @@ namespace Kapsula
             var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
             quiet.Click += delegate { SetQuiet(QuietNow ? 0 : 60); };
             menu.Items.Add(quiet);
+            var awakeItem = new WF.ToolStripMenuItem("Не засыпать");
+            awakeItem.Click += delegate { SetAwake(!awakeOn, TimeSpan.Zero, true); };
+            menu.Items.Add(awakeItem);
+            menu.Opening += delegate { awakeItem.Checked = awakeOn; };
             menu.Opening += delegate { quiet.Text = QuietNow && !GamerMode ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
             var gamer = new WF.ToolStripMenuItem("Игровой режим");
             gamer.Click += delegate { ToggleGamerMode(); };
@@ -8464,7 +8475,7 @@ namespace Kapsula
                 WF.ToolStripItem[] order =
                 {
                     find("Настройки"), upd, new WF.ToolStripSeparator(),
-                    quiet, games, lyr, auto, new WF.ToolStripSeparator(),
+                    quiet, awakeItem, games, lyr, auto, new WF.ToolStripSeparator(),
                     find("Папка со снимками"), find("Сообщить об ошибке"), stopClaude, new WF.ToolStripSeparator(),
                     find("Выход")
                 };
@@ -9999,6 +10010,7 @@ namespace Kapsula
             UpdateHover();
             StrokeTick();   // зверька гладят курсором?
             HuntTick();     // или курсор замер рядом — прыгнуть на него
+            AwakeTick();    // «Не засыпать»: вышло время или садится батарея
             // Esc заканчивает правку вкладки (окно острова фокус не берёт — смотрим клавишу сами)
             { Board eb = EditingBoard(); bool esc = eb != null && (GetAsyncKeyState(0x1B) & 0x8000) != 0; if (esc && !escDown) eb.SetEditing(false); escDown = esc; }
 
@@ -10091,6 +10103,7 @@ namespace Kapsula
             {
                 Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
                 WalkerTop();   // гуляющий зверёк — всё равно над островом
+                PopupsTop();   // и подсказки тоже
             }
 
             if (tick % 4 == 1) PollSteam();

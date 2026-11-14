@@ -871,7 +871,7 @@ namespace Kapsula
             paneHint.Text = found > 0 ? "Найдено: " + found : "";
             scroller.Content = searchPage;
             scroller.ScrollToTop();
-            foreach (Border b in navItems) b.Background = Brushes.Transparent;
+            foreach (Border b in navItems) { b.Background = Brushes.Transparent; b.BorderBrush = Brushes.Transparent; }
         }
 
         // Панель раздела по названию: строки настроек добавляются в неё
@@ -943,10 +943,15 @@ namespace Kapsula
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 // значок раздела — белый на цветном скруглённом квадрате, у каждого раздела свой цвет
                 Color tint = SectionColors[i % SectionColors.Length];
-                GC.KeepAlive(tint);
-                row.Children.Add(new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 14, Foreground = Sub, Width = 22, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center });
-                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 36, CornerRadius = new CornerRadius(11), Padding = new Thickness(9, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, Tag = name };
+                // как в настройках macOS: белый значок на цветной скруглённой плитке с бликом сверху
+                row.Children.Add(new Border
+                {
+                    Width = 24, Height = 24, CornerRadius = new CornerRadius(7), Background = Glass.Tinted(tint), BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(0.8),
+                    Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12.5, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                });
+                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
+                var item = new Border { Height = 36, CornerRadius = new CornerRadius(11), Padding = new Thickness(7, 0, 10, 0), Margin = new Thickness(0, 0, 0, 2), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
                 item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
                 Fx.Press(item, 0.97);
@@ -1085,7 +1090,8 @@ namespace Kapsula
             paneHint.Text = idx >= 0 ? SectionHints[idx] : "";
             scroller.Content = sections[name];
             scroller.ScrollToTop();
-            foreach (Border b in navItems) b.Background = (string)b.Tag == name ? Sel : Brushes.Transparent;
+            // выбранный раздел — плотное стекло с бликом, остальные — без подложки
+            foreach (Border b in navItems) { bool on = (string)b.Tag == name; b.Background = on ? Glass.DarkStrong : Brushes.Transparent; b.BorderBrush = on ? Glass.DarkRim : Brushes.Transparent; }
             // раздел появляется мягко: чуть всплывает и проявляется
             StackPanel sec = sections[name];
             var rise = sec.RenderTransform as TranslateTransform;
@@ -1202,19 +1208,11 @@ namespace Kapsula
             return b;
         }
 
+        // Переключатель как в iOS: бегунок скользит, дорожка плавно наливается зелёным
         FrameworkElement Toggle(bool on, Action<bool> changed)
         {
-            bool state = on;
-            var knob = new Ellipse { Width = 18, Height = 18, Fill = Brushes.White, Margin = new Thickness(3), HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-            var b = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(12), Background = state ? Green : ChipBg, Child = knob, Cursor = Cursors.Hand };
-            b.MouseLeftButtonDown += delegate
-            {
-                state = !state;
-                knob.HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-                b.Background = state ? Green : ChipBg;
-                changed(state);
-            };
-            return b;
+            Switch.Reduced = island.ReducedMotion;
+            return new Switch(on, Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;
         }
 
         // Ползунок: live вызывается при каждом движении (без записи в настройки), done — когда отпустили.
@@ -1653,9 +1651,13 @@ namespace Kapsula
         }
         Border PillBtn(string text, bool main, Action click)
         {
-            var b = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Background = main ? OnBg : ChipBg, Cursor = Cursors.Hand,
+            var b = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Cursor = Cursors.Hand,
                 Child = new TextBlock { Text = text, Foreground = main ? OnTxt : Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            // обычная кнопка — стекло; главная — залита синим, как в iOS, с тем же бликом сверху
+            Glass.DarkButton(b);
+            if (main) b.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));
             b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; click(); };
+            Fx.Press(b, 0.95);
             return b;
         }
         // Скачивание Qwen: кнопка, ход скачивания, удаление

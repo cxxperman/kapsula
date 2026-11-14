@@ -46,8 +46,9 @@ namespace Kapsula
     class Bar
     {
         public Grid Root;
-        Border fill;
-        double w;
+        Border fill, knob;
+        TranslateTransform knobX;
+        double w, val, kd;
 
         public Bar(double width, double thick, Brush color, double hit)
         {
@@ -60,14 +61,40 @@ namespace Kapsula
 
         public static readonly SolidColorBrush TrackBrush = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x30));
 
-        public void Set(double v) { if (double.IsNaN(v) || v < 0) v = 0; if (v > 1) v = 1; fill.BeginAnimation(FrameworkElement.WidthProperty, null); fill.Width = w * v; }
+        // Круглая белая ручка с мягкой тенью, как у ползунков iOS: едет по дорожке и не вылезает за её края,
+        // заливка кончается под её серединой. Для ползунков, которые тянут рукой (громкость, яркость).
+        public Bar Knob(double d)
+        {
+            kd = d;
+            knobX = new TranslateTransform();
+            knob = new Border
+            {
+                Width = d, Height = d, CornerRadius = new CornerRadius(d / 2), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false, RenderTransform = knobX,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 1, Direction = 270, Opacity = 0.35, Color = Colors.Black }
+            };
+            Root.Children.Add(knob);
+            Set(val);
+            return this;
+        }
+
+        static double Clamp(double v) { return double.IsNaN(v) || v < 0 ? 0 : v > 1 ? 1 : v; }
+        double FillW(double v) { return knob == null ? w * v : kd / 2 + v * (w - kd); }
+
+        public void Set(double v)
+        {
+            val = v = Clamp(v);
+            fill.BeginAnimation(FrameworkElement.WidthProperty, null); fill.Width = FillW(v);
+            if (knob != null) { knobX.BeginAnimation(TranslateTransform.XProperty, null); knobX.X = v * (w - kd); }
+        }
 
         // То же, но плавно: полоса доезжает до нового значения за заданное время.
         public void Glide(double v, int ms)
         {
-            if (double.IsNaN(v) || v < 0) v = 0; if (v > 1) v = 1;
-            var a = new System.Windows.Media.Animation.DoubleAnimation(w * v, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-            fill.BeginAnimation(FrameworkElement.WidthProperty, a);
+            val = v = Clamp(v);
+            var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+            fill.BeginAnimation(FrameworkElement.WidthProperty, new System.Windows.Media.Animation.DoubleAnimation(FillW(v), TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            if (knob != null) knobX.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(v * (w - kd), TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
         }
         public void SetColor(Brush b) { fill.Background = b; }
 
@@ -75,11 +102,10 @@ namespace Kapsula
         public void Resize(double width)
         {
             if (Math.Abs(width - w) < 0.5) return;
-            double v = w > 0 ? fill.Width / w : 0;
             w = width; Root.Width = width;
-            Set(v);
+            Set(val);
         }
-        public double ValueAt(Point p) { return Math.Max(0, Math.Min(1, p.X / w)); }
+        public double ValueAt(Point p) { return knob == null ? Clamp(p.X / w) : Clamp((p.X - kd / 2) / Math.Max(1, w - kd)); }
     }
 
     // Меню значка у часов в стиле Kapsula: тёмное, со скруглённой подсветкой строки и своей галочкой
@@ -204,9 +230,8 @@ namespace Kapsula
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(badge);
             sp.Children.Add(Label);
-            Root = new Border { CornerRadius = new CornerRadius(16), Background = Off, BorderBrush = Line, BorderThickness = new Thickness(1), Child = sp, Cursor = Cursors.Hand };
-            Root.MouseEnter += delegate { Root.Background = Hover; };
-            Root.MouseLeave += delegate { Root.Background = Off; };
+            Root = new Border { CornerRadius = new CornerRadius(16), Child = sp, Cursor = Cursors.Hand };
+            Glass.Button(Root);   // плитка — стекло, как модули Пункта управления
             Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(Root, 0.95);
         }
@@ -254,7 +279,7 @@ namespace Kapsula
             if (shortcutColor != null)
             {
                 // у «быстрой команды» включённое состояние — светящаяся рамка цвета значка
-                Root.BorderBrush = on ? shortcutColor : Line;
+                Root.BorderBrush = on ? shortcutColor : Glass.Rim;
                 Root.BorderThickness = new Thickness(on ? 1.5 : 1);
                 return;
             }

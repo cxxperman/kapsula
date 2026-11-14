@@ -88,6 +88,7 @@ namespace Kapsula
             if (Environment.GetEnvironmentVariable("KAPSULA_SOFTWARE") == "1") System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
             Store.Load();
             var app = new Application();
+            Glass.Tooltips(app.Resources);   // подсказки — стекло, как в macOS
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             app.DispatcherUnhandledException += delegate(object s, DispatcherUnhandledExceptionEventArgs e)
             {
