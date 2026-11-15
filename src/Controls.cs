@@ -211,15 +211,10 @@ namespace Kapsula
         public TextBlock Glyph, Label;
         Border badge;
         // Общие кисти: при смене темы меняется их цвет, и все плитки перекрашиваются разом.
-        public static readonly SolidColorBrush Off = new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1E));
-        public static readonly SolidColorBrush Hover = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2F));
-        public static readonly SolidColorBrush On = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF4));
         public static readonly SolidColorBrush Light = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF4));
-        public static readonly SolidColorBrush Dark = new SolidColorBrush(Color.FromRgb(0x0A, 0x0A, 0x0C));
         public static readonly SolidColorBrush Line = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF));    // тонкая обводка
         public static readonly SolidColorBrush Badge = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));   // кружок под значком
         public static readonly SolidColorBrush Accent = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));         // включено
-        bool active;
 
         // Плитка: значок в кружке и подпись. Включённая — кружок заливается цветом, сама плитка остаётся тёмной.
         public Tile(string glyph, string label, Action click)
@@ -275,7 +270,6 @@ namespace Kapsula
 
         public void SetActive(bool on)
         {
-            active = on;
             if (shortcutColor != null)
             {
                 // у «быстрой команды» включённое состояние — светящаяся рамка цвета значка

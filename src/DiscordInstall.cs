@@ -2,8 +2,9 @@
 // «Подключить Discord» одной кнопкой: ставит в Discord нашу сборку Vencord — это официальный Vencord плюс плагин
 // Kapsula (github.com/cxxperman/kapsula-vencord; она сама собирается из каждого обновления Vencord). Если Vencord
 // уже стоит, меняются только его файлы, а прежние сохраняются рядом — «Отключить» возвращает их на место. Если
-// Vencord нет, Kapsula делает то же, что его установщик. Ваши плагины и настройки Vencord не трогаются. Заработает
-// после перезапуска Discord — сам Discord Kapsula не перезапускает.
+// Vencord нет, Kapsula делает то же, что его установщик. Ваши плагины и настройки Vencord не трогаются. Пока Discord
+// запущен, ничего не меняется — Kapsula просит его закрыть; заработает при следующем запуске Discord (сам Discord
+// Kapsula не закрывает и не запускает).
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,13 +27,31 @@ namespace Kapsula
         public static bool Installed { get { return File.Exists(Marker); } }
 
         // Наш плагин действительно в сборке: официальный установщик Vencord («Repair») мог вернуть свою
-        public static bool PluginInBuild
+        public static bool PluginInBuild { get { return OurBuild(Dist); } }
+
+        // В этой папке — наша сборка Vencord (с плагином Kapsula), а не официальная
+        static bool OurBuild(string dir)
         {
-            get
+            try { string f = Path.Combine(dir, "renderer.js"); return File.Exists(f) && File.ReadAllText(f).Contains("\"Kapsula\""); }
+            catch { return false; }
+        }
+
+        // Discord запущен (хоть в трее у часов): свой app.asar он держит открытым — встроиться не выйдет.
+        // На поддельных папках проверок (tests.ps1) настоящий Discord ни при чём
+        static bool DiscordRunning()
+        {
+            if (Environment.GetEnvironmentVariable("KAPSULA_TEST_LOCALAPPDATA") != null) return false;
+            try
             {
-                try { string f = Path.Combine(Dist, "renderer.js"); return File.Exists(f) && File.ReadAllText(f).Contains("\"Kapsula\""); }
-                catch { return false; }
+                foreach (string name in new[] { "Discord", "DiscordPTB", "DiscordCanary" })
+                {
+                    System.Diagnostics.Process[] ps = System.Diagnostics.Process.GetProcessesByName(name);
+                    foreach (System.Diagnostics.Process p in ps) p.Dispose();
+                    if (ps.Length > 0) return true;
+                }
             }
+            catch { }
+            return false;
         }
 
         // Папки resources у установленных Discord (обычный, PTB, Canary) — у самой новой версии каждого
@@ -154,12 +173,14 @@ namespace Kapsula
             return done;
         }
 
-        // null — получилось; иначе — что пошло не так (для настроек)
+        // null — получилось; иначе — что пошло не так (для настроек). Всё или ничего: не вышло на полпути — всё
+        // возвращается как было, иначе следующая попытка приняла бы нашу же сборку за прежний Vencord
         public static string Install()
         {
             if (Directory.Exists(Roaming("BetterDiscord"))) return "у вас стоит BetterDiscord — вместе с Vencord он не уживается";
             List<string> res = DiscordResources();
             if (res.Count == 0) return "Discord не найден";
+            if (DiscordRunning()) return "закройте Discord (и в трее у часов) и нажмите ещё раз";
             // 1. Сначала скачать сборку целиком — и только потом что-то менять
             var data = new Dictionary<string, byte[]>();
             foreach (string f in Files)
@@ -171,23 +192,66 @@ namespace Kapsula
                 if (b == null || b.Length < 100) return "скачалась пустая сборка";
                 data[f] = b;
             }
+            // Что было до нас: файлы сборки в dist и папки — чтобы откатить, если что-то не выйдет
+            var before = new Dictionary<string, byte[]>();
+            var injected = new List<string>();
+            bool vencordMade = !Directory.Exists(Roaming("Vencord")), distMade = !Directory.Exists(Dist), backupMade = false, wrote = false;
+            Action undo = delegate
+            {
+                // Discord — как при «Отключить». Не вышло — сборку не трогаем: без неё заглушка не запустит Discord
+                foreach (string r in injected)
+                {
+                    string asar = Path.Combine(r, "app.asar"), orig = Path.Combine(r, "_app.asar");
+                    try
+                    {
+                        if (File.Exists(orig) && (!File.Exists(asar) || IsStub(asar)))
+                        {
+                            if (File.Exists(asar)) File.Delete(asar);
+                            File.Move(orig, asar);
+                        }
+                    }
+                    catch (Exception ex) { Store.LogError("откат подключения Discord", ex); return; }
+                }
+                try
+                {
+                    if (wrote)
+                        foreach (string f in Files)
+                        {
+                            string p = Path.Combine(Dist, f);
+                            byte[] prev;
+                            if (before.TryGetValue(f, out prev)) File.WriteAllBytes(p, prev);
+                            else if (File.Exists(p)) File.Delete(p);
+                        }
+                    if (backupMade) Directory.Delete(Backup, true);
+                }
+                catch (Exception ex) { Store.LogError("откат подключения Discord", ex); return; }
+                // пустые папки, которые создали сами: иначе Kapsula решила бы, что Vencord стоит
+                try { if (distMade) Directory.Delete(Dist); if (vencordMade) Directory.Delete(Roaming("Vencord")); } catch { }
+            };
             try
             {
                 // 2. Прежнюю сборку Vencord — в сторонку. Один раз: повторное подключение резерв не перезаписывает
                 Directory.CreateDirectory(Dist);
                 bool hadVencord = false;
-                foreach (string f in Files) if (File.Exists(Path.Combine(Dist, f))) hadVencord = true;
+                foreach (string f in Files)
+                {
+                    string p = Path.Combine(Dist, f);
+                    if (File.Exists(p)) { hadVencord = true; before[f] = File.ReadAllBytes(p); }
+                }
+                // Наша же сборка без метки — остаток неудачной попытки прежней версии Kapsula, а не прежний Vencord
+                if (hadVencord && !Installed && !Directory.Exists(Backup) && PluginInBuild) hadVencord = false;
                 if (hadVencord && !Installed && !Directory.Exists(Backup))
                 {
                     Directory.CreateDirectory(Backup);
+                    backupMade = true;
                     foreach (string file in Directory.GetFiles(Dist)) File.Copy(file, Path.Combine(Backup, Path.GetFileName(file)), true);
                 }
                 bool ours = !hadVencord || Installed && File.ReadAllText(Marker).Contains("vencord=kapsula");
                 // 3. Наша сборка
+                wrote = true;
                 foreach (var kv in data) File.WriteAllBytes(Path.Combine(Dist, kv.Key), kv.Value);
                 // 4. Discord без Vencord — встроить так же, как его установщик: исходный app.asar → _app.asar,
                 //    а на его место — заглушка app.asar, которая загружает Vencord из его папки
-                var injected = new List<string>();
                 foreach (string r in res)
                 {
                     string asar = Path.Combine(r, "app.asar"), orig = Path.Combine(r, "_app.asar"), app = Path.Combine(r, "app");
@@ -206,8 +270,8 @@ namespace Kapsula
                         catch { File.Move(orig, asar); throw; }   // без заглушки Discord не запустится — вернуть как было
                         injected.Add(r);
                     }
-                    catch (IOException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
-                    catch (UnauthorizedAccessException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                    catch (IOException) { undo(); return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                    catch (UnauthorizedAccessException) { undo(); return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
                 }
                 string old = Installed ? File.ReadAllText(Marker) : "";
                 var sb = new System.Text.StringBuilder();
@@ -218,7 +282,7 @@ namespace Kapsula
                 File.WriteAllText(Marker, sb.ToString());
                 return null;
             }
-            catch (Exception ex) { Store.LogError("подключение Discord", ex); return ex.Message; }
+            catch (Exception ex) { Store.LogError("подключение Discord", ex); undo(); return ex.Message; }
         }
 
         // Вернуть всё как было: прежнюю сборку Vencord (или убрать Vencord, если его ставили мы)
@@ -228,7 +292,10 @@ namespace Kapsula
             try
             {
                 string[] lines = File.ReadAllLines(Marker);
-                bool ours = Array.Exists(lines, l => l.Trim() == "vencord=kapsula");
+                // В резерве — наша же сборка: так бывало после неудачного первого «Подключить» в прежних версиях.
+                // Прежнего Vencord тогда не было — убираем всё, как за собой
+                bool fakeBackup = Directory.Exists(Backup) && OurBuild(Backup);
+                bool ours = fakeBackup || Array.Exists(lines, l => l.Trim() == "vencord=kapsula");
                 // 1. Сначала Discord — пока он запущен, ничего не меняем: иначе он остался бы без сборки, которую загружает.
                 //    Где встраивали мы, вернуть исходный app.asar; если и Vencord ставили мы — то же во всех версиях
                 //    Discord (Vencord сам переносит заглушку в новую версию после обновления)
@@ -251,13 +318,17 @@ namespace Kapsula
                     catch (UnauthorizedAccessException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
                 }
                 // 2. Сборка Vencord: прежняя — на место, иначе убрать нашу
-                if (Directory.Exists(Backup))
+                if (Directory.Exists(Backup) && !fakeBackup)
                 {
                     foreach (string f in Files) { string p = Path.Combine(Dist, f); if (File.Exists(p)) File.Delete(p); }
                     foreach (string file in Directory.GetFiles(Backup)) File.Copy(file, Path.Combine(Dist, Path.GetFileName(file)), true);
                     Directory.Delete(Backup, true);
                 }
-                else foreach (string f in Files) { string p = Path.Combine(Dist, f); if (File.Exists(p)) File.Delete(p); }
+                else
+                {
+                    foreach (string f in Files) { string p = Path.Combine(Dist, f); if (File.Exists(p)) File.Delete(p); }
+                    if (fakeBackup) Directory.Delete(Backup, true);
+                }
                 File.Delete(Marker);
                 return null;
             }

@@ -10,7 +10,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -120,10 +119,8 @@ namespace Kapsula
             {
                 c.ReceiveTimeout = 5000; c.SendTimeout = 15000;
                 var s = c.GetStream();
-                var buf = new byte[8192];
-                int n = s.Read(buf, 0, buf.Length);
-                if (n <= 0) return;
-                string head = Encoding.UTF8.GetString(buf, 0, n);
+                string head = ReadHead(s);
+                if (head == null) return;
                 int sp1 = head.IndexOf(' '), sp2 = sp1 < 0 ? -1 : head.IndexOf(' ', sp1 + 1);
                 if (sp2 < 0) return;
                 string target = head.Substring(sp1 + 1, sp2 - sp1 - 1);
@@ -161,6 +158,28 @@ namespace Kapsula
             }
             catch { }
             finally { try { c.Close(); } catch { } }
+        }
+
+        // Заголовок запроса целиком, до пустой строки. Текст с телефона едет в адресе (кириллица — 6 байт на букву)
+        // и может прийти несколькими пакетами, поэтому одного чтения мало. Больше 32 КБ не читаем.
+        static string ReadHead(System.IO.Stream s)
+        {
+            var got = new System.IO.MemoryStream();
+            var buf = new byte[8192];
+            while (got.Length < 32768)
+            {
+                int n;
+                try { n = s.Read(buf, 0, buf.Length); }
+                catch (System.IO.IOException) { if (got.Length == 0) throw; break; }   // остаток так и не пришёл — разбираем то, что есть
+                if (n <= 0) break;
+                got.Write(buf, 0, n);
+                byte[] b = got.GetBuffer();
+                int len = (int)got.Length;
+                bool end = false;
+                for (int i = Math.Max(3, len - n); i < len && !end; i++) end = b[i] == '\n' && b[i - 1] == '\r' && b[i - 2] == '\n' && b[i - 3] == '\r';
+                if (end) break;
+            }
+            return got.Length == 0 ? null : Encoding.UTF8.GetString(got.GetBuffer(), 0, (int)got.Length);
         }
 
         static void Send(System.IO.Stream s, int code, string type, byte[] body)
@@ -248,7 +267,6 @@ namespace Kapsula
                         if (vk != 0) { Native.Key(vk, false); Native.Key(vk, true); }
                         break;
                     }
-                case "app": { int i; if (int.TryParse(v, out i)) island.Dispatcher.BeginInvoke(new Action(delegate { island.RunDeckSlot(i); })); break; }
                 case "pet": island.Dispatcher.BeginInvoke(new Action(island.PhonePetTap)); break;   // погладили зверька на экране телефона
                 case "lock": Native.LockWorkStation(); break;
                 case "sleep": Native.SetSuspendState(false, false, false); break;
@@ -275,16 +293,9 @@ namespace Kapsula
             var files = new StringBuilder();
             lock (shared)
                 for (int n = 0; n < shared.Count; n++) files.Append(n > 0 ? "," : "").Append(Json(System.IO.Path.GetFileName(shared[n])));
-            var apps = new StringBuilder();
-            try
-            {
-                string[] names = island.Dispatcher.Invoke(new Func<string[]>(island.DeckNames)) as string[];
-                if (names != null) for (int n = 0; n < names.Length; n++) apps.Append(n > 0 ? "," : "").Append(Json(names[n]));
-            }
-            catch { }
             string pet = "";   // что делает зверёк на острове — на пульте он такой же
             try { pet = island.Dispatcher.Invoke(new Func<string>(island.PhonePetMood)) as string ?? ""; } catch { }
-            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"apps\":[" + apps + "],\"pet\":" + Json(pet) + "}";
+            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"pet\":" + Json(pet) + "}";
         }
 
         static string Json(string s)
@@ -327,7 +338,7 @@ h1,.sub{padding-right:64px}
 </style></head><body>
 <div id=petbox onclick=petTap() title='Погладить'><span id=petsvg></span><b id=petmk></b></div>
 <h1>Kapsula</h1><div class=sub>Пульт для компьютера · только в вашей сети</div>
-<div class=tabs id=tabs><b data-s=music class=on>Музыка</b><b data-s=pad>Курсор</b><b data-s=keys>Текст</b><b data-s=slides>Слайды</b><b data-s=apps>Программы</b><b data-s=files>Файлы</b><b data-s=pc>Компьютер</b></div>
+<div class=tabs id=tabs><b data-s=music class=on>Музыка</b><b data-s=pad>Курсор</b><b data-s=keys>Текст</b><b data-s=slides>Слайды</b><b data-s=files>Файлы</b><b data-s=pc>Компьютер</b></div>
 <div class='sec on' id=music><div class=card><div class=track id=track>—</div>
 <div class=row><button onclick=d('prev')>⏮</button><button class=big onclick=d('play')>⏯</button><button onclick=d('next')>⏭</button></div></div>
 <div class=card><div class=row><button onclick=d('voldown')>Тише</button><button onclick=d('mute')>Без звука</button><button onclick=d('volup')>Громче</button></div></div></div>
@@ -336,7 +347,6 @@ h1,.sub{padding-right:64px}
 <div class=sec id=keys><div class=card><input id=txt placeholder='Текст для компьютера' enterkeyhint=send>
 <div class=row style='margin-top:10px'><button onclick=sendTxt()>Отправить</button><button onclick=d('key','enter')>Enter</button><button onclick=d('key','back')>⌫</button></div></div></div>
 <div class=sec id=slides><div class=row><button class=big onclick=d('slideprev')>←</button><button class=big onclick=d('slidenext')>→</button></div></div>
-<div class=sec id=apps><div class=card id=applist><div class=muted>Положите программы в «Деку» на острове</div></div></div>
 <div class=sec id=files><div class=card id=filelist><div class=muted>Положите файлы на полку острова и нажмите «На телефон»</div></div></div>
 <div class=sec id=pc><div class=card>Процессор <span id=cpu></span><div class=bar><i id=cpub></i></div>Память <span id=ram></span><div class=bar><i id=ramb></i></div></div>
 <div class=card><div class=row><button onclick=d('lock')>Заблокировать</button><button onclick=conf('sleep','Отправить компьютер в сон?')>Сон</button></div>
@@ -376,8 +386,7 @@ document.getElementById('track').textContent=j.track||'Ничего не игр�
 if(j.pet!==undefined)pet(j.pet);
 document.getElementById('cpu').textContent=j.cpu+'%';document.getElementById('cpub').style.width=j.cpu+'%';
 document.getElementById('ram').textContent=j.ram+'%';document.getElementById('ramb').style.width=j.ram+'%';
-if(j.files.length){document.getElementById('filelist').innerHTML=j.files.map(function(f,i){return ""<a class=file href='/file?k=""+K+""&i=""+i+""'>⬇ ""+esc(f)+""</a>""}).join('')}
-if(j.apps.length){document.getElementById('applist').innerHTML=j.apps.map(function(f,i){return ""<button style='margin-bottom:6px' onclick=d('app',""+i+"")>""+esc(f)+""</button>""}).join('')}
+document.getElementById('filelist').innerHTML=j.files.length?j.files.map(function(f,i){return ""<a class=file href='/file?k=""+K+""&i=""+i+""'>⬇ ""+esc(f)+""</a>""}).join(''):""<div class=muted>Положите файлы на полку острова и нажмите «На телефон»</div>"";
 }).catch(function(){})}
 poll();setInterval(poll,2500);
 </script></body></html>";
@@ -410,28 +419,6 @@ poll();setInterval(poll,2500);
             if (note != null) lines.Add(note);
             island = w;
             w.ShowQrInIsland(url, "Пульт с телефона", lines.ToArray());
-        }
-
-        // Окно с QR-кодом для любой ссылки
-        public static void QrWindow(string url, string title, string[] lines)
-        {
-            if (island != null) { island.ShowQrInIsland(url, title, lines); return; }
-            var win = new Window
-            {
-                Title = "Kapsula — " + title, Width = 360, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                Background = new SolidColorBrush(Color.FromRgb(0x14, 0x14, 0x17)), Topmost = true, ShowInTaskbar = false
-            };
-            var sp = new StackPanel { Margin = new Thickness(22) };
-            sp.Children.Add(new TextBlock { Text = title, Foreground = Brushes.White, FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 14) });
-            var qrImg = new Image { Source = QrMake.Render(url, 8), Width = 260, Height = 260 };
-            RenderOptions.SetBitmapScalingMode(qrImg, BitmapScalingMode.NearestNeighbor);
-            sp.Children.Add(new Border { Background = Brushes.White, CornerRadius = new CornerRadius(16), Padding = new Thickness(12), Child = qrImg, HorizontalAlignment = HorizontalAlignment.Center });
-            foreach (string l in lines)
-                sp.Children.Add(new TextBlock { Text = l, Foreground = new SolidColorBrush(Color.FromRgb(0xB0, 0xB0, 0xB8)), FontSize = 12.5, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap });
-            win.Content = sp;
-            win.Deactivated += delegate { try { win.Close(); } catch { } };
-            win.Show();
-            win.Activate();
         }
 
         public static void NewToken() { Store.Set("phoneToken", ""); string t = Token; }

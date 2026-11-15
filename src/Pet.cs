@@ -246,14 +246,14 @@ namespace Kapsula
             Face(0, "", null);
             timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
             timer.Tick += delegate { Step(); };
-            // Двигается, только пока его видно: спрятанный зверёк ничего не тратит
-            Root.IsVisibleChanged += delegate { if (Root.IsVisible) timer.Start(); else timer.Stop(); };
+            // Двигается, только пока его видно: спрятанный зверёк ничего не тратит. Показался — сразу кадр по настроению,
+            // а не через тик таймера: иначе первые кадры он с открытыми глазами, даже если спит
+            Root.IsVisibleChanged += delegate { if (Root.IsVisible) { Step(); timer.Start(); } else timer.Stop(); };
         }
 
         // Настроение: idle — смотрит по сторонам и моргает; think — думает; work — трудится; ask — ждёт вашего решения;
         // happy — радуется; done — доволен, с галочкой; sleep — спит; alarm — тревога; sad — огорчён
         public void Mood(string m) { if (m != mood) { mood = m; born = Environment.TickCount; } }
-        public string CurrentMood { get { return mood; } }
 
         // Сидит на краю острова, свесив лапки: две средние лапки длиннее и болтаются, крайние поджаты
         public bool Seated
@@ -339,6 +339,7 @@ namespace Kapsula
         public void Glance(int dir, int ms) { lookDir = Math.Max(-1, Math.Min(1, dir)); lookAt = Environment.TickCount + ms; }
         public string Prop = "";        // значок рядом со зверьком в спокойном состоянии: зонтик, снежинка…
         public Brush PropBrush;
+        public string Sky = "";         // небо у зверька погоды (☂, ❄, ☀…): сам значок не рисуется, по нему выбираются сценки
 
         void Face(int kind, string sign, Brush signBrush)
         {
@@ -397,10 +398,13 @@ namespace Kapsula
                 case "cmd": return new[] { "peek", "nod", "yawn" };
                 case "nav": return new[] { "wave", "tinker", "proud", "stretch", "spin" };   // настройки: подкручивает шестерёнку
                 case "weather":
-                    if (Prop.IndexOf('☂') >= 0 || Prop.IndexOf('☔') >= 0) return new[] { "shake", "look", "lean" };
-                    if (Prop.IndexOf('❄') >= 0) return new[] { "shiver", "catch", "look" };
-                    if (Prop.IndexOf('☀') >= 0) return new[] { "sunbathe", "stretch", "look" };
+                {
+                    string sky = Sky ?? "";
+                    if (sky.IndexOf('☂') >= 0 || sky.IndexOf('☔') >= 0) return new[] { "shake", "look", "lean" };
+                    if (sky.IndexOf('❄') >= 0) return new[] { "shiver", "catch", "look" };
+                    if (sky.IndexOf('☀') >= 0) return new[] { "sunbathe", "stretch", "look" };
                     return new[] { "lean", "look", "catch" };
+                }
                 case "": return null;
                 default: return new[] { "look", "stretch", "yawn", "hop", "tilt" };
             }
@@ -415,7 +419,8 @@ namespace Kapsula
                 PlayEvent(ev, p, t, hop, now);
                 return true;
             }
-            if (ev != null) { ev = null; forced = false; mark.RenderTransform = Transform.Identity; evNext = now + (Fast ? 200 : 6000 + rnd.Next(8000)); }
+            // сценка кончилась: глаза — на место (кто заглядывал вниз, иначе так и смотрел бы клеткой ниже)
+            if (ev != null) { ev = null; forced = false; mark.RenderTransform = Transform.Identity; LookEyes(0, 0); evNext = now + (Fast ? 200 : 6000 + rnd.Next(8000)); }
             if (Context == "") return false;
             if (evNext == 0) evNext = now + (Fast ? 300 : 3000 + rnd.Next(7000));
             if (unchecked(now - evNext) >= 0)
@@ -611,7 +616,8 @@ namespace Kapsula
                     Face(0, Prop, PropBrush); shift.Y = -Math.Abs(Math.Sin(p * Math.PI * 6)) * px * 0.5; break;
                 case "check":    // поглядывает на таймер
                     Face(0, "?", Grey); LookEyes(-1, 0); break;
-                case "peekcmd":
+                case "tinker":   // в настройках подкручивает шестерёнку: глаза вниз, покачивается в такт
+                    Face(1, "⚙", Grey); tilt.Angle = Math.Sin(p * Math.PI * 6) * 6; break;
                 case "nod":      // кивает тому, что вы пишете
                     Face(0, "", null); LookEyes(-1, 1); shift.Y = Math.Abs(Math.Sin(p * Math.PI * 4)) * hop * 0.35; break;
                 default:
@@ -766,7 +772,7 @@ namespace Kapsula
                     if (blinkAt == 0) blinkAt = now + 2000 + rnd.Next(3500);
                     if (unchecked(now - blinkAt) >= 0) { blinkUntil = now + 140; blinkAt = now + 2200 + rnd.Next(4200); }
                     if (lookAt == 0 || unchecked(now - lookAt) >= 0) { lookDir = rnd.Next(3) - 1; lookAt = now + 1400 + rnd.Next(2600); }
-                    if (unchecked(now - blinkUntil) < 0) { Face(4, Prop, PropBrush); break; }
+                    if (blinkUntil != 0 && unchecked(now - blinkUntil) < 0) { Face(4, Prop, PropBrush); break; }   // ноль — ещё не моргал (через 25 дней работы Windows разность с ним отрицательна)
                     Face(0, Prop, PropBrush);
                     foreach (Rectangle r in eyes[0])
                     {

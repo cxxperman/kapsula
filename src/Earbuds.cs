@@ -74,7 +74,8 @@ namespace Kapsula
             return CM_Get_DevNode_Property(dev, ref k, out type, buf, ref size, 0) == 0 ? buf : null;
         }
 
-        public class Device { public string Name = ""; public int Battery = -1; public bool Connected; }
+        // Audio — у устройства есть службы звука (A2DP, громкая связь, гарнитура): наушники или колонка, а не телефон, геймпад или клавиатура
+        public class Device { public string Name = ""; public int Battery = -1; public bool Connected, Audio; }
 
         // Подключённые сейчас Bluetooth-устройства (классический Bluetooth) с зарядом, если он известен
         public static List<Device> Connected()
@@ -97,7 +98,10 @@ namespace Kapsula
                     byte[] con = Prop(dev, KConnected);
                     bool connected = con != null && con.Length > 0 && con[0] != 0;
                     int battery = bat != null && bat.Length > 0 && bat[0] <= 100 ? bat[0] : -1;
-                    if (!connected && battery < 0) continue;
+                    // Служба звука видна по номеру узла: A2DP-приёмник, громкая связь, гарнитура. У телефонов, геймпадов и клавиатур их нет.
+                    string up = id.ToUpperInvariant();
+                    bool audio = up.Contains("{0000110B-") || up.Contains("{0000111E-") || up.Contains("{00001108-") || up.Contains("{00001131-");
+                    if (!connected && battery < 0 && !audio) continue;   // узел службы звука нужен ради признака, даже если сам он не «подключён»
                     // У одного устройства несколько узлов (само устройство, гарнитура, управление): склеиваем по началу имени
                     string key = name;
                     foreach (string cut in new string[] { " Hands-Free", " Avrcp", " AVRCP", " Stereo", " Hands-free" }) { int i = key.IndexOf(cut, StringComparison.OrdinalIgnoreCase); if (i > 0) key = key.Substring(0, i); }
@@ -105,6 +109,7 @@ namespace Kapsula
                     if (!byName.TryGetValue(key, out d)) { d = new Device { Name = key }; byName[key] = d; }
                     if (connected) d.Connected = true;
                     if (battery >= 0) d.Battery = battery;
+                    if (audio) d.Audio = true;
                 }
                 foreach (Device d in byName.Values) if (d.Connected && d.Name.Length > 0) list.Add(d);
             }
@@ -120,8 +125,7 @@ namespace Kapsula
         static readonly object gate = new object();
         public static volatile string Error;
         public static bool TestActive;
-        public static bool Logging;                     // проверочный режим: копить сырые сообщения
-        public static readonly List<string> Log = new List<string>();
+        static int lastTry;   // когда в последний раз перезапускали слушатель
 
         public static bool Enabled { get { return Store.Get("earbuds") != "0"; } }
 
@@ -178,7 +182,7 @@ namespace Kapsula
             int hi = d[6] >> 4, lo = d[6] & 0x0F;
             int flags = d[7] >> 4, caseNibble = d[7] & 0x0F;
             var s = new EarbudsState { Model = name, Rssi = rssi, At = Environment.TickCount };
-            if (name == "AirPods Max" || name.StartsWith("Beats S") || name == "BeatsX" || name == "Beats Flex" || name == "Powerbeats 3")
+            if (name == "AirPods Max" || name == "Beats Solo 3" || name == "Beats Studio 3" || name == "BeatsX" || name == "Beats Flex" || name == "Powerbeats 3")
             {
                 // Одна батарея: её заряд лежит в одной из двух половинок, вторая помечена как «неизвестно»
                 s.Single = Pct(lo) >= 0 ? Pct(lo) : Pct(hi);
@@ -204,6 +208,7 @@ namespace Kapsula
             lock (gate)
             {
                 if (watcher != null || !Enabled) return;
+                string was = Error;
                 try
                 {
                     var w = new BluetoothLEAdvertisementWatcher();
@@ -214,12 +219,37 @@ namespace Kapsula
                     {
                         if (e.Error != Windows.Devices.Bluetooth.BluetoothError.Success) Error = "Bluetooth выключен или недоступен";
                     };
+                    Error = null;   // до запуска: выключенный Bluetooth может сообщить об ошибке сразу, и её нельзя стереть
                     w.Start();
                     watcher = w;
-                    Error = null;
                 }
-                catch (Exception ex) { Error = "Bluetooth недоступен"; Store.LogError("наушники", ex); }
+                catch (Exception ex)
+                {
+                    Error = "Bluetooth недоступен";
+                    if (was != Error) Store.LogError("наушники", ex);   // повторные попытки раз в 15 секунд не засоряют журнал
+                }
             }
+        }
+
+        // Слушатель сам не оживает, если Bluetooth выключали (режим «в самолёте», переключатель на острове):
+        // проверяем по таймеру острова и запускаем заново, но не чаще раза в 15 секунд
+        public static void EnsureRunning()
+        {
+            lock (gate)
+            {
+                if (!Enabled) return;
+                try
+                {
+                    // сами мы его останавливаем только вместе с обнулением, так что «остановлен» здесь — значит, остановился сам
+                    if (watcher != null && watcher.Status != BluetoothLEAdvertisementWatcherStatus.Aborted && watcher.Status != BluetoothLEAdvertisementWatcherStatus.Stopped) return;
+                }
+                catch { return; }
+                int since = unchecked(Environment.TickCount - lastTry);
+                if (since >= 0 && since < 15000) return;
+                lastTry = Environment.TickCount;
+                watcher = null; state = null;
+            }
+            Start();
         }
 
         public static void Stop()
@@ -242,7 +272,6 @@ namespace Kapsula
                     var rd = Windows.Storage.Streams.DataReader.FromBuffer(md.Data);
                     byte[] d = new byte[rd.UnconsumedBufferLength];
                     rd.ReadBytes(d);
-                    if (Logging && d.Length >= 2) lock (Log) { if (Log.Count < 200) Log.Add(e.RawSignalStrengthInDBm + " " + BitConverter.ToString(d)); }
                     EarbudsState s = Parse(d, e.RawSignalStrengthInDBm);
                     if (s == null) continue;
                     // Рядом могут быть чужие наушники: берём самые «громкие» и только те, что совсем близко

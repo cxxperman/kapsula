@@ -39,7 +39,6 @@ namespace Kapsula
             public IntPtr Window;
             public AutomationElement Like, Dislike;
             public bool? Liked;
-            public string Where = "";
         }
 
         // ---------------------------------------------------------------- окна
@@ -142,7 +141,6 @@ namespace Kapsula
                 catch { }
                 if (f.Liked == null && likeKind == 1) f.Liked = false;
             }
-            try { var sb = new StringBuilder(256); GetWindowText(hwnd, sb, 256); f.Where = sb.ToString(); } catch { }
             return f;
         }
 

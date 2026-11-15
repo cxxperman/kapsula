@@ -132,7 +132,7 @@ namespace Kapsula
                 if (args[i] == "--color" && i + 1 < args.Length) w.PreviewOnly(args[i + 1]);
                 if (args[i] == "--scale" && i + 1 < args.Length) w.PreviewScale(args[i + 1]);
                 if (args[i] == "--card") { w.TestCard = true; w.ForceOpen = -3; }
-                if (args[i] == "--opacity" && i + 1 < args.Length && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out y)) w.ApplyOpacity(y, false);
+                if (args[i] == "--opacity" && i + 1 < args.Length && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out y)) w.ApplyOpacity(y);
                 if (args[i] == "--chatlong") { w.TestChat = true; w.TestChatLong = true; }
                 if (args[i] == "--claudetest" && i + 1 < args.Length) { w.TestClaude = args[i + 1]; w.ForceOpen = -3; ClaudeBridge.ForceOn = true; ClaudeBridge.Start(); if (args[i + 1] == "stopnow") ClaudeBridge.RequestStop(null); }
                 if (args[i] == "--pet" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) { w.TestPet = n; w.ForceOpen = -3; ClaudeBridge.ForceOn = true; }

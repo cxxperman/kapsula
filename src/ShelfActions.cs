@@ -159,8 +159,40 @@ namespace Kapsula
             {
                 var dec = BitmapDecoder.Create(fs, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
                 BitmapSource f = dec.Frames[0];
+                // Фото с телефона и камеры часто лежат «боком» с пометкой EXIF, как их повернуть. WPF её не применяет,
+                // а новые файлы пишутся без пометки — поворачиваем сами, пока файл открыт (пометка читается из него)
+                Transform t = OrientationTransform(ExifOrientation(dec.Frames[0]));
                 f.Freeze();
+                if (t != null) { f = new TransformedBitmap(f, t); f.Freeze(); }
                 return f;
+            }
+        }
+
+        // Пометка EXIF Orientation (1–8); 1 — если её нет или формат её не хранит
+        static int ExifOrientation(BitmapFrame frame)
+        {
+            try
+            {
+                var md = frame.Metadata as BitmapMetadata;
+                object v = md == null ? null : md.GetQuery("System.Photo.Orientation");
+                return v == null ? 1 : Convert.ToInt32(v);
+            }
+            catch { return 1; }
+        }
+
+        // Как развернуть картинку по пометке EXIF, чтобы она выглядела так, как её сняли; null — разворачивать не нужно
+        static Transform OrientationTransform(int o)
+        {
+            switch (o)
+            {
+                case 2: return new ScaleTransform(-1, 1);
+                case 3: return new RotateTransform(180);
+                case 4: return new ScaleTransform(1, -1);
+                case 5: { var g = new TransformGroup(); g.Children.Add(new RotateTransform(90)); g.Children.Add(new ScaleTransform(-1, 1)); return g; }
+                case 6: return new RotateTransform(90);
+                case 7: { var g = new TransformGroup(); g.Children.Add(new RotateTransform(270)); g.Children.Add(new ScaleTransform(-1, 1)); return g; }
+                case 8: return new RotateTransform(270);
+                default: return null;
             }
         }
 

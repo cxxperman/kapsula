@@ -122,7 +122,8 @@ namespace Kapsula
 
         void Petted(PetView pv, int now)
         {
-            if (unchecked(now - petStrokeLast) > 4000)
+            // разность — без знака: ноль в начале и давняя метка — «давно» и тогда, когда счётчик Windows ушёл в минус (25 дней работы)
+            if (unchecked((uint)(now - petStrokeLast)) > 4000u)
             {
                 // новое поглаживание — в копилку: в уголке зверька видно, сколько раз его гладили
                 int n;
@@ -150,7 +151,7 @@ namespace Kapsula
             PetView pv = HuntTarget(out r, out walking);
             if (pv == null) { huntX = double.NaN; return; }
             int now = Environment.TickCount;
-            if (Until(huntBusyUntil) || strokePet == pv && unchecked(now - petStrokeLast) < 2500) return;
+            if (Until(huntBusyUntil) || strokePet == pv && unchecked((uint)(now - petStrokeLast)) < 2500u) return;
             double x, y;
             if (Until(testHuntUntil) && unchecked(now - testHuntFrom) >= 0) { x = r.Right + (walking ? 80 : 45); y = r.Top + r.Height * 0.4; }
             else
@@ -206,14 +207,6 @@ namespace Kapsula
             if (rider != null && rOut && !rFly && rKind == 2 && rSeat == roomPet && FigureRect(rider, out r)) return rider;
             if (roomPet != null && roomPet.Root.IsVisible && roomPet.Root.Opacity > 0.5 && FigureRect(roomPet, out r)) return roomPet;
             return null;
-        }
-
-        // Курсор рядом со зверьком на краю окна — опрашивать мышь чаще, чтобы заметить поглаживание
-        bool NearWalker(Native.POINT pt)
-        {
-            if (!walkerOut || walker == null || walkPhase != 2 || !walker.IsVisible) return false;
-            double x = pt.X / dpi - (walker.Left + WalkerWindow.FootX), y = pt.Y / dpi - (walker.Top + WalkerWindow.FootY);
-            return Math.Abs(x) < 120 && Math.Abs(y) < 90;
         }
     }
 }

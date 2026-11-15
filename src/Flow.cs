@@ -21,7 +21,17 @@ namespace Kapsula
         bool cardFlow;              // карточка уходит в панель: опускается и тает, а не сжимается к капсуле
         readonly TranslateTransform cardShift = new TranslateTransform();
         int wheelMuteUntil;         // после жеста колёсиком остаток прокрутки не должен крутить громкость на «Главной»
+        const int WheelMuteMs = 450;
         Border cardGrab;
+
+        // Хвост жеста над карточкой ещё идёт. Считаем по оставшемуся времени, а не по знаку разности: через 25 дней
+        // работы Windows счётчик Environment.TickCount уходит в минус, и тогда ноль в начале (или метка давнего
+        // жеста) глушили бы колёсико на острове насовсем — ни прокрутки, ни громкости.
+        static bool WheelMuted(int until, int now)
+        {
+            int left = unchecked(until - now);
+            return left > 0 && left <= WheelMuteMs;
+        }
 
         // «Ручка» внизу карточки: появляется, когда курсор на карточке, щелчок — раскрыть в панель
         void BuildCardGrab()
@@ -73,7 +83,7 @@ namespace Kapsula
         bool CardWheel(MouseWheelEventArgs e)
         {
             if (state != 3) return false;
-            wheelMuteUntil = Environment.TickCount + 450;
+            wheelMuteUntil = Environment.TickCount + WheelMuteMs;
             if (e.Delta < 0) { if (CardCanExpand()) CardExpand(); }
             else { hoverBlock = true; SetState(0); }
             return true;

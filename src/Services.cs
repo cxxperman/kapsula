@@ -632,11 +632,6 @@ namespace Kapsula
         static LoopbackCapture audio, mic;
         public static bool HasAudio, HasMic;
 
-        public static bool Start(string ffmpeg, string path, int x, int y, int w, int h, string codec, bool withAudio)
-        {
-            return Start(ffmpeg, path, x, y, w, h, codec, withAudio, false);
-        }
-
         public static bool Start(string ffmpeg, string path, int x, int y, int w, int h, string codec, bool withAudio, bool withMic)
         {
             DropAudio();

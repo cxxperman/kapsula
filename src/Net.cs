@@ -130,8 +130,12 @@ namespace Kapsula
         // Подключиться. Пароль нужен, только если сеть защищена и Windows её ещё не знает.
         public static bool Connect(WifiNet n, string password)
         {
-            if (!n.Known || !string.IsNullOrEmpty(password))
+            bool wasKnown = n.Known, typed = !string.IsNullOrEmpty(password);
+            string name = n.Ssid.Replace("\"", "");
+            if (!n.Known || typed)
             {
+                // Новый пароль заменяет сохранённый профиль целиком, иначе Windows могла бы подключаться со старым ключом
+                if (typed) Netsh("wlan delete profile name=\"" + name + "\"");
                 string auth = n.Secure ? "WPA2PSK" : "open", enc = n.Secure ? "AES" : "none";
                 string key = n.Secure ? "<sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>" + Xml(password ?? "") + "</keyMaterial></sharedKey>" : "";
                 string xml = "<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>" + Xml(n.Ssid) + "</name>" +
@@ -146,11 +150,17 @@ namespace Kapsula
                 }
                 finally { try { System.IO.File.Delete(file); } catch { } }
             }
-            Netsh("wlan connect name=\"" + n.Ssid.Replace("\"", "") + "\" ssid=\"" + n.Ssid.Replace("\"", "") + "\"");
+            Netsh("wlan connect name=\"" + name + "\" ssid=\"" + name + "\"");
             for (int i = 0; i < 20; i++)
             {
                 System.Threading.Thread.Sleep(500);
                 if (ParseCurrent(Netsh("wlan show interfaces")) == n.Ssid) return true;
+            }
+            // Неверный пароль не оставляем в Windows: иначе сеть стала бы «сохранённой» и пароль больше не спросили бы
+            if (!wasKnown && typed)
+            {
+                if (ParseCurrent(Netsh("wlan show interfaces")) == n.Ssid) return true;   // успела подключиться в последний миг — профиль нужен
+                Netsh("wlan delete profile name=\"" + name + "\"");
             }
             return false;
         }

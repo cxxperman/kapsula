@@ -19,8 +19,9 @@ namespace Kapsula
             petFriendUntil = now + 2800; if (petFriendUntil == 0) petFriendUntil = 1;
             petFriendJoin = join;
             if (rider != null && rOut && !rFly) rider.Play(join ? "wave" : "bye", 1600);   // на раскрытом острове машет и попутчик
-            // имя — короткой надписью (в большом канале люди ходят часто — там без надписей)
-            if (name.Length == 0 || count > 8 || state != 0 || unchecked(now - friendToastAt) < 2500) return;
+            // имя — короткой надписью (в большом канале люди ходят часто — там без надписей).
+            // Разность — без знака: ноль в начале и давняя метка — «давно» и тогда, когда счётчик Windows ушёл в минус
+            if (name.Length == 0 || count > 8 || state != 0 || unchecked((uint)(now - friendToastAt)) < 2500u) return;
             friendToastAt = now;
             string who = name.Length > 18 ? name.Substring(0, 17) + "…" : name;
             Toast("", (join ? "Привет, " : "Пока, ") + who + "!", null, -1, null);   // от лица зверька: он и машет
@@ -32,7 +33,10 @@ namespace Kapsula
             DateTime today = DateTime.Today;
             string key = today.ToString("yyyyMMdd");
             if (Store.Get("partyDay") == key) return;
-            int open = 0, done = plusOne ? 1 : 0;
+            // Отмеченная повторяющаяся задача уезжает на следующий раз и из списка дня пропадает — её сегодняшние
+            // разы считаем отдельно (plusOne — только что отмеченный), иначе день из одних повторяющихся не празднуется
+            int open = 0, done = DayCount(Store.Get("tasksDoneDay"), key);
+            if (plusOne) { done++; Store.Set("tasksDoneDay", key + ":" + done); }
             foreach (DayTask t in cur)
             {
                 if (t.Day == today) { if (t.Done) done++; else open++; }
@@ -43,6 +47,14 @@ namespace Kapsula
             if (rider != null && rOut && !rFly) rider.Play("party", 2600);   // на краю панели празднует попутчик
             partyPendingUntil = Environment.TickCount + 15000;   // надпись и конфетти в капсуле — когда панель закроют (если в ближайшие 15 секунд)
             PartyTick();
+        }
+
+        // Счётчик за день вида «20261114:3»: сколько раз за этот день; запись за другой день (или пустая) — ноль
+        static int DayCount(string stored, string day)
+        {
+            int n;
+            if (string.IsNullOrEmpty(stored) || !stored.StartsWith(day + ":", StringComparison.Ordinal) || !int.TryParse(stored.Substring(day.Length + 1), out n)) return 0;
+            return Math.Max(0, n);
         }
 
         int partyPendingUntil;
@@ -62,7 +74,7 @@ namespace Kapsula
         // ---- завалило письмами: пять уведомлений за минуту — попутчик на карточке выкапывается из конвертов
         readonly List<int> noteTimes = new List<int>();
         int buriedAt;
-        bool riderDigNext;
+        int riderDigUntil;   // до какого момента следующее письмо — «из кучи»: не отдал его сразу — потом, ради одного письма, раскопки не к месту
 
         void LetterCounted()
         {
@@ -71,7 +83,7 @@ namespace Kapsula
             noteTimes.RemoveAll(delegate(int x) { return unchecked(now - x) > 60000; });
             if (noteTimes.Count < 5 || QuietNow || buriedAt != 0 && unchecked(now - buriedAt) < 600000) return;   // не чаще раза в десять минут
             buriedAt = now | 1; noteTimes.Clear();
-            riderDigNext = true;   // следующее письмо он не отдаёт, а выкапывается из кучи
+            riderDigUntil = now + 20000; if (riderDigUntil == 0) riderDigUntil = 1;   // следующее письмо он не отдаёт, а выкапывается из кучи
         }
 
         // ---- зверёк на пульте в телефоне: страница раз в несколько секунд спрашивает, что он сейчас делает
@@ -84,7 +96,7 @@ namespace Kapsula
             if (Until(petPartyUntil)) return "party";
             if (claudeState == 2) return "ask";
             if (claudeState == 1 || chatBusy) return "work";
-            if (unchecked(Environment.TickCount - happyUntil) < 0) return "happy";
+            if (Until(happyUntil)) return "happy";
             if (media.Has && media.Playing) return "dance";
             if (Native.IdleMs() > 120000) return "sleep";
             if (PetView.NightNow()) return "night";

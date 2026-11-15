@@ -27,7 +27,7 @@ namespace Kapsula
         const double MW = 440, MH = 162, MR = 28;
         const double EW = 584, EH = 370, ER = 34;
         const double CardW = 390, CardH = 80, CmdW = 580;
-        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PDeck = 11, PPet = 12;
+        const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PPet = 11;
 
         // Экономный режим отрисовки жидкого края
         double liquidAt, appliedAt;
@@ -40,94 +40,14 @@ namespace Kapsula
         int revealUntil;
         bool autoHidden;
         int lastLayout;
-        Canvas eyes;
-        Shape[] pupils, whites;
-        Path[] smiles;
-        ScaleTransform[] lids;
-        double pupilW, pupilH;
-        string character;
         int happyUntil;
         public string TestCharacter, TestMood;   // ключи --character и --mood: для снимков
 
         // Персонаж в капсуле один — пиксельный зверёк. Прежние (глаза, кот, робот и другие) убраны.
-        public static readonly string[] CharacterIds = { "pet" };
-        public static readonly string[] CharacterNames = { "Зверёк" };
         public string Character { get { return "pet"; } }
 
         // Персонаж ненадолго радуется: глаза превращаются в дужки
-        public void Happy(int ms) { happyUntil = Environment.TickCount + ms; }
-
-        // Персонаж в капсуле собирается из простых фигур, у каждого свои глаза и детали.
-        public void BuildCharacter()
-        {
-            if (eyes == null) return;
-            eyes.Children.Clear();
-            character = Character;
-            bool cat = character == "cat", robot = character == "robot", dots = character == "dots";
-            pupilW = cat ? 3 : robot ? 4.5 : dots ? 6 : 5;
-            pupilH = cat ? 9 : robot ? 4.5 : dots ? 6 : 5;
-            whites = new Shape[2]; pupils = new Shape[2]; smiles = new Path[2]; lids = new ScaleTransform[2];
-            for (int i = 0; i < 2; i++)
-            {
-                lids[i] = new ScaleTransform(1, 1);
-                Shape white = robot ? (Shape)new Rectangle { RadiusX = 2.5, RadiusY = 2.5 } : new Ellipse();
-                white.Width = 11; white.Height = 13;
-                white.Fill = dots ? Brushes.Transparent : Fg;
-                white.RenderTransformOrigin = new Point(0.5, 0.5); white.RenderTransform = lids[i];
-                Canvas.SetLeft(white, i * 14); Canvas.SetTop(white, 0.5);
-                whites[i] = white; eyes.Children.Add(white);
-                Shape pupil = robot ? (Shape)new Rectangle { RadiusX = 1, RadiusY = 1 } : new Ellipse();
-                pupil.Width = pupilW; pupil.Height = pupilH;
-                pupil.Fill = dots ? Fg : Ink;
-                pupils[i] = pupil; eyes.Children.Add(pupil);
-                var smile = new Path { Stroke = Fg, StrokeThickness = 2.2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Data = Geometry.Parse("M 1,9 Q 5.5,1 10,9"), Visibility = Visibility.Collapsed };
-                Canvas.SetLeft(smile, i * 14); Canvas.SetTop(smile, 1);
-                smiles[i] = smile; eyes.Children.Add(smile);
-            }
-            if (cat)
-            {
-                // уши
-                var earL = new Polygon { Fill = Fg, Points = new PointCollection { new Point(0.5, 1.5), new Point(2.5, -5), new Point(7.5, 0) } };
-                var earR = new Polygon { Fill = Fg, Points = new PointCollection { new Point(17.5, 0), new Point(22.5, -5), new Point(24.5, 1.5) } };
-                eyes.Children.Insert(0, earL); eyes.Children.Insert(0, earR);
-            }
-            if (character == "bear")
-            {
-                // круглые уши за глазами
-                for (int i = 0; i < 2; i++)
-                {
-                    var ear = new Ellipse { Width = 8, Height = 8, Fill = Fg };
-                    Canvas.SetLeft(ear, i == 0 ? -1.5 : 18.5); Canvas.SetTop(ear, -3.5);
-                    eyes.Children.Insert(0, ear);
-                }
-            }
-            if (character == "bunny")
-            {
-                // длинные уши торчком
-                for (int i = 0; i < 2; i++)
-                {
-                    var ear = new Rectangle { Width = 4.6, Height = 10.5, RadiusX = 2.3, RadiusY = 2.3, Fill = Fg, RenderTransformOrigin = new Point(0.5, 1), RenderTransform = new RotateTransform(i == 0 ? -9 : 9) };
-                    Canvas.SetLeft(ear, i == 0 ? 3.2 : 17.2); Canvas.SetTop(ear, -8.5);
-                    eyes.Children.Insert(0, ear);
-                }
-            }
-            if (character == "owl")
-            {
-                // кисточки по краям и клюв между глазами
-                eyes.Children.Insert(0, new Polygon { Fill = Fg, Points = new PointCollection { new Point(0, 3), new Point(-2.5, -4), new Point(5, 0) } });
-                eyes.Children.Insert(0, new Polygon { Fill = Fg, Points = new PointCollection { new Point(25, 3), new Point(27.5, -4), new Point(20, 0) } });
-                eyes.Children.Add(new Polygon { Fill = Amber, Points = new PointCollection { new Point(10.3, 8.2), new Point(14.7, 8.2), new Point(12.5, 12.6) } });
-            }
-            if (robot)
-            {
-                // антенна с огоньком
-                eyes.Children.Add(new Line { X1 = 12.5, Y1 = -1, X2 = 12.5, Y2 = -5, Stroke = Fg, StrokeThickness = 1.5 });
-                var lamp = new Ellipse { Width = 5.5, Height = 5.5, Fill = Amber };
-                Canvas.SetLeft(lamp, 9.75); Canvas.SetTop(lamp, -10);
-                eyes.Children.Add(lamp);
-            }
-        }
-        int blinkAt, blinkUntil;
+        public void Happy(int ms) { happyUntil = Environment.TickCount + ms; if (happyUntil == 0) happyUntil = 1; }
 
         // ИИ-чат и диктовка
         List<ChatMsg> chatHistory = new List<ChatMsg>();
@@ -219,14 +139,6 @@ namespace Kapsula
             // Разовый перевод настроек на новый вид программы (выполняется один раз, дальше выбор человека не трогаем):
             // зверёк включается у всех, у кого персонаж был выключен, а постоянное автоскрытие выключается.
             // Скрытие в играх на весь экран и список «Прятаться в программах» остаются как были.
-            // «Главная» как в новой раскладке: «Диктовка» уходит из плиток (её место занимает «Команда»)
-            if (Store.Get("homeTilesV2") != "1")
-            {
-                var offs = new List<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-                if (!offs.Contains("dictate")) offs.Add("dictate");
-                Store.Set("homeTilesOff", string.Join(",", offs.ToArray()));
-                Store.Set("homeTilesV2", "1");
-            }
             if (Store.Get("petMigrated") != "1")
             {
                 if (Store.Get("eyes") == "0") Store.Set("eyes", "1");
@@ -275,9 +187,10 @@ namespace Kapsula
             Bar.TrackBrush.Color = Mix(island, text, 0.2);
             Tile.Line.Color = Color.FromArgb((byte)(light ? 0x1C : 0x17), text.R, text.G, text.B);
             Tile.Badge.Color = Color.FromArgb((byte)(light ? 0x1A : 0x1F), text.R, text.G, text.B);
-            Tile.Off.Color = Chip.Color; Tile.Hover.Color = ChipHover.Color;
-            Tile.On.Color = text; Tile.Light.Color = text; Tile.Dark.Color = island;
+            Tile.Light.Color = text;
             if (glowTop != null) UpdateAccent(rawAccent);
+            // Плеер «в цвет обложки» хранит копии цветов темы — обновляем их, иначе на светлом острове фон и подписи оставались от тёмного
+            if (homePlayerCard != null) ApplyPlayerStyle();
         }
 
         public void ApplyEffectiveTheme()
@@ -295,8 +208,10 @@ namespace Kapsula
 
         public void ToggleLightDark()
         {
+            // Переключаем от того, что на экране: при «Теме как в Windows» остров окрашен по теме Windows, а не цветом из настроек
+            Color shown = FollowWindows ? (IsDarkTheme() ? DarkColor : LightIsland) : IslandColor;
+            bool toLight = !IsLight(shown);
             if (FollowWindows) SetFlag("followWin", false);
-            bool toLight = !IsLight(IslandColor);
             SetColor(toLight ? LightIsland : DarkColor);
             Toast("", toLight ? "Светлая тема" : "Тёмная тема", null, -1, null);
         }
@@ -313,11 +228,10 @@ namespace Kapsula
 
         // Прозрачность фона острова (сам текст и значки остаются плотными): от 0.5 до 1
         public double IslandOpacity = 1;
-        public void ApplyOpacity(double v, bool save)
+        public void ApplyOpacity(double v)
         {
             IslandOpacity = Math.Max(0.5, Math.Min(1, v));
             if (shape != null) shape.Opacity = IslandOpacity;
-            if (save) Store.Set("opacity", IslandOpacity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
         }
 
         void ApplyCapture()
@@ -334,7 +248,6 @@ namespace Kapsula
             {
                 case "followWin": FollowWindows = v; lastWinDark = IsDarkTheme(); ApplyEffectiveTheme(); break;
                 case "petSeason": ApplyOutfit(); break;   // сезонный наряд снимается и надевается сразу
-                case "pillTitle": PillTitle = v; RenderCompact(); SetTargets(); break;
                 case "hoverMini": HoverMini = v; break;
                 case "liquid": LiquidOn = v; Wake(); break;
                 case "seconds": ShowSeconds = v; RenderCompact(); SetTargets(); break;
@@ -376,7 +289,8 @@ namespace Kapsula
         public void OpenSettings()
         {
             if (state != 0) SetState(0);
-            if (settingsWin != null) { settingsWin.Activate(); if (openSection != null) settingsWin.ShowSection(openSection); openSection = null; return; }
+            // свёрнутое окно настроек Activate() не разворачивает — возвращаем его сами
+            if (settingsWin != null) { if (settingsWin.WindowState == WindowState.Minimized) settingsWin.WindowState = WindowState.Normal; settingsWin.Activate(); if (openSection != null) settingsWin.ShowSection(openSection); openSection = null; return; }
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
             if (TestSettings) { settingsWin.ShowActivated = false; settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 840) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); if (TestSettingsScroll > 0) { var sw = settingsWin; double off = TestSettingsScroll; sw.Dispatcher.BeginInvoke(new Action(delegate { sw.ScrollTo(off); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); } }
@@ -456,8 +370,7 @@ namespace Kapsula
         // Погода: новая раскладка
         Grid weatherGrid, wHours, wDays;
         GradientStop skyA, skyB;
-        TextBlock wCity, wSymbol, wTemp, wDesc, wFeels, wHiLo, wWind, wWindArrow, wWindSub, wHum, wPres, wUv, wUvSub, wRain, wSun;
-        RotateTransform wWindRot = new RotateTransform(0);
+        TextBlock wCity, wTemp, wDesc, wFeels, wHiLo, wWind, wWindSub, wHum, wPres, wUv, wUvSub, wRain, wSun;
         int weatherAnimAt;
 
         // Заметки, кольцо таймера, напоминания
@@ -484,6 +397,8 @@ namespace Kapsula
         TextBox clipSearch;
         ClipItem pendingSelf;
         int pendingSelfAt;
+        string pendingSelfText;   // текст, который мы сами вернули в буфер кликом из истории
+        int pendingSelfTextAt;
 
         TextBlock[] tabGlyphs;
         StackPanel launcherRow;
@@ -547,13 +462,13 @@ namespace Kapsula
         TextBlock textPreview;
 
         // Заметка, погода, управление
-        TextBox noteBox, cityBox;
+        TextBox cityBox;
         DispatcherTimer noteSave;
         StackPanel weatherBody;
         WeatherData weather;
         bool weatherBusy;
         int weatherAt;
-        TextBlock cpuText, ramText, timerText;
+        TextBlock cpuText, ramText;
         Bar cpuBar, ramBar;
         Tile themeTile, micTile, autoTile, sleepTile;
         int sleepArmedAt;
@@ -730,9 +645,6 @@ namespace Kapsula
         {
             // Интерфейс рисуется в базовом размере и масштабируется целиком — так работает настройка «Размер».
             root = new Grid { RenderTransform = slide, Width = BaseW, Height = BaseH, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, LayoutTransform = scaleT };
-            double op;
-            // Настройка «Прозрачность фона» убрана: вместо неё «Матовое стекло». Сохранённое раньше значение больше не применяется.
-            op = 1;
             // слой «матового стекла» лежит под фоном острова и показывает размытый снимок того, что за панелью
             glassBrush = new ImageBrush { Stretch = Stretch.Fill, ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, BaseW, BaseH) };
             RenderOptions.SetBitmapScalingMode(glassBrush, BitmapScalingMode.HighQuality);
@@ -789,9 +701,9 @@ namespace Kapsula
         {
             var tb = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 15, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Child = tb, Cursor = Cursors.Hand };
-            // значок без подложки; под курсором — кружок стекла
+            // значок без подложки; под курсором — кружок стекла. В Tag — подложка «включено» (карандаш в правке): после курсора возвращается она
             b.MouseEnter += delegate { b.Background = Glass.Hover; b.BorderBrush = Glass.Rim; };
-            b.MouseLeave += delegate { b.Background = Brushes.Transparent; b.BorderBrush = Brushes.Transparent; };
+            b.MouseLeave += delegate { b.Background = b.Tag as Brush ?? Brushes.Transparent; b.BorderBrush = Brushes.Transparent; };
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.88);
             return b;
@@ -904,13 +816,6 @@ namespace Kapsula
             glyph = tb;
             return b;
         }
-        static void Pulse(Border b, double to)
-        {
-            var st = (ScaleTransform)b.RenderTransform;
-            var a = new DoubleAnimation(to, TimeSpan.FromMilliseconds(140)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-            st.BeginAnimation(ScaleTransform.ScaleXProperty, a);
-            st.BeginAnimation(ScaleTransform.ScaleYProperty, a);
-        }
 
         void BuildMini()
         {
@@ -1022,10 +927,6 @@ namespace Kapsula
             // Без рамки: у круглых значков (Steam) она выглядела как лишнее кольцо.
             cardBadge = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -7, -7), Visibility = Visibility.Collapsed };
             thumb.Children.Add(cardBadge);
-            // Кольцо заряда вокруг значка — для карточки наушников: заполняется плавно, когда она появляется
-            cardRingTrack = new Path { Stroke = Chip, StrokeThickness = 3.5, Data = ArcGeometry(26, 26, 22, 0, 359.9), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
-            cardRing = new Path { StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
-            thumb.Children.Add(cardRingTrack); thumb.Children.Add(cardRing);
             // Зверёк вместо значка — на карточках Claude Code: он показывает, чего от вас ждут
             cardPet = new PetView(2.4, Ink);
             cardPet.Root.HorizontalAlignment = HorizontalAlignment.Center;
@@ -1055,8 +956,6 @@ namespace Kapsula
                 shotDragDown = false; e.Handled = true;
                 var a = cardAction; hoverBlock = true; SetState(0); if (a != null) a();
             };
-            cardGlyph.RenderTransformOrigin = new Point(0.5, 0.5);
-            cardGlyph.RenderTransform = cardGlyphScale;
             g.Children.Add(thumb);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             cardTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -1136,15 +1035,13 @@ namespace Kapsula
             RiderRetarget();   // у карточки свой зверёк — попутчик сразу летит на его место, а не на край
         }
 
-        Path cardRingTrack, cardRing;
-        ScaleTransform cardGlyphScale = new ScaleTransform(1, 1);
         DispatcherTimer cardRingTimer;
 
         // ---- крупная карточка наушников: нарисованные наушники слева, модель, проценты и полоса заряда справа
         const double BudsH = 92, BudsW = 268, BudsBarW = 118;
         bool cardTall;
         Grid cardGrid, budsPanel;
-        Canvas budsOver, budsIn;                 // рисунки: накладные наушники и вкладыши
+        Canvas budsOver;                         // рисунок: накладные наушники
         ScaleTransform budsScale = new ScaleTransform(1, 1);
         TranslateTransform budsFloat = new TranslateTransform();
         TextBlock budsName, budsPct, budsNote;
@@ -1152,7 +1049,7 @@ namespace Kapsula
         BitmapSource[] budsFrames;
         bool budsFramesTried;
 
-        // Кадры оборота лежат внутри программы одним листом 10×6; режем его на отдельные картинки при первом показе
+        // Картинки для крупной карточки наушников: только свои, из папки «headphones»; встроенных в программе нет
         BitmapSource[] BudsFrames()
         {
             if (budsFramesTried) return budsFrames;
@@ -1178,25 +1075,6 @@ namespace Kapsula
                 }
             }
             catch (Exception ex) { Store.LogError("свои картинки наушников", ex); }
-            try
-            {
-                using (var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("Kapsula.headphones.png"))
-                {
-                    if (s == null) return null;
-                    var sheet = new BitmapImage();
-                    sheet.BeginInit(); sheet.CacheOption = BitmapCacheOption.OnLoad; sheet.StreamSource = s; sheet.EndInit(); sheet.Freeze();
-                    int cols = 10, rows = 6, fw = sheet.PixelWidth / cols, fh = sheet.PixelHeight / rows;
-                    var list = new BitmapSource[cols * rows];
-                    for (int i = 0; i < list.Length; i++)
-                    {
-                        var c = new CroppedBitmap(sheet, new Int32Rect((i % cols) * fw, (i / cols) * fh, fw, fh));
-                        c.Freeze();
-                        list[i] = c;
-                    }
-                    budsFrames = list;
-                }
-            }
-            catch (Exception ex) { Store.LogError("кадры наушников", ex); }
             return budsFrames;
         }
         Border budsBarFill, budsBarTrack;
@@ -1231,21 +1109,6 @@ namespace Kapsula
             return c;
         }
 
-        // Вкладыши: два наушника с ножками
-        static Canvas DrawInEar()
-        {
-            var c = new Canvas { Width = 100, Height = 104 };
-            for (int i = 0; i < 2; i++)
-            {
-                double x = i == 0 ? 18 : 56;
-                Put(c, new Rectangle { Width = 8, Height = 44, RadiusX = 4, RadiusY = 4, Fill = Metal(0xF2, 0xB4, 90) }, x + (i == 0 ? 15 : 3), 44);
-                Put(c, new Ellipse { Width = 26, Height = 28, Fill = Metal(0xFA, 0xC0, i == 0 ? 35 : 145) }, x, 26);
-                Put(c, new Ellipse { Width = 9, Height = 12, Fill = Metal(0x50, 0x30, 90) }, x + (i == 0 ? 2 : 15), 33);
-                Put(c, new Ellipse { Width = 6, Height = 4, Fill = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF)) }, x + 10, 30);
-            }
-            return c;
-        }
-
         void BuildBudsPanel()
         {
             budsPanel = new Grid { Margin = new Thickness(22, 6, 22, 12), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
@@ -1254,9 +1117,9 @@ namespace Kapsula
             var stage = new Grid { Width = 70, Height = 72, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransformOrigin = new Point(0.5, 0.6) };
             var tg = new TransformGroup(); tg.Children.Add(budsScale); tg.Children.Add(budsFloat);
             stage.RenderTransform = tg;
-            budsOver = DrawOverEar(); budsIn = DrawInEar();
-            stage.Children.Add(budsOver); stage.Children.Add(budsIn);
-            // Объёмные наушники: 60 кадров оборота собственной модели, сменяются по кругу. Нет кадров — остаётся рисунок.
+            budsOver = DrawOverEar();
+            stage.Children.Add(budsOver);
+            // Свои картинки наушников (папка «headphones») сменяются по кругу. Нет картинок — остаётся рисунок.
             budsSpin = new Image { Width = 74, Height = 74, Margin = new Thickness(-2, -1, -2, -1), Visibility = Visibility.Collapsed };
             RenderOptions.SetBitmapScalingMode(budsSpin, BitmapScalingMode.HighQuality);
             stage.Children.Add(budsSpin);
@@ -1287,13 +1150,12 @@ namespace Kapsula
             budsPanel.Visibility = Visibility.Visible;
             cardHost.Height = BudsH;
             cardExtra = BudsW - CardW; cardHost.Width = BudsW;
-            bool over = s.Single >= 0 || s.Model.Contains("Max") || s.Model.StartsWith("Beats S");
-            BitmapSource[] spin = over ? BudsFrames() : null;
+            // крупная карточка бывает только у накладных наушников (см. BudsAnnounce)
+            BitmapSource[] spin = BudsFrames();
             budsSpin.Visibility = spin != null ? Visibility.Visible : Visibility.Collapsed;
             budsSpin2.Visibility = spin != null && spin.Length < 24 ? Visibility.Visible : Visibility.Collapsed;
             budsSpin.Opacity = 1; budsSpin2.Opacity = 0;
-            budsOver.Visibility = over && spin == null ? Visibility.Visible : Visibility.Collapsed;
-            budsIn.Visibility = over ? Visibility.Collapsed : Visibility.Visible;
+            budsOver.Visibility = spin == null ? Visibility.Visible : Visibility.Collapsed;
             if (spin != null) budsSpin.Source = spin[0];
             budsName.Text = s.Model;
             int level = s.Lowest;
@@ -1349,47 +1211,6 @@ namespace Kapsula
                 budsPct.Text = Math.Round(level * k) + "%";
                 budsBarFill.Width = BudsBarW * level / 100.0 * k;
             };
-            mine.Start();
-        }
-
-        void ShowBudsCardOld(EarbudsState s)
-        {
-            ShowCardEx(null, BudsGlyph, s.Model, s.Text, delegate { }, null, null, false);
-            if (state != 3) return;
-            HideCardButton();
-            int target = s.Lowest;
-            cardUntil = Environment.TickCount + 6500;
-            if (target < 0) return;
-            Brush col = target > 50 ? ClaudeGreen : target > 20 ? (Brush)Amber : RecRed;
-            cardThumb.Background = Brushes.Transparent;
-            cardRingTrack.Visibility = Visibility.Visible;
-            cardRing.Visibility = Visibility.Visible;
-            cardRing.Stroke = col;
-            cardRing.Data = null;
-            bool single = s.Single >= 0;
-            string tail = s.Charging ? " · заряжаются" : "";
-            // значок появляется с лёгким «пружинящим» увеличением
-            var pop = new DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(520)) { EasingFunction = new BackEase { Amplitude = 0.55, EasingMode = EasingMode.EaseOut } };
-            cardGlyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
-            cardGlyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
-            int started = Environment.TickCount;
-            const double dur = 1250, delay = 220;
-            if (cardRingTimer != null) cardRingTimer.Stop();
-            cardRingTimer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
-            DispatcherTimer mine = cardRingTimer;
-            mine.Tick += delegate
-            {
-                double t = (unchecked(Environment.TickCount - started) - delay) / dur;
-                if (state != 3 || cardRing.Visibility != Visibility.Visible) { mine.Stop(); return; }
-                if (t < 0) return;
-                if (t > 1) t = 1;
-                double k = 1 - Math.Pow(1 - t, 3);   // быстро в начале, мягко в конце
-                double shown = target * k;
-                cardRing.Data = shown < 0.5 ? null : ArcGeometry(26, 26, 22, 0, Math.Min(359.9, 3.6 * shown));
-                if (single) cardSub.Text = Math.Round(shown) + "%" + tail;
-                if (t >= 1) mine.Stop();
-            };
-            if (single) cardSub.Text = "0%" + tail;
             mine.Start();
         }
 
@@ -1501,6 +1322,7 @@ namespace Kapsula
         void ShowCardEx(ImageSource img, string glyph, string title, string sub, Action act, string btnText, Action btnAct, bool force)
         {
             cardNoAction = null;
+            remCardUp = false;   // карточку напоминания сменила другая — следующее напоминание её уже не ждёт
             cardPage = -1; cardNote = false;   // вкладку и «улёт в историю» назначает тот, кто показывает карточку
             cardCarry = cardCarryNext; cardCarryNext = "";   // что несёт зверёк-почтальон: письмо или колокольчик
             CardContentBack();
@@ -1517,14 +1339,7 @@ namespace Kapsula
                 cardGrid.Visibility = Visibility.Visible;
                 cardHost.Height = CardH;
             }
-            if (cardRing != null)
-            {
-                // у обычных карточек кольца заряда нет
-                if (cardRingTimer != null) cardRingTimer.Stop();
-                cardRing.Visibility = Visibility.Collapsed; cardRingTrack.Visibility = Visibility.Collapsed;
-                cardGlyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, null); cardGlyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                cardGlyphScale.ScaleX = 1; cardGlyphScale.ScaleY = 1;
-            }
+            if (cardRingTimer != null) cardRingTimer.Stop();   // анимация крупной карточки наушников обычной карточке не нужна
             if (cardBadge != null) cardBadge.Visibility = Visibility.Collapsed;
             if (cardLogo != null) { cardLogo.Visibility = Visibility.Collapsed; cardLogo.Source = null; }
             cardExtra = btnText != null ? 70 : 0;
@@ -1643,20 +1458,26 @@ namespace Kapsula
             {
                 if (n >= 12) break;
                 string path = it;
-                bool url = path.StartsWith("http://") || path.StartsWith("https://");
-                FrameworkElement icon = null;
-                if (!url) { ImageSource src = null; try { src = Shell.IconFor(path); } catch { } if (src != null) { var img = new Image { Source = src, Width = 24, Height = 24 }; RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality); icon = img; } }
-                if (icon == null) icon = new TextBlock { Text = ((char)(url ? 0xE774 : System.IO.Directory.Exists(path) ? 0xE8B7 : 0xE8A5)).ToString(), FontFamily = Icons, FontSize = 17, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                string name = url ? new Uri(path).Host.Replace("www.", "") : System.IO.Path.GetFileNameWithoutExtension(path.TrimEnd('\\'));
-                if (name.Length == 0) name = path;
-                var b = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = icon, Cursor = Cursors.Hand, ToolTip = name + (Demo ? "" : " · правый клик — убрать") };
-                b.MouseEnter += delegate { b.Background = Glass.Hover; };
-                b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
-                b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); } catch { Toast(((char)0xE783).ToString(), "Не удалось открыть: " + name, null, -1, null); } };
-                if (!Demo) b.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; var l = LauncherItems(); l.Remove(path); SaveLauncher(l); LoadLauncher(); };
-                Fx.Press(b, 0.92);
-                launcherRow.Children.Add(b);
-                n++;
+                // Одна битая запись не должна ломать ряд: раньше из-за неё пропадала кнопка «+», а при запуске падала вся Kapsula
+                try
+                {
+                    bool url = path.StartsWith("http://") || path.StartsWith("https://");
+                    FrameworkElement icon = null;
+                    if (!url) { ImageSource src = null; try { src = Shell.IconFor(path); } catch { } if (src != null) { var img = new Image { Source = src, Width = 24, Height = 24 }; RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality); icon = img; } }
+                    if (icon == null) icon = new TextBlock { Text = ((char)(url ? 0xE774 : System.IO.Directory.Exists(path) ? 0xE8B7 : 0xE8A5)).ToString(), FontFamily = Icons, FontSize = 17, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    Uri uu;
+                    string name = url ? (Uri.TryCreate(path, UriKind.Absolute, out uu) ? uu.Host.Replace("www.", "") : path) : System.IO.Path.GetFileNameWithoutExtension(path.TrimEnd('\\'));
+                    if (name.Length == 0) name = path;
+                    var b = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = icon, Cursor = Cursors.Hand, ToolTip = name + (Demo ? "" : " · правый клик — убрать") };
+                    b.MouseEnter += delegate { b.Background = Glass.Hover; };
+                    b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
+                    b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); } catch { Toast(((char)0xE783).ToString(), "Не удалось открыть: " + name, null, -1, null); } };
+                    if (!Demo) b.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; var l = LauncherItems(); l.Remove(path); SaveLauncher(l); LoadLauncher(); };
+                    Fx.Press(b, 0.92);
+                    launcherRow.Children.Add(b);
+                    n++;
+                }
+                catch { }
             }
             if (Demo) return;
             if (n < 12)
@@ -1675,7 +1496,14 @@ namespace Kapsula
         static List<string> LauncherItems()
         {
             var l = new List<string>();
-            foreach (string p in Store.Get("launcher").Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries)) if (!l.Contains(p)) l.Add(p);
+            foreach (string p in Store.Get("launcher").Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                // Битую ссылку (так сохранялся перетащенный текст вроде «https://example.com is down») пропускаем:
+                // при следующем сохранении ряда она уйдёт и из настроек
+                Uri u;
+                if ((p.StartsWith("http://") || p.StartsWith("https://")) && !Uri.TryCreate(p, UriKind.Absolute, out u)) continue;
+                if (!l.Contains(p)) l.Add(p);
+            }
             return l;
         }
 
@@ -1686,6 +1514,20 @@ namespace Kapsula
             var l = LauncherItems();
             foreach (string p in paths) { string v = (p ?? "").Trim().Replace("|", ""); if (v.Length > 0 && !l.Contains(v) && l.Count < 12) l.Add(v); }
             SaveLauncher(l); LoadLauncher();
+        }
+
+        // Ссылка из перетащенного текста: только первое слово и без знаков препинания в конце
+        // («https://example.com is down», «https://example.com,»). Не ссылка — null.
+        static string DroppedLink(string text)
+        {
+            string[] words = (text ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return null;
+            char[] tail = { ',', '.', ';', ':', '»', '"', '\'' };
+            string u = words[0].TrimEnd(tail);
+            // закрывающая скобка без открывающей — от текста вокруг («https://example.com/page).»), а у «…/Python_(язык)» она своя
+            if (u.EndsWith(")") && u.IndexOf('(') < 0) u = u.TrimEnd(')').TrimEnd(tail);
+            Uri uri;
+            return (u.StartsWith("http://") || u.StartsWith("https://")) && Uri.TryCreate(u, UriKind.Absolute, out uri) ? u : null;
         }
 
         static List<string> DemoLauncher()
@@ -2030,13 +1872,18 @@ namespace Kapsula
                 if (state == 4) SetTargets();
                 return;
             }
-            if (q.Length >= 4)
+            // При диктовке набранное — это надиктованный текст, а не команда: слова-команды и Claude Code в нём не ищем,
+            // и первым пунктом остаётся «Вставить в активное окно» (ниже)
+            string pq = q.ToLowerInvariant();
+            // «dnd» и «баг» короче четырёх букв — проверяем их до порога, иначе они не срабатывали бы никогда
+            if (!dictating && pq == "dnd") { FillQuiet(); RenderCmd(); if (state == 4) SetTargets(); return; }
+            if (!dictating && pq == "баг") AddCmd("Сообщить об ошибке", "сведения скопируются, откроется страница на GitHub", "", null, delegate { ReportBug(); });
+            if (q.Length >= 4 && !dictating)
             {
-                string pq = q.ToLowerInvariant();
-                if (pq.StartsWith("календ") || pq.StartsWith("событи") || pq.StartsWith("calend")) { FillCalendar(); RenderCmd(); if (state == 4) SetTargets(); return; }
-                if (pq.StartsWith("наушн") || pq.StartsWith("airpods") || pq.StartsWith("аирпод") || pq.StartsWith("эирпод")) { FillEarbuds(); RenderCmd(); if (state == 4) SetTargets(); return; }
-                if (pq.StartsWith("не бесп") || pq.StartsWith("тихо") || pq.StartsWith("тишин") || pq == "dnd") { FillQuiet(); RenderCmd(); if (state == 4) SetTargets(); return; }
-                if (pq.StartsWith("уведомл") || pq.StartsWith("истори")) { FillHistory(); RenderCmd(); if (state == 4) SetTargets(); return; }
+                if (CmdRoute(pq, new string[] { "календ", "событи", "calend" }, new string[] { "календарь", "события", "событие", "calendar" }, FillCalendar)) return;
+                if (CmdRoute(pq, new string[] { "наушн", "airpods", "аирпод", "эирпод" }, new string[] { "наушники", "airpods", "аирподс", "эирподс" }, FillEarbuds)) return;
+                if (CmdRoute(pq, new string[] { "не бесп", "тихо", "тишин" }, new string[] { "не беспокоить", "тихо", "тишина" }, FillQuiet)) return;
+                if (CmdRoute(pq, new string[] { "уведомл", "истори" }, new string[] { "уведомления", "история" }, FillHistory)) return;
                 if (TaskListWord(pq)) { FillTaskList(); RenderCmd(); if (state == 4) SetTargets(); return; }   // «задачи» — на сегодня, с отметкой
                 if (pq.StartsWith("ошибк") || pq.StartsWith("сообщить") || pq.StartsWith("баг")) AddCmd("Сообщить об ошибке", "сведения скопируются, откроется страница на GitHub", "", null, delegate { ReportBug(); });
                 // Закреплённые в буфере фразы находятся по любому слову из них и вставляются одним нажатием
@@ -2065,7 +1912,7 @@ namespace Kapsula
                     else AddCmd("Помодоро: 25 минут работы, 5 отдыха", "отсчёт в капсуле", "", null, delegate { PomodoroStart(); });
                 }
             }
-            if (q.Length > 0 && ClaudeBridge.Enabled)
+            if (q.Length > 0 && ClaudeBridge.Enabled && !dictating)
             {
                 // «стоп claude» — остановить Claude Code, не переключаясь в его окно
                 string ql = q.ToLowerInvariant();
@@ -2092,20 +1939,30 @@ namespace Kapsula
                 if (Calc.TryTimer(q, out ts)) { TimeSpan t = ts; AddCmd("Запустить таймер на " + Fmt(t), "Таймер", "", null, delegate { AddTimerSpan(t); }); }
 
                 string ql = q.ToLowerInvariant();
+                // Набранное — начало названия программы или игры Steam («блок» → «Блокнот»): команды системы встают после них,
+                // иначе Enter вместо запуска программы блокировал бы компьютер или включал запись экрана
+                bool appFirst = false;
                 if (ql.Length >= 2)
                 {
-                    if (HasKey(ql, "камер", "вебк", "webcam", "веб-кам")) AddCmd("Телефон как веб-камера", PhoneCam.Installed ? "QR-код для телефона · камера «Kapsula Camera»" : "установить камеру и подключить телефон", ((char)0xE714).ToString(), null, delegate { OpenPhoneCam(); });
-                    if (HasKey(ql, "блок", "заблок", "lock")) AddCmd("Заблокировать компьютер", "Система", "", null, delegate { Native.LockWorkStation(); });
-                    if (HasKey(ql, "тема", "тёмн", "темн", "theme")) AddCmd("Переключить тёмную тему", "Система", "", null, delegate { SetDarkTheme(!IsDarkTheme()); });
-                    if (HasKey(ql, "настр", "settings", "цвет остр")) AddCmd("Настройки Kapsula", "Цвет, размер, поведение", "", null, delegate { OpenSettings(); });
-                    if (HasKey(ql, "светл", "light")) AddCmd("Светлая / тёмная тема острова", "Ctrl+Alt+T", "", null, delegate { ToggleLightDark(); });
-                    if (HasKey(ql, "чат", "claude", "клод", "ии ")) AddCmd("Открыть чат с нейросетью", "Ctrl+Alt+A", "", null, delegate { OpenChat(); });
-                    if (!dictating && HasKey(ql, "диктов", "голос", "voice")) AddCmd("Диктовка: надиктовать и вставить", "Ctrl+Alt+D", "", null, delegate { Dictate(); });
-                    if (HasKey(ql, "qr", "кьюар", "куар")) AddCmd("Прочитать QR-код с экрана", "Ctrl+Alt+Q", "", null, delegate { ScanQr(); });
-                    if (HasKey(ql, "запис", "record", "видео")) AddCmd(Recorder.Active ? "Остановить запись экрана" : "Записать экран", "Ctrl+Alt+R", "", null, delegate { ToggleRecord(false); });
-                    if (HasKey(ql, "скрин", "снимок", "screenshot")) AddCmd("Снимок области", "Ctrl+Alt+S", "", null, delegate { StartSnip(false); });
-                    if (HasKey(ql, "пипет", "цвет", "color")) AddCmd("Пипетка", "Ctrl+Alt+C", "", null, delegate { StartSnip(true); });
+                    foreach (var ap in apps) if (ap.Key.ToLowerInvariant().StartsWith(ql)) { appFirst = true; break; }
+                    if (!appFirst && Steam.Enabled) foreach (SteamGame sgm in steamGames) if (sgm.Name.ToLowerInvariant().StartsWith(ql)) { appFirst = true; break; }
                 }
+                // В списках — слова целиком: команду даёт их начало или само слово, а не любое слово с тем же началом
+                Action sysCmds = delegate
+                {
+                    if (HasKey(ql, "камера", "камеру", "вебкамера", "веб-камера", "webcam")) AddCmd("Телефон как веб-камера", PhoneCam.Installed ? "QR-код для телефона · камера «Kapsula Camera»" : "установить камеру и подключить телефон", ((char)0xE714).ToString(), null, delegate { OpenPhoneCam(); });
+                    if (HasKey(ql, "заблокировать", "заблокируй", "блокировка", "блокировать", "lock")) AddCmd("Заблокировать компьютер", "Система", "", null, delegate { Native.LockWorkStation(); });
+                    if (HasKey(ql, "тема", "тёмная тема", "темная тема", "тёмный режим", "темный режим", "theme")) AddCmd("Переключить тёмную тему", "Система", "", null, delegate { SetDarkTheme(!IsDarkTheme()); });
+                    if (HasKey(ql, "настройки", "настройка", "настроить", "settings", "цвет острова")) AddCmd("Настройки Kapsula", "Цвет, размер, поведение", "", null, delegate { OpenSettings(); });
+                    if (HasKey(ql, "светлая тема", "светлый режим", "light")) AddCmd("Светлая / тёмная тема острова", "Ctrl+Alt+T", "", null, delegate { ToggleLightDark(); });
+                    if (HasKey(ql, "чат", "claude", "клод", "ии")) AddCmd("Открыть чат с нейросетью", "Ctrl+Alt+A", "", null, delegate { OpenChat(); });
+                    if (!dictating && HasKey(ql, "диктовка", "диктовать", "голосовой ввод", "голос", "voice")) AddCmd("Диктовка: надиктовать и вставить", "Ctrl+Alt+D", "", null, delegate { Dictate(); });
+                    if (HasKey(ql, "qr", "qr-код", "кьюар", "куар")) AddCmd("Прочитать QR-код с экрана", "Ctrl+Alt+Q", "", null, delegate { ScanQr(); });
+                    if (HasKey(ql, "запись экрана", "записать экран", "видеозапись", "record")) AddCmd(Recorder.Active ? "Остановить запись экрана" : "Записать экран", "Ctrl+Alt+R", "", null, delegate { ToggleRecord(false); });
+                    if (HasKey(ql, "скриншот", "скрин", "снимок", "screenshot")) AddCmd("Снимок области", "Ctrl+Alt+S", "", null, delegate { StartSnip(false); });
+                    if (HasKey(ql, "пипетка", "цвет", "color")) AddCmd("Пипетка", "Ctrl+Alt+C", "", null, delegate { StartSnip(true); });
+                };
+                if (ql.Length >= 2 && !appFirst) sysCmds();
 
                 // Игры Steam: набрали название — запустили
                 if (ql.Length >= 2 && Steam.Enabled)
@@ -2136,6 +1993,7 @@ namespace Kapsula
                         AddCmd(a.Key, "Программа", null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
                         found++;
                     }
+                if (appFirst) sysCmds();   // программа или игра с таким началом названия — уже выше
 
                 // Файлы по имени: ищем в фоне через индекс Windows, а когда ответ пришёл — перерисовываем список.
                 if (ql.Length >= 3 && !dictating)
@@ -2175,10 +2033,33 @@ namespace Kapsula
             if (state == 4) SetTargets();
         }
 
+        // Слово команды: набрано его начало («забл» → «заблокировать»), само слово или слово и текст после пробела
+        // («запись экрана сейчас»). Другое слово с тем же началом («блокнот», «светлана», «записки») командой не считается.
         static bool HasKey(string q, params string[] keys)
         {
-            foreach (string k in keys) if (k.StartsWith(q) || q.StartsWith(k)) return true;
+            foreach (string k in keys) if (k.StartsWith(q) || q == k || q.StartsWith(k + " ")) return true;
             return false;
+        }
+
+        // Команда со своим списком (календарь, наушники, «Не беспокоить», история). Набрано её слово целиком или его начало —
+        // показываем только этот список. Запрос длиннее («наушники jbl», «история болезни») — её пункты идут первыми,
+        // но не больше трёх, а программы, файлы и поиск в интернете остаются.
+        bool CmdRoute(string pq, string[] stems, string[] words, Action fill)
+        {
+            bool stem = false, whole = false;
+            foreach (string s in stems) if (pq.StartsWith(s)) stem = true;
+            if (!stem) return false;
+            foreach (string w in words) if (w.StartsWith(pq)) whole = true;
+            int before = cmdItems.Count;
+            fill();
+            if (!whole)
+            {
+                if (cmdItems.Count > before + 3) cmdItems.RemoveRange(before + 3, cmdItems.Count - before - 3);
+                return false;
+            }
+            RenderCmd();
+            if (state == 4) SetTargets();
+            return true;
         }
 
         void RunCmd(int i)
@@ -2457,10 +2338,6 @@ namespace Kapsula
             left.Children.Add(cDlIcon);
             cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 104, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlName);
-            // «Глаза»: следят за курсором, моргают и закрываются, когда вы отошли от компьютера.
-            eyes = new Canvas { Width = 26, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(5, 0, 6, 0) };
-            BuildCharacter();
-            left.Children.Add(eyes);
             left.Children.Add(cCover);
             left.Children.Add(cGlyph);
             compactHost.Children.Add(left);
@@ -2506,9 +2383,9 @@ namespace Kapsula
             g.Children.Add(subTrack);
 
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система", "Claude Code", "Сегодня", "Уведомления", "Дека", "Зверёк" };
+            string[] names = { "Главная", "Буфер", "Полка", "Текст", "Чат", "Заметка", "Погода", "Система", "Claude Code", "Сегодня", "Уведомления", "Зверёк" };
             // Вкладки — значки; подпись видна только у активной.
-            string[] glyphs = { "", "", "", "", "", "", "", "", ClaudeGlyph, ((char)0xE787).ToString(), ((char)0xEA8F).ToString(), ((char)0xF0E2).ToString(), ((char)0xE76E).ToString() };
+            string[] glyphs = { "", "", "", "", "", "", "", "", ClaudeGlyph, ((char)0xE787).ToString(), ((char)0xEA8F).ToString(), ((char)0xE76E).ToString() };
             tabs = new Border[names.Length];
             tabLabels = new TextBlock[names.Length];
             tabGlyphs = new TextBlock[names.Length];
@@ -2535,7 +2412,6 @@ namespace Kapsula
             tabs[PClip].ToolTip = "Буфер, полка и текст";
             tabs[PChat].ToolTip = "Чат и Claude Code";
             tabs[PWeather].ToolTip = "Погода и система";
-            tabs[PHome].ToolTip = "Главная и дека";
             tabs[PToday].ToolTip = "Сегодня, заметки и уведомления";
             tabs[PPet].ToolTip = "Уголок зверька";
             {
@@ -2561,14 +2437,9 @@ namespace Kapsula
             // Без плашки, в одном стиле со значками вкладок и шестерёнкой: картинка наушников и процент.
             budsChipText = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 1) };
             var budsRow = new StackPanel { Orientation = Orientation.Horizontal };
-            budsChipGlyph = new TextBlock { Text = BudsGlyph, FontFamily = Icons, FontSize = 14, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center };
-            // если в папке headphones лежит своя картинка наушников, показываем её вместо общего значка
-            budsChipImage = new Image { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
-            RenderOptions.SetBitmapScalingMode(budsChipImage, BitmapScalingMode.HighQuality);
             // свой значок полноразмерных наушников анфас — вместо фото и общего значка
             budsChipIcon = HeadphonesIcon(Dim, 18);
-            budsChipGlyph.Visibility = Visibility.Collapsed;
-            budsRow.Children.Add(budsChipGlyph); budsRow.Children.Add(budsChipImage); budsRow.Children.Add(budsChipIcon);
+            budsRow.Children.Add(budsChipIcon);
             budsRow.Children.Add(budsChipText);
             budsChip = new Border { Height = 30, Margin = new Thickness(6, 0, 0, 0), Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center, Child = budsRow, Visibility = Visibility.Collapsed };
             // Слева в строке вкладок: кнопка «телефон как веб-камера» (подключается на время, поэтому под рукой) и заряд наушников
@@ -2598,7 +2469,7 @@ namespace Kapsula
             g.Children.Add(gear);
 
             // Все вкладки строятся сразу: замер (0.7) — вместе около 0,1 с и 1,5 МБ, откладывать их нет смысла
-            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildDeckPage(), BuildPetPage() };
+            pages = new FrameworkElement[] { BuildHome(), BuildClipPage(), BuildShelfPage(), BuildTextPage(), BuildChatPage(), BuildNotePage(), BuildWeatherPage(), BuildSystemPage(), BuildClaudePage(), BuildTodayPage(), BuildNotifPage(), BuildPetPage() };
             foreach (var p in pages) { Grid.SetRow(p, 2); g.Children.Add(p); }
             BuildDropZones(g);   // «На полку», «В ярлыки», «В чат» — поверх страницы, пока над островом тащат файл
             expandedHost.Children.Add(g);
@@ -2613,7 +2484,6 @@ namespace Kapsula
         double PageExtra() { return (page == PChat ? chatExtra : 0) + (EditingBoard() != null ? 56 : 0); }
 
         // ---- Конструктор вкладок (доски): «Погода», «Система»
-        Board weatherBoard, systemBoard;
         readonly Dictionary<int, Board> pageBoards = new Dictionary<int, Board>();
         Board BoardFor(int p) { Board b; return pageBoards.TryGetValue(p, out b) ? b : null; }
         Board EditingBoard() { Board b = BoardFor(page); return b != null && b.Editing ? b : null; }
@@ -2657,7 +2527,10 @@ namespace Kapsula
             if (pencilBtn == null) return;
             Board b = BoardFor(page);
             pencilBtn.Visibility = b != null ? Visibility.Visible : Visibility.Collapsed;
-            pencilBtn.Background = b != null && b.Editing ? accent : Brushes.Transparent;
+            // подложка правки хранится в Tag: IconBtn возвращает её, когда курсор уходит с карандаша
+            Brush on = b != null && b.Editing ? (Brush)accent : null;
+            pencilBtn.Tag = on;
+            pencilBtn.Background = on ?? (pencilBtn.IsMouseOver ? (Brush)Glass.Hover : Brushes.Transparent);
         }
 
         void ApplyPageExtra()
@@ -2687,7 +2560,6 @@ namespace Kapsula
         Border tabGlow;
         TranslateTransform tabGlowX = new TranslateTransform();
         Grid tabHost;
-        int pageSlide;   // номер последней смены: по нему запоздавшая анимация понимает, что она уже не нужна
 
         static readonly IEasingFunction SlideEase = new CubicEase { EasingMode = EasingMode.EaseOut };
 
@@ -2712,14 +2584,13 @@ namespace Kapsula
 
         // ---- вкладки собраны в группы, чтобы в строке было пять значков, а не девять:
         // Главная · Зверёк · Буфер (буфер, полка, текст) · Сегодня (сегодня, заметка, уведомления) · ИИ (чат, Claude) · Сводка (погода, система)
-        static readonly int[][] TabGroups = { new int[] { PHome, PDeck }, new int[] { PPet }, new int[] { PClip, PShelf, PText }, new int[] { PToday, PNote, PNotif }, new int[] { PChat, PClaude }, new int[] { PWeather, PSystem } };
-        static readonly int[] TabOrder = { PHome, PDeck, PPet, PClip, PShelf, PText, PToday, PNote, PNotif, PChat, PClaude, PWeather, PSystem };
+        static readonly int[][] TabGroups = { new int[] { PHome }, new int[] { PPet }, new int[] { PClip, PShelf, PText }, new int[] { PToday, PNote, PNotif }, new int[] { PChat, PClaude }, new int[] { PWeather, PSystem } };
+        static readonly int[] TabOrder = { PHome, PPet, PClip, PShelf, PText, PToday, PNote, PNotif, PChat, PClaude, PWeather, PSystem };
         int[] lastInGroup = { PHome, PPet, PClip, PToday, PChat, PWeather };   // на какой вкладке группы были в прошлый раз
 
         static int GroupOf(int p) { for (int g = 0; g < TabGroups.Length; g++) if (Array.IndexOf(TabGroups[g], p) >= 0) return g; return 0; }
 
-        bool TabAvailable(int p) { return (p != PClaude || ClaudeBridge.Enabled) && (p != PDeck || DeckOn); }
-        public static bool DeckOn { get { return Store.Get("deckOn") == "1"; } }   // «Дека» — альфа, по умолчанию выключена   // вкладка Claude есть только у тех, кто его подключил
+        bool TabAvailable(int p) { return p != PClaude || ClaudeBridge.Enabled; }   // вкладка Claude есть только у тех, кто его подключил
 
         // Клик по значку закрытой группы открывает ту её вкладку, на которой были в прошлый раз
         int TabTarget(int p)
@@ -2783,7 +2654,6 @@ namespace Kapsula
             RefreshPencil();
             ApplyPageExtra();
             if (state == 2) SetTargets();   // у «Главной» своя высота
-            int slide = ++pageSlide;
             bool moving = prev != idx && state == 2 && prev >= 0 && prev < pages.Length;
             double dir = idx > prev ? 1 : -1;
             for (int i = 0; i < pages.Length; i++)
@@ -2819,13 +2689,12 @@ namespace Kapsula
             if (idx == PToday) RenderToday();
             if (idx == PNotif) RenderNotifPage();
             if (idx == PPet) RenderPetPage();
-            if (idx == PDeck) RenderDeck();
             pages[idx].Opacity = 0;
             var a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(moving ? 280 : 180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
             pages[idx].BeginAnimation(UIElement.OpacityProperty, a);
             if (moving) CascadeBlocks(idx, 20);
             if (idx == PText) RenderTextPreview();
-            if (idx == PSystem) { RenderSystem(); ShowBt(TestBt); RefreshControl(); }
+            if (idx == PSystem) { RenderSystem(); ShowWifi(false); ShowBt(TestBt); RefreshControl(); }   // открытые раньше списки Wi-Fi и Bluetooth не остаются поверх плиток
             if (idx == PNote) UpdateRing();
             if (idx == PWeather && weather != null && weather.Error == null) { weatherAnimAt = Environment.TickCount | 1; AnimateWeather(); }
             if (rider != null && state == 2 && RideOn) pages[idx].UpdateLayout();   // зверьки страницы уже на местах — прыгать сразу к ним
@@ -2904,28 +2773,14 @@ namespace Kapsula
             menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
         }
 
-        void NextPlayer()
-        {
-            string[] ids = media.Sources;
-            if (ids == null || ids.Length < 2) return;
-            int i = Array.IndexOf(ids, media.Source);
-            string next = ids[(i + 1 + ids.Length) % ids.Length];
-            watcher.Preferred = next;
-            Store.Set("player", next);
-            srcLabel.Text = MediaWatcher.PrettyName(next);
-            Toast("", "Плеер: " + MediaWatcher.PrettyName(next), null, -1, accent);
-        }
-
         // ------------------------------------------------------ Главная
         // ---- «Главная» под себя: какие части показывать. Остров перестраивается и уменьшается под то, что осталось.
         Grid homeGrid;
-        Border homePlayerCard, homeVolCard, homeLaunchCard, homeClipCard;
+        Border homePlayerCard, homeClipCard;
         Grid homeClipRow;
         public bool TestHomeClips;   // ключ --homeclips
-        UniformGrid homeTilesGrid;
         Tile[] homeTileList;
         TextBlock homeEmpty;
-        double homeCut;   // на сколько «Главная» ниже полной высоты
         public static readonly string[] HomeTileIds = { "area", "full", "ocr", "qr", "pipette", "rec" };
         public static readonly string[] HomeTileNames = { "Область", "Весь экран", "Текст с экрана", "QR-код", "Пипетка", "Запись экрана" };
 
@@ -2943,7 +2798,7 @@ namespace Kapsula
             bool showPlayer = (media.Has || !clipOn) && !TestHomeClips;
             bool showClips = clipOn && !showPlayer;
             bool showCall = CallVisible();
-            if (showCall && media.Has && media.Playing && !DiscordLive) showCall = false;   // догадка уступает музыке; звонок по словам Discord — нет
+            if (showCall && media.Has && media.Playing && !DiscordCall) showCall = false;   // догадка уступает музыке; звонок по словам Discord — нет
             if (showCall) { showPlayer = false; showClips = false; }
             if (homeCallCard != null) homeCallCard.Visibility = showCall ? Visibility.Visible : Visibility.Collapsed;
             homePlayerCard.Visibility = showPlayer ? Visibility.Visible : Visibility.Collapsed;
@@ -2953,10 +2808,9 @@ namespace Kapsula
             bool nothing = homeBoard.UsedHeight() <= 0 && !homeBoard.Editing;
             homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
             if (showClips && homeBoard.IsShown("main")) RenderHomeClips();
-            homeLeftPlayer = showPlayer && homeBoard.IsShown("main");
             if (state == 2) SetTargets();
         }
-        double HomeHeight() { if (homeBoard == null) return PageH; double h = homeBoard.UsedHeight(); return h <= 0 && !homeBoard.Editing ? 46 : h; }        bool homeLeftPlayer, homeHadMedia;
+        double HomeHeight() { if (homeBoard == null) return PageH; double h = homeBoard.UsedHeight(); return h <= 0 && !homeBoard.Editing ? 46 : h; }        bool homeHadMedia;
         // Высота раскрытого острова: «Главная» может быть ниже остальных вкладок
         // Панель подстраивается под содержимое: у «Главной» и «Текста» его меньше, чем у остальных вкладок
         double PageCut() { return page == 0 ? PageH - HomeHeight() : 0; }
@@ -2987,20 +2841,7 @@ namespace Kapsula
 
         FrameworkElement BuildHome()
         {
-            var g = homeGrid = new Grid { VerticalAlignment = VerticalAlignment.Top };
             homeEmpty = new TextBlock { Text = "«Главная» пуста — включите что-нибудь в настройках", Foreground = Dim, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
-            Grid.SetColumnSpan(homeEmpty, 3);
-            g.Children.Add(homeEmpty);
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(188) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
 
             // Недавно скопированное (по умолчанию выключено)
             homeClipRow = new Grid { Margin = new Thickness(12, 34, 12, 8), VerticalAlignment = VerticalAlignment.Top };
@@ -3013,13 +2854,11 @@ namespace Kapsula
             clipBody.Children.Add(clipHead);
             clipBody.Children.Add(homeClipRow);
             homeClipCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Child = clipBody };
-            Grid.SetRow(homeClipCard, 0);
-            g.Children.Add(homeClipCard);
 
             // Ряд программ, закреплённых на панели задач
             launcherRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
             launcherRow.AllowDrop = true;
-            var launchCard = homeLaunchCard = new Border { AllowDrop = true,  Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Child = launcherRow };
+            var launchCard = new Border { AllowDrop = true,  Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Child = launcherRow };
             // перетащили файл, папку или ссылку на ряд ярлыков — закрепляем
             DragEventHandler over = delegate(object o, DragEventArgs e) { e.Handled = true; e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Text) ? DragDropEffects.Link : DragDropEffects.None; };
             launchCard.DragEnter += over; launchCard.DragOver += over;
@@ -3027,10 +2866,8 @@ namespace Kapsula
             {
                 e.Handled = true;
                 if (e.Data.GetDataPresent(DataFormats.FileDrop)) AddToLauncher((string[])e.Data.GetData(DataFormats.FileDrop));
-                else if (e.Data.GetDataPresent(DataFormats.Text)) { string u = ((string)e.Data.GetData(DataFormats.Text) ?? "").Trim(); if (u.StartsWith("http://") || u.StartsWith("https://")) AddToLauncher(new string[] { u }); }
+                else if (e.Data.GetDataPresent(DataFormats.Text)) { string u = DroppedLink((string)e.Data.GetData(DataFormats.Text)); if (u != null) AddToLauncher(new string[] { u }); }
             };
-            Grid.SetRow(launchCard, 4); Grid.SetColumnSpan(launchCard, 3);
-            g.Children.Add(launchCard);
             LoadLauncher();
 
             // Плеер
@@ -3094,7 +2931,7 @@ namespace Kapsula
             Grid.SetRow(ctl, 2);
             playerBody.Children.Add(ctl);
             cardGrid.Children.Add(playerBody);
-            // Если играют сразу несколько программ — кнопка с названием плеера: клик переключает на следующий.
+            // Если играют сразу несколько программ — кнопка с названием плеера: клик открывает список плееров.
             srcBtn = Btn("", false, 0, 22, delegate { ShowPlayerMenu(); });
             srcBtn.HorizontalAlignment = HorizontalAlignment.Right; srcBtn.VerticalAlignment = VerticalAlignment.Top;
             srcBtn.Margin = new Thickness(0, -6, -6, 0); srcBtn.Padding = new Thickness(9, 0, 9, 1);
@@ -3108,10 +2945,8 @@ namespace Kapsula
             cardHolder.Children.Add(mirrorImg); cardHolder.Children.Add(mirrorShade); cardHolder.Children.Add(cardGrid);
             card.Child = cardHolder;
             card.SizeChanged += delegate { card.Clip = new RectangleGeometry(new Rect(0, 0, card.ActualWidth, card.ActualHeight), Ui.BlockR, Ui.BlockR); };
-            g.Children.Add(card);
 
             // Быстрые действия
-            var tiles = homeTilesGrid = new UniformGrid { Rows = 4, Columns = 2, Margin = new Thickness(-3) };
             recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Color.FromRgb(0xFF, 0x45, 0x3A), "Запись", "Запись экрана · правый клик — выбрать область");
             recTile.Root.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Recorder.Active) ToggleRecord(true); };
             Tile[] ts = {
@@ -3123,16 +2958,9 @@ namespace Kapsula
                 recTile
             };
             homeTileList = ts;
-            for (int i = 0; i < ts.Length; i++)
-            {
-                ts[i].Root.Margin = new Thickness(3);
-                tiles.Children.Add(ts[i].Root);
-            }
-            Grid.SetColumn(tiles, 2);
-            g.Children.Add(tiles);
 
             // Громкость
-            var volCard = homeVolCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block };
+            var volCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block };
             var vol = new Grid { Margin = new Thickness(16, 0, 16, 0) };
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(VolChipW) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -3178,12 +3006,9 @@ namespace Kapsula
             Ui.Track(volChip);   // дорожка режимов — стеклянная капсула, как у вкладок
             vol.Children.Add(volChip);
             SetVolMode(false);
-            Grid.SetRow(volCard, 2);
-            g.Children.Add(volCard);
             // Конструктор «Главной»: плеер (на его месте без музыки — недавно скопированное, в звонке — звонок),
             // шесть плиток, громкость и ярлыки лежат на сетке 12×8 — их можно переставлять и прятать.
             homeMain = new Grid();
-            g.Children.Remove(homeClipCard); g.Children.Remove(card);
             homeMain.Children.Add(homeClipCard); homeMain.Children.Add(card);
             homeGrid = homeMain;   // сюда же встаёт карточка звонка
             var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
@@ -3201,7 +3026,6 @@ namespace Kapsula
             var cv = new Canvas();
             cv.Children.Add(hb.Root);
             homeEmpty.Width = PageW; homeEmpty.Height = 46;
-            if (homeEmpty.Parent is Panel) ((Panel)homeEmpty.Parent).Children.Remove(homeEmpty);
             cv.Children.Add(homeEmpty);
             return cv;
         }
@@ -3261,6 +3085,7 @@ namespace Kapsula
             foreach (ClipItem it in source)
             {
                 ClipItem item = it;
+                if (item.Pinned) continue;   // закреплённые всегда стоят в начале буфера — здесь нужны последние копии, а не они
                 string one = (item.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
                 if (one.Length == 0) continue;
                 var row = new Grid { Height = 44 };
@@ -3286,7 +3111,7 @@ namespace Kapsula
                     try
                     {
                         if (item.Image != null && item.Png != null) { var bi = new BitmapImage(); bi.BeginInit(); bi.StreamSource = new System.IO.MemoryStream(item.Png); bi.CacheOption = BitmapCacheOption.OnLoad; bi.EndInit(); Clipboard.SetImage(bi); }
-                        else Clipboard.SetText(item.Text);
+                        else { pendingSelfText = item.Text; pendingSelfTextAt = Environment.TickCount; Clipboard.SetText(item.Text); }
                     }
                     catch { return; }
                     if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) { Toast("", "Скопировано", null, -1, accent); return; }
@@ -3375,6 +3200,7 @@ namespace Kapsula
                 b.MouseLeave += delegate { b.Background = Glass.Fill; };
                 b.MouseLeftButtonDown += delegate
                 {
+                    pendingSelfText = item.Text; pendingSelfTextAt = Environment.TickCount;
                     try { Clipboard.SetText(item.Text); } catch { return; }
                     // Shift+клик — только скопировать, без вставки
                     if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) { Toast("", "Скопировано", null, -1, accent); return; }
@@ -3421,6 +3247,8 @@ namespace Kapsula
                     Clipboard.SetImage(full);
                 }
                 catch (Exception ex) { Store.LogError("вставка картинки из буфера", ex); pendingSelf = null; return; }
+                // Shift+клик — только скопировать, без вставки (как у текста)
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) { Toast("", "Скопировано", null, -1, accent); return; }
                 if (!IsActive) Native.PasteIntoActiveWindow();
             };
             return b;
@@ -3695,12 +3523,10 @@ namespace Kapsula
                 chatEmpty.Children.Add(new TextBlock { Text = bad ? duck.Error : "Открываю " + WebNames[WebIndex()] + "…", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 });
                 if (bad)
                 {
-                    chatEmpty.Children.Add(new TextBlock { Text = "Duck.ai можно открыть отдельным окном или выбрать в настройках Claude либо Gemini со своим ключом.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 6, 0, 12) });
+                    // отдельным окном выбранный сайт открывает «↗ В окне» в строке сайтов — второй такой кнопки здесь не нужно
+                    chatEmpty.Children.Add(new TextBlock { Text = WebNames[WebIndex()] + " можно открыть отдельным окном кнопкой «↗ В окне» или выбрать в настройках Claude либо Gemini со своим ключом.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 6, 0, 12) });
                     var row2 = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-                    row2.Children.Add(Btn("Открыть Duck.ai", true, 0, 30, delegate { OpenDuckAi(); }));
-                    var st = Btn("Настройки…", false, 0, 30, delegate { OpenSettings(); });
-                    st.Margin = new Thickness(8, 0, 0, 0);
-                    row2.Children.Add(st);
+                    row2.Children.Add(Btn("Настройки…", false, 0, 30, delegate { OpenSettings(); }));
                     chatEmpty.Children.Add(row2);
                 }
                 return;
@@ -3722,7 +3548,7 @@ namespace Kapsula
                 chatEmpty.Children.Add(new TextBlock { Text = "Без ключа — Duck.ai: бесплатно, без входа, нейросеть выбирается там же.", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center });
                 chatEmpty.Children.Add(new TextBlock { Text = "Откроется отдельным окном. Чтобы отвечать прямо здесь, добавьте свой ключ " + Ai.ProviderName + " API.", Foreground = Faint, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 6, 0, 12) });
                 var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-                row.Children.Add(Btn("Открыть Duck.ai", true, 0, 30, delegate { OpenDuckAi(); }));
+                row.Children.Add(Btn("Открыть Duck.ai", false, 0, 30, delegate { OpenDuckAi(); }));
                 var open = Btn("Свой ключ…", false, 0, 30, delegate { OpenSettings(); });
                 open.Margin = new Thickness(8, 0, 0, 0);
                 row.Children.Add(open);
@@ -3954,7 +3780,6 @@ namespace Kapsula
         // ------------------------------------------------------ Полка
         FrameworkElement BuildShelfPage()
         {
-            var dock = new DockPanel();
             var top = new Grid { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
             shelfHint = new TextBlock { Text = ShelfHintDefault, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 300, 0) };
             top.Children.Add(shelfHint);
@@ -3974,8 +3799,6 @@ namespace Kapsula
             btns.Children.Add(Btn("Очистить", false, 0, 28, delegate { shelf.Clear(); SaveShelf(); RenderShelf(); }));
             top.Children.Add(btns);
             btns.SizeChanged += delegate { shelfHint.Margin = new Thickness(4, 0, btns.ActualWidth + 8, 0); };   // подпись не заезжает под кнопки
-            DockPanel.SetDock(top, Dock.Top);
-            dock.Children.Add(top);
 
             var body = new Grid();
             shelfEmpty = new TextBlock { Text = "Перетащите файлы на остров — они лягут на полку", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 40, 0, 0) };
@@ -4018,9 +3841,9 @@ namespace Kapsula
 
         void RenderShelf()
         {
-            UpdateShelfBadge();
             shelfPanel.Children.Clear();
-            shelf.RemoveAll(delegate(string p) { return !System.IO.File.Exists(p) && !System.IO.Directory.Exists(p); });
+            // удалённые и перенесённые файлы с полки убираем и сразу запоминаем это; число на вкладке — по тому, что осталось
+            if (shelf.RemoveAll(delegate(string p) { return !System.IO.File.Exists(p) && !System.IO.Directory.Exists(p); }) > 0) SaveShelf(); else UpdateShelfBadge();
             shelfEmpty.Visibility = shelf.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (string sp in shelf)
             {
@@ -4117,14 +3940,15 @@ namespace Kapsula
                 string t = Clipboard.GetText();
                 if (string.IsNullOrWhiteSpace(t) || t.Length > 20000) return;
                 ClipItem existing = clips.Find(delegate(ClipItem c) { return c.Image == null && c.Text == t; });
+                // Запись вернули в буфер мы сами кликом из истории — откуда она скопирована, не меняем (как у картинок)
+                bool self = existing != null && t == pendingSelfText && unchecked(Environment.TickCount - pendingSelfTextAt) < 1500;
                 if (existing != null) clips.Remove(existing); else existing = new ClipItem { Text = t };
                 existing.At = DateTime.Now;
-                string src = ClipSource();
-                if (src != null) existing.Source = src;
+                string src = self ? null : ClipSource();
+                // Владелец буфера — сама Kapsula: прежний источник записи не перебиваем, «Kapsula» — только у новых
+                if (src != null && (src != "Kapsula" || string.IsNullOrEmpty(existing.Source))) existing.Source = src;
                 clips.Insert(0, existing);
                 SortClips();
-                int unpinned = 0;
-                for (int i = clips.Count - 1; i >= 0; i--) if (!clips[i].Pinned && ++unpinned > 0) { }
                 while (clips.Count > 40) { int last = clips.FindLastIndex(delegate(ClipItem c) { return !c.Pinned; }); if (last < 0) break; clips.RemoveAt(last); }
                 RenderClips();
                 if (page == PText) RenderTextPreview();
@@ -4135,16 +3959,13 @@ namespace Kapsula
         // ------------------------------------------------------ Текст
         FrameworkElement BuildTextPage()
         {
-            var sp = new StackPanel();
             textPreview = new TextBlock { Foreground = Fg, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxHeight = 34, LineHeight = 17 };
             var textCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 8), Height = 52, Child = textPreview, ToolTip = "Текст из буфера обмена" };
-            sp.Children.Add(textCard);
             // счётчик под текстом и подсказка, что делают кнопки, — одной строкой
             var info = new Grid { Margin = new Thickness(4, 5, 4, 7) };
             textStats = new TextBlock { Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
             info.Children.Add(textStats);
             info.Children.Add(new TextBlock { Text = "Кнопка преобразует и кладёт обратно в буфер", Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right });
-            sp.Children.Add(info);
             var wrap = new WrapPanel();
             AddTool(wrap, "Раскладка RU⇄EN", TextTools.FixLayout);
             AddTool(wrap, "ВЕРХНИЙ", delegate(string s) { return s.ToUpper(); });
@@ -4166,8 +3987,6 @@ namespace Kapsula
             AddAi(wrap, "Исправить", "исправь орфографию, пунктуацию и опечатки, не меняя смысл и стиль");
             AddAi(wrap, "Сократить", "сократи текст примерно вдвое, сохранив главное");
             AddAi(wrap, "Объяснить", "объясни простыми словами, о чём этот текст, в двух-четырёх предложениях");
-            sp.Children.Add(wrap);
-            sp.Children.Clear();
             var tb = PageBoard(PText, "text", 1, 9, 6);
             tb.Add("preview", "Текст из буфера", textCard, 0, 0, 1, 2, false);
             tb.Add("info", "Счётчик", info, 0, 2, 1, 1, false);
@@ -4229,6 +4048,8 @@ namespace Kapsula
                 delegate { timerRinging = false; timerTotal = total; timerEnd = DateTime.Now + total; RenderCompact(); SetTargets(); },
                 delegate { timerRinging = false; RenderCompact(); SetTargets(); });
             CardPet("alarm");
+            // Панель была открыта — вместо карточки вышла подсказка, и закрыть «Время вышло» нечем: звук и подсказка уже сказали своё
+            if (state != 3) { timerRinging = false; if (ringArc != null) UpdateRing(); RenderCompact(); SetTargets(); }
         }
 
         void RenderTextPreview()
@@ -4263,19 +4084,11 @@ namespace Kapsula
 
         FrameworkElement BuildNotePage()
         {
-            var g = new Grid();
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(196) });
-
             // ---- слева: папки, редактор, панель форматирования
-            var left = new DockPanel();
             noteFolderRow = new StackPanel { Orientation = Orientation.Horizontal, Height = 28 };
             var folders = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = noteFolderRow, Margin = new Thickness(0, 0, 0, 8) };
             folders.PreviewMouseWheel += delegate(object o, MouseWheelEventArgs e) { e.Handled = true; folders.ScrollToHorizontalOffset(folders.HorizontalOffset - e.Delta / 3.0); };
             RenderFolders();
-            DockPanel.SetDock(folders, Dock.Top);
-            left.Children.Add(folders);
 
             noteRich = new RichTextBox
             {
@@ -4327,8 +4140,7 @@ namespace Kapsula
             DockPanel.SetDock(tools, Dock.Bottom);
             editor.Children.Add(tools);
             editor.Children.Add(noteRich);
-            var noteCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 12, 12, 8), Child = editor }; left.Children.Add(noteCard);
-            g.Children.Add(left);
+            var noteCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14, 12, 12, 8), Child = editor };
 
             // ---- справа: таймер одной карточкой — заголовок со зверьком, кольцо, минуты, «Старт», напоминание
             var right = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 9, 12, 12) };
@@ -4366,8 +4178,10 @@ namespace Kapsula
 
             var start = Btn("Старт", false, double.NaN, 30, delegate
             {
+                // «Стоп» во время помодоро останавливает и его: иначе конец следующего обычного таймера засчитался бы кругом
+                if (timerEnd > DateTime.Now && pomoPhase != 0) { PomodoroStop(); UpdateRing(); return; }
                 if (timerEnd > DateTime.Now) { timerEnd = DateTime.MinValue; timerRinging = false; }
-                else { timerRinging = false; timerTotal = TimeSpan.FromMinutes(timerPreset); timerEnd = DateTime.Now + timerTotal; }
+                else { timerRinging = false; pomoPhase = 0; timerTotal = TimeSpan.FromMinutes(timerPreset); timerEnd = DateTime.Now + timerTotal; }
                 RenderCompact(); UpdateRing(); SetTargets();
             });
             startLabel = (TextBlock)start.Child;
@@ -4436,7 +4250,7 @@ namespace Kapsula
         {
             try
             {
-                var p = new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run(DateTime.Now.ToString("d MMM, HH:mm") + " — " + text.Trim()));
+                var p = new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run(DateTime.Now.ToString("d MMM, HH:mm", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + text.Trim()));
                 p.Margin = new Thickness(0, 0, 0, 4);
                 noteRich.Document.Blocks.Add(p);
                 SaveNote();
@@ -4693,26 +4507,37 @@ namespace Kapsula
             }
         }
 
+        bool remCardUp;   // на острове карточка напоминания: следующее ждёт, пока её не закроют, а не заменяет её
+
         void CheckReminders()
         {
+            if (ClaudeCardUp()) return;            // Claude Code ждёт ответа — напоминание придёт сразу после
+            if (state == 3 && remCardUp) return;   // прошлое напоминание ещё на экране
             DateTime now = DateTime.Now;
-            Reminder due = reminders.Find(delegate(Reminder r) { return r.At <= now; });
-            if (due == null) return;
-            if (due.Daily) { while (due.At <= now) due.At = due.At.AddDays(1); }
-            else reminders.Remove(due);
+            // Все, чей срок настал (в одну минуту, после сна или запуска), — одной карточкой: иначе каждое следующее
+            // через секунду заменяло бы предыдущее, а то уже удалено из списка
+            List<Reminder> dueList = reminders.FindAll(delegate(Reminder r) { return r.At <= now; });
+            if (dueList.Count == 0) return;
+            var texts = new List<string>();
+            foreach (Reminder due in dueList)
+            {
+                if (due.Daily) { while (due.At <= now) due.At = due.At.AddDays(1); }
+                else reminders.Remove(due);
+                texts.Add(due.Text);
+            }
             reminders.Sort(delegate(Reminder a, Reminder b) { return a.At.CompareTo(b.At); });
             SaveReminders();
             RenderReminders();
-            string text = due.Text;
             System.Media.SystemSounds.Exclamation.Play();
             cardCarryNext = "bell";   // напоминание зверёк приносит с колокольчиком и звонит в него
-            ShowCardEx(null, "", "Напоминание", text, delegate { }, "+10 мин", delegate
+            ShowCardEx(null, "", texts.Count == 1 ? "Напоминание" : "Напоминания (" + texts.Count + ")", string.Join(" · ", texts.ToArray()), delegate { }, "+10 мин", delegate
             {
-                reminders.Add(new Reminder { At = DateTime.Now.AddMinutes(10), Text = text });
+                foreach (string tx in texts) reminders.Add(new Reminder { At = DateTime.Now.AddMinutes(10), Text = tx });
                 reminders.Sort(delegate(Reminder a, Reminder b) { return a.At.CompareTo(b.At); });
                 SaveReminders();
                 RenderReminders();
             }, true);
+            remCardUp = state == 3;
             cardUntil = Environment.TickCount + 60000; // ждёт ответа, а не исчезает через пару секунд
         }
 
@@ -4765,7 +4590,6 @@ namespace Kapsula
             skyTop.Children.Add(cityRow);
             wIconHost = new Border { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-4, 10, 0, 0), Height = 48 };
             skyTop.Children.Add(wIconHost);
-            wSymbol = new TextBlock();   // текстовый значок больше не показывается — вместо него рисунок
             wTemp = new TextBlock { Foreground = Brushes.White, FontSize = 52, FontWeight = FontWeights.Light, Margin = new Thickness(-3, -2, 0, -6) };
             wDesc = new TextBlock { Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, LineHeight = 17, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };   // «Переменная облачность» — в две строки, а не обрезком
             wFeels = new TextBlock { Foreground = Brushes.White, Opacity = 0.85, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) };
@@ -4826,7 +4650,7 @@ namespace Kapsula
             tiles.Children.Add(WTileBig("Осадки", out wRain, out wRainSub, gRain.Root));
             tiles.Children.Add(WTileBig("Солнце", out wSun, out wSunSub, gSun));
             // Конструктор: небо, прогноз и шесть приборов лежат на сетке 13×6 — их можно переставлять и прятать
-            var wb = weatherBoard = PageBoard(PWeather, "weather", 13, 6, 6);
+            var wb = PageBoard(PWeather, "weather", 13, 6, 6);
             wb.Add("sky", "Небо", skyCard, 0, 0, 4, 6, false);
             wb.Add("forecast", "Прогноз", fcCard, 4, 0, 9, 2, false);
             string[] wIds = { "wind", "hum", "pres", "uv", "rain", "sun" }, wNames = { "Ветер", "Влажность", "Давление", "УФ-индекс", "Осадки", "Солнце" };
@@ -4957,70 +4781,18 @@ namespace Kapsula
             return new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Margin = new Thickness(3), Child = g };
         }
 
-        // Плитка-прибор: подпись сверху, прибор посередине, значение снизу
-        FrameworkElement WTileV(string label, out TextBlock value, out TextBlock sub, FrameworkElement gauge)
-        {
-            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            sp.Children.Add(new TextBlock { Text = label.ToUpper(), Foreground = Faint, FontSize = 9, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
-            gauge.Margin = new Thickness(0, 3, 0, 2);
-            gauge.HorizontalAlignment = HorizontalAlignment.Center;
-            sp.Children.Add(new Viewbox { Height = 22, Child = gauge, HorizontalAlignment = HorizontalAlignment.Center });
-            value = new TextBlock { Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            sub = new TextBlock { Visibility = Visibility.Collapsed };
-            sp.Children.Add(value);
-            return new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Margin = new Thickness(3), Child = sp };
-        }
-
-        FrameworkElement WTile(string label, out TextBlock value, out TextBlock sub, bool arrow, FrameworkElement gauge)
-        {
-            var tile = (Border)WTile(label, out value, out sub, arrow);
-            if (gauge == null) return tile;
-            var g = new Grid();
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var text = (FrameworkElement)tile.Child;
-            tile.Child = null;
-            text.Margin = new Thickness(10, 0, 2, 0);
-            g.Children.Add(text);
-            gauge.VerticalAlignment = VerticalAlignment.Center;
-            gauge.Margin = new Thickness(0, 0, 9, 0);
-            Grid.SetColumn(gauge, 1);
-            g.Children.Add(gauge);
-            tile.Child = g;
-            return tile;
-        }
-
-        FrameworkElement WTile(string label, out TextBlock value, out TextBlock sub, bool arrow)
-        {
-            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(11, 0, 6, 0) };
-            sp.Children.Add(new TextBlock { Text = label.ToUpper(), Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.SemiBold });
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
-            value = new TextBlock { Foreground = Fg, FontSize = 15.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom };
-            row.Children.Add(value);
-            if (arrow)
-            {
-                wWindArrow = new TextBlock { Text = "", FontFamily = Icons, FontSize = 10, Foreground = accent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 2, 0, 0), RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = wWindRot };
-                row.Children.Add(wWindArrow);
-            }
-            sub = new TextBlock { Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(5, 0, 0, 1) };
-            row.Children.Add(sub);
-            sp.Children.Add(row);
-            return new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Margin = new Thickness(3), Child = sp };
-        }
-
         void FillWeather()
         {
             Color[] sky = Weather.Sky(weather.Code, weather.IsDay);
             skyA.Color = sky[0]; skyB.Color = sky[1];
             wCity.Text = weather.City;
-            wSymbol.Text = weather.IsDay || weather.Code > 1 ? Weather.Symbol(weather.Code) : "☾";
             if (wIconHost != null) wIconHost.Child = WeatherArt.Icon(weather.Code, weather.IsDay, 48);
             wDesc.Text = Weather.Describe(weather.Code);
             if (wSummary != null) wSummary.Text = WeatherSummary(weather);
             if (wPet != null)
             {
-                string wsym = Weather.Symbol(weather.Code);
                 wPet.Prop = "";   // погоду и так показывает крупный значок рядом — второй у зверька лишний
+                wPet.Sky = SkySign();   // а сценки — по небу: под дождём отряхивается, в снег мёрзнет, на солнце загорает
                 wPet.Mood(weather.Code >= 95 ? "alarm" : weather.IsDay && weather.Code <= 1 ? "happy" : "idle");
             }
             wFeels.Text = "Ощущается как " + Weather.Temp(weather.Feels);
@@ -5035,8 +4807,6 @@ namespace Kapsula
             wPresSub.Text = weather.PressureTrend > 0.4 ? "↑ растёт" : weather.PressureTrend < -0.4 ? "↓ падает" : "→ стабильно";
             wRainSub.Text = weather.RainMm > 0.05 ? weather.RainMm.ToString("0.#") + " мм за сутки" : "без осадков";
             wUvSub.Text = (weather.Uv < 3 ? "низкий" : weather.Uv < 6 ? "средний" : weather.Uv < 8 ? "высокий" : "опасный") + (weather.UvTomorrow >= 0 ? " · завтра " + Math.Round(weather.UvTomorrow) : "");
-            wWindSub.Text = Weather.WindName(weather.WindDir);
-
             wWindSub.Text = Weather.WindName(weather.WindDir);
             RenderForecast();
             weatherAnimAt = Environment.TickCount | 1;
@@ -5055,7 +4825,6 @@ namespace Kapsula
             wPres.Text = Math.Round(weather.Pressure * e) + " мм";
             wUv.Text = (weather.Uv * e).ToString("0.#");
             wRain.Text = Math.Round(weather.RainProb * e) + "%";
-            wWindRot.Angle = (weather.WindDir + 180) * e;
             if (gHum != null)
             {
                 // Приборы оживают вместе с цифрами
@@ -5084,10 +4853,24 @@ namespace Kapsula
             if (string.IsNullOrEmpty(city) || weatherBusy) return;
             weatherBusy = true;
             weatherAt = Environment.TickCount;
+            bool same = city == Store.Get("cityQuery");   // обновляем прогноз того же города, а не ищем новый
             ThreadPool.QueueUserWorkItem(delegate
             {
                 WeatherData w = Weather.Fetch(city);
-                Dispatcher.BeginInvoke(new Action(delegate { weatherBusy = false; weather = w; if (w != null && w.Error == null) weatherSearchOpen = false; RenderWeather(); RenderCompact(); }));
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    weatherBusy = false;
+                    // Не загрузилось (сети ещё нет — после сна, при входе в Windows): пробуем снова через пару минут, а не через полчаса,
+                    // и прошлый прогноз не стираем ошибкой
+                    bool failed = w == null || w.Error != null;
+                    if (failed && city == Store.Get("cityQuery")) weatherAt = unchecked(Environment.TickCount - 28 * 60 * 1000);
+                    if (failed && same && weather != null && weather.Error == null)
+                    {
+                        if (expanded && page == PWeather) Toast("", "Нет связи — показан прошлый прогноз", null, -1, null);
+                        return;
+                    }
+                    weather = w; if (w != null && w.Error == null) weatherSearchOpen = false; RenderWeather(); RenderCompact();
+                }));
             });
         }
 
@@ -5186,33 +4969,12 @@ namespace Kapsula
             FillWeather();
         }
 
-        FrameworkElement WeatherRow(List<string[]> items, bool days)
-        {
-            var ug = new UniformGrid { Rows = 1, Columns = Math.Max(1, items.Count), Margin = new Thickness(4) };
-            for (int i = 0; i < items.Count; i++)
-            {
-                string[] it = items[i];
-                bool now = i == 0;
-                var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                sp.Children.Add(new TextBlock { Text = now ? (days ? "Сегодня" : "Сейчас") : it[0], Foreground = now ? Fg : Dim, FontSize = 10.5, FontWeight = now ? FontWeights.SemiBold : FontWeights.Normal, HorizontalAlignment = HorizontalAlignment.Center });
-                sp.Children.Add(new TextBlock { Text = it[1], FontFamily = Symbols, Foreground = Fg, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 2) });
-                var t = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
-                t.Inlines.Add(new System.Windows.Documents.Run(it[2]) { Foreground = Fg });
-                if (days && it.Length > 3) t.Inlines.Add(new System.Windows.Documents.Run(" " + it[3]) { Foreground = Dim, FontWeight = FontWeights.Normal });
-                sp.Children.Add(t);
-                // первая колонка — «сейчас»: мягкая подложка, чтобы глаз сразу находил текущее
-                ug.Children.Add(now ? (UIElement)new Border { Background = Glass.Fill, CornerRadius = new CornerRadius(12), Child = sp } : sp);
-            }
-            return new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Block, Height = 68, Margin = new Thickness(0), Child = ug };
-        }
-
         // ------------------------------------------------------ Система
         Tile quietTile;
 
         FrameworkElement BuildSystemPage()
         {
             var sp = new StackPanel();
-            var tiles = new UniformGrid { Rows = 3, Columns = 4, Height = 216 };
             var lockTile = new Tile("", "Блокировка", delegate { Native.LockWorkStation(); });
             sleepTile = new Tile("", "Сон", delegate
             {
@@ -5245,15 +5007,13 @@ namespace Kapsula
                 Toast("", on ? "VPN включается…" : "VPN выключается…", null, -1, accent);
                 ThreadPool.QueueUserWorkItem(delegate { Warp.Set(on); Thread.Sleep(2500); Dispatcher.BeginInvoke(new Action(RefreshControl)); });
             });
-            var setTile = new Tile("", "Настройки", delegate { OpenSettings(); });
             quietTile = new Tile(((char)0xE708).ToString(), "Не беспокоить", delegate { SetQuiet(QuietNow ? 0 : 60); RenderSystem(); });
             // Плитки разложены по смыслу, у каждой группы подпись: что подключено, как ведёт себя Kapsula, питание компьютера.
             // Плитки «Настройки» здесь больше нет — шестерёнка стоит в углу панели на любой вкладке.
-            GC.KeepAlive(setTile); GC.KeepAlive(tiles);
             // Конструктор: двенадцать плиток и нагрузка лежат на сетке 4×4 — их можно переставлять и прятать
             Tile[] sysTiles = { netTile, btTile, vpnTile, micTile, themeTile, autoTile, lyrTile, quietTile, lockTile, sleepTile, restartTile, offTile };
             string[] sysIds = { "net", "bt", "vpn", "mic", "theme", "auto", "lyrics", "quiet", "lock", "sleep", "restart", "off" };
-            var sb = systemBoard = PageBoard(PSystem, "system", 4, 4, 8);
+            var sb = PageBoard(PSystem, "system", 4, 4, 8);
             for (int i = 0; i < sysTiles.Length; i++)
             {
                 Tile tl = sysTiles[i];
@@ -5285,33 +5045,6 @@ namespace Kapsula
             WireBoard(sb);
             sb.Load();
             sp.Children.Add(sb.Root);
-
-            var tr = new Grid { Margin = new Thickness(0, 10, 0, 0), Height = 34 };
-            var trLeft = new StackPanel { Orientation = Orientation.Horizontal };
-            trLeft.Children.Add(new TextBlock { Text = "Таймер", Foreground = Dim, FontSize = 12.5, Width = 70, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) });
-            string[] labels = { "+1 мин", "+5", "+15", "+30" };
-            int[] mins = { 1, 5, 15, 30 };
-            for (int i = 0; i < labels.Length; i++)
-            {
-                int m = mins[i];
-                var b = Btn(labels[i], false, 0, 30, delegate { AddTimer(m); });
-                b.Margin = new Thickness(0, 0, 6, 0);
-                b.VerticalAlignment = VerticalAlignment.Center;
-                trLeft.Children.Add(b);
-            }
-            var reset = Btn("Сброс", false, 0, 30, delegate { timerEnd = DateTime.MinValue; timerRinging = false; RenderCompact(); RenderSystem(); SetTargets(); });
-            reset.VerticalAlignment = VerticalAlignment.Center;
-            trLeft.Children.Add(reset);
-            var settingsBtn = Btn("Настройки…", false, 0, 30, delegate { OpenSettings(); });
-            settingsBtn.VerticalAlignment = VerticalAlignment.Center;
-            settingsBtn.Margin = new Thickness(14, 0, 0, 0);
-            trLeft.Children.Add(settingsBtn);
-            tr.Children.Add(trLeft);
-            timerText = new TextBlock { Foreground = accent, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 16, 0) };
-            tr.Children.Add(timerText);
-            // Строка таймера убрана отсюда: таймер живёт на вкладке «Заметка» и в командной строке.
-            tr.Visibility = Visibility.Collapsed;
-            sp.Children.Add(tr);
 
             sysMain = sp;
             var page = new Grid();
@@ -5361,7 +5094,16 @@ namespace Kapsula
             {
                 bool on = control.WifiOn != true;
                 wifiSwitchLabel.Text = on ? "Включается…" : "Выключается…";
-                ThreadPool.QueueUserWorkItem(delegate { Radios.Set(true, on); Thread.Sleep(1500); Dispatcher.BeginInvoke(new Action(delegate { RefreshControl(); ScanWifi(); })); });
+                // Сети ищем, когда уже известно новое состояние радио (RenderControl), иначе подпись и список — от прежнего.
+                // После включения Windows заполняет список сетей не сразу — через пару секунд ищем ещё раз.
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    Radios.Set(true, on); Thread.Sleep(1500);
+                    Dispatcher.BeginInvoke(new Action(delegate { wifiRescanPending = true; RefreshControl(); }));
+                    if (!on) return;
+                    Thread.Sleep(3000);
+                    Dispatcher.BeginInvoke(new Action(delegate { if (wifiPanel.Visibility == Visibility.Visible) ScanWifi(); }));
+                });
             });
             wifiSwitchLabel = (TextBlock)wifiSwitch.Child;
             wifiSwitch.HorizontalAlignment = HorizontalAlignment.Right;
@@ -5383,7 +5125,9 @@ namespace Kapsula
         TextBlock wifiSwitchLabel;
         List<WifiNet> wifiNets;
         bool wifiBusy;
+        bool wifiRescanPending;   // Wi-Fi включили или выключили — поискать сети, когда придёт новое состояние радио
         string wifiAsk;   // сеть, для которой открыто поле пароля
+        string wifiFailed;   // защищённая сеть, к которой только что не удалось подключиться: следующий «Подключить» спросит пароль
 
         void ShowWifi(bool on)
         {
@@ -5439,7 +5183,7 @@ namespace Kapsula
                 var act = Btn(net.Connected ? "Отключить" : "Подключить", false, 0, 28, delegate
                 {
                     if (net.Connected) { ThreadPool.QueueUserWorkItem(delegate { Wifi.Disconnect(); Thread.Sleep(800); Dispatcher.BeginInvoke(new Action(delegate { RefreshControl(); ScanWifi(); })); }); return; }
-                    if (net.Secure && !net.Known) { wifiAsk = wifiAsk == net.Ssid ? null : net.Ssid; RenderWifi(); return; }
+                    if (net.Secure && (!net.Known || net.Ssid == wifiFailed)) { wifiAsk = wifiAsk == net.Ssid ? null : net.Ssid; RenderWifi(); return; }
                     ConnectWifi(net, null);
                 });
                 if (!net.Connected) { act.Background = Tile.Accent; ((TextBlock)act.Child).Foreground = Brushes.White; }
@@ -5477,6 +5221,7 @@ namespace Kapsula
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     Toast(((char)0xE701).ToString(), ok ? "Подключено: " + net.Ssid : "Не удалось подключиться к " + net.Ssid, null, -1, ok ? (Brush)accent : RecRed);
+                    wifiFailed = !ok && net.Secure ? net.Ssid : null;   // сохранённый пароль не подошёл (например, его сменили на роутере) — по следующему нажатию дать ввести новый
                     RefreshControl(); ScanWifi();
                 }));
             });
@@ -5533,6 +5278,17 @@ namespace Kapsula
             vpnTile.SetActive(control.VpnOn == true);
             vpnTile.Label.Text = control.VpnOn == null ? "VPN не найден" : (control.VpnOn == true ? "VPN включён" : "VPN");
             if (btPanel.Visibility == Visibility.Visible) RenderBt();
+            // Панель Wi-Fi открыта — подпись переключателя и список сетей по свежему состоянию радио.
+            // Пока радио переключается, «Включается…» не трогаем: новое состояние придёт вместе с просьбой поискать сети.
+            bool rescan = wifiRescanPending; wifiRescanPending = false;
+            if (wifiPanel != null && wifiPanel.Visibility == Visibility.Visible && (rescan || !wifiSwitchLabel.Text.EndsWith("…", StringComparison.Ordinal)))
+            {
+                string radio = control.WifiOn == true ? "Включён" : "Выключен";
+                bool changed = wifiSwitchLabel.Text != radio;   // радио переключили (здесь или в Windows) — список сетей тоже устарел
+                wifiSwitchLabel.Text = radio;
+                if (wifiBusy) wifiRescanPending = rescan || changed;   // поиск ещё идёт по прежнему состоянию — повторим со следующим опросом
+                else if (rescan || (changed && wifiAsk == null)) ScanWifi();
+            }
         }
 
         void RenderBt()
@@ -5738,45 +5494,6 @@ namespace Kapsula
             return sb.ToString();
         }
 
-        // ------------------------------------------------------------ глаза
-        void UpdateEyes()
-        {
-            Native.POINT pt;
-            if (!Native.GetCursorPos(out pt)) return;
-            // Центр глаз в координатах экрана
-            double ex = Left + (BaseW / 2 - sw.X / 2 + Ear + 12 + 13) * Scale, ey = Top + pillH / 2 * Scale;
-            double dx = pt.X / dpi - ex, dy = pt.Y / dpi - ey, len = Math.Sqrt(dx * dx + dy * dy);
-            double reach = Math.Min(1, len / 140);
-            double ox = len < 1 ? 0 : dx / len * 2.6 * reach, oy = len < 1 ? 0 : dy / len * 2.4 * reach;
-            int now = Environment.TickCount;
-            if (blinkAt == 0) blinkAt = now + 2500 + rnd.Next(4000);
-            if (unchecked(now - blinkAt) >= 0) { blinkUntil = now + 130; blinkAt = now + 2500 + rnd.Next(4500); }
-            bool asleep = Native.IdleMs() > 120000;
-            double lid = asleep ? 0.14 : (unchecked(now - blinkUntil) < 0 ? 0.12 : 1);
-            if (character != Character) BuildCharacter();
-
-            // Настроение: тревога, когда звенит таймер; задумчивость, пока отвечает нейросеть; радость после удачного действия.
-            string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : unchecked(now - happyUntil) < 0 ? "happy" : asleep ? "sleep" : "");
-            bool happy = mood == "happy", alarm = mood == "alarm";
-            double wide = 1, shrink = 1;
-            if (alarm) { ox = rnd.NextDouble() * 1.8 - 0.9; oy = rnd.NextDouble() * 1.4 - 0.7; lid = 1.16; wide = 1.1; shrink = 0.7; }
-            else if (mood == "think") { ox = Math.Sin(now / 420.0) * 1.7; oy = -2.3; lid = 1; }
-            else if (mood == "sleep") lid = 0.14;
-            bool dots = character == "dots";
-            for (int i = 0; i < 2; i++)
-            {
-                double w = pupilW * shrink, h = pupilH * shrink;
-                if (dots && lid < 0.5) h = 1.6;   // у «точек» нет белков — при моргании сплющивается сама точка
-                pupils[i].Width = w; pupils[i].Height = h;
-                Canvas.SetLeft(pupils[i], i * 14 + (11 - w) / 2 + ox);
-                Canvas.SetTop(pupils[i], 0.5 + (13 - h) / 2 + oy * (character == "cat" ? 0.4 : 1));
-                lids[i].ScaleY = lid; lids[i].ScaleX = wide;
-                whites[i].Visibility = happy ? Visibility.Hidden : Visibility.Visible;
-                pupils[i].Visibility = happy || (!dots && lid < 0.5) ? Visibility.Hidden : Visibility.Visible;
-                smiles[i].Visibility = happy ? Visibility.Visible : Visibility.Collapsed;
-            }
-        }
-
         // ------------------------------------------------ уведомления Windows
         volatile bool notifStop;
         bool notifRunning;
@@ -5860,6 +5577,7 @@ namespace Kapsula
                                 {
                                     ImageSource logoImg = ImageFrom(logo) ?? Shell.IconForApp(aum);   // у обычных программ Windows значок не отдаёт — берём из ярлыка в «Пуске»
                                     if (Quiet(a.Length > 0 ? a : "Windows", a.Length > 0 ? a : "Уведомление", text)) return;
+                                    if (ClaudeCardUp()) return;   // не закрываем вопрос Claude Code; уведомление уже в истории
                                     ShowCardEx(null, "", a.Length > 0 ? a : "Уведомление", Store.Get("hideNotifText") == "1" ? "Новое уведомление" : text, delegate { }, null, null, false);
                                     SetCardLogo(logoImg);   // нет значка — остаётся колокольчик
                                     HideCardButton();
@@ -5881,7 +5599,7 @@ namespace Kapsula
         // ------------------------------------------------------ Discord и Steam
         List<SteamGame> steamGames = new List<SteamGame>();
         bool steamScanning, steamFirst = true;
-        int steamRunId;
+        int steamRunId, steamScanAt;   // steamScanAt — когда последний раз перечитывали список игр
         DateTime steamRunAt;
 
         static ImageSource ImageFrom(byte[] data)
@@ -5906,6 +5624,7 @@ namespace Kapsula
         {
             if (DiscordLive && title == "Incoming call") return;   // звонок показывает своя карточка — с кнопками «Принять» и «Отклонить»
             if (TestDemoCard == null && Quiet("Discord", title, text)) { UnreadAdd(true); return; }
+            if (TestDemoCard == null && ClaudeCardUp()) { UnreadAdd(true); return; }   // не закрываем вопрос Claude Code; сообщение уже в истории
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
             ShowCardEx(ImageFrom(icon), "", title, text, open, null, null, false);
             SetCardBadge(SourceIcon("discord"));
@@ -5956,6 +5675,10 @@ namespace Kapsula
         List<ClaudeItem> claudeQueue = new List<ClaudeItem>();
         ClaudeBridge.Pending claudeNow;   // запрос, чья карточка сейчас на острове
         bool claudeBusy;                  // пользователь выбирает вариант или печатает ответ — не перебиваем
+
+        // На острове вопрос Claude Code, на который ещё не ответили: уведомления и напоминания его не закрывают
+        // (сам он чужие карточки тоже не перекрывает — ждёт, ClaudePump)
+        bool ClaudeCardUp() { return state == 3 && claudeNow != null && !claudeNow.Answered; }
 
         void ClaudeEnqueue(ClaudeBridge.Pending p, Action show)
         {
@@ -6138,7 +5861,6 @@ namespace Kapsula
         // Что Claude Code делает сейчас — короткой надписью, не чаще раза в несколько секунд.
         void ClaudeWorking(string tool, string detail, string project)
         {
-            AgentLine(tool, detail, project);
             if (Store.Get("claudeActivity") != "1" || QuietNow || !ClaudeAway() || state != 0 || claudeQueue.Count > 0) return;   // по умолчанию выключено: это шум
             int now = Environment.TickCount;
             if (claudeToastAt != 0 && unchecked(now - claudeToastAt) < 6000) return;
@@ -6168,13 +5890,14 @@ namespace Kapsula
 
         // ---- вкладка «Claude»: открытые сессии, что делает каждая, и расход за сегодня
         StackPanel claudeList;
-        TextBlock claudeUsage;
+        StackPanel claudeEmpty;   // пустой список сессий — с тем же спящим зверьком между перерисовками
         Border claudeStopAll;
 
         // ---- вкладка «Claude Code»: понятная статистика, живые сессии и новая задача в один шаг
         TextBlock claudeStepsVal, claudeOutVal, claudeWeekVal;
         StackPanel claudeWeekBars;
-        Border claudeStatsRow;
+        Border[] claudeTiles;                   // три плитки статистики: на всех — подсказка с подробностями
+        string claudePageSig, claudeBarsSig;    // что сейчас нарисовано: без изменений список и столбики не пересобираем
         TextBlock claudeProjLabel, claudeTaskHint;
         TextBox claudeTaskBox;
         string claudeTaskDir;
@@ -6193,23 +5916,14 @@ namespace Kapsula
 
         FrameworkElement BuildClaudePage()
         {
-            var dock = new DockPanel();
             // ---- статистика
-            var stats = new Grid { Height = 58, Margin = new Thickness(0, 0, 0, 8) };
-            for (int i = 0; i < 5; i++) stats.ColumnDefinitions.Add(new ColumnDefinition { Width = i % 2 == 1 ? new GridLength(8) : new GridLength(i == 4 ? 1.3 : 1, GridUnitType.Star) });
             var t1 = StatTile("ШАГОВ СЕГОДНЯ", out claudeStepsVal, null);
             var t2 = StatTile("НАПИСАЛ СЕГОДНЯ", out claudeOutVal, null);
             claudeWeekBars = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Height = 30 };
             var t3 = StatTile("ЗА 7 ДНЕЙ", out claudeWeekVal, claudeWeekBars);
-            Grid.SetColumn(t2, 2); Grid.SetColumn(t3, 4);
-            stats.Children.Add(t1); stats.Children.Add(t2); stats.Children.Add(t3);
-            claudeStatsRow = new Border { Child = stats };   // подсказка с подробностями — на всех трёх плитках
+            claudeTiles = new Border[] { t1, t2, t3 };   // подсказка с подробностями — на всех трёх плитках
 
             // ---- новая задача внизу: проект и что сделать
-            var task = new Grid { Height = 36, Margin = new Thickness(0, 8, 0, 0) };
-            task.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            task.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            task.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             claudeProjLabel = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis };
             var projRow = new StackPanel { Orientation = Orientation.Horizontal };
             projRow.Children.Add(new TextBlock { Text = ((char)0xE8B7).ToString(), FontFamily = Icons, FontSize = 12, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
@@ -6217,7 +5931,6 @@ namespace Kapsula
             projRow.Children.Add(new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) });
             var proj = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 0), Child = projRow, Cursor = Cursors.Hand, ToolTip = "В какой папке работать" };
             proj.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ClaudeProjectMenu(proj); };
-            GC.KeepAlive(task);
             var field = new Grid();
             claudeTaskHint = new TextBlock { Text = "Попросить Claude Code… (Enter — запустить в терминале)", Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis };
             claudeTaskBox = MakeTextBox(false);
@@ -6236,11 +5949,9 @@ namespace Kapsula
             // ---- сессии
             claudeList = new StackPanel();
             var claudeScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList };
-            claudeUsage = new TextBlock();   // подсказка с подробностями висит на плитках
             claudeStopAll = Btn("Остановить все", false, 0, 26, delegate { ClaudeStop(null, null); });
             ClaudeUsage.Updated += delegate { Dispatcher.BeginInvoke(new Action(delegate { if (expanded && page == PClaude) RenderClaudeUsage(); })); };
             // конструктор: три плитки статистики, сессии, папка и строка новой задачи
-            stats.Children.Clear();
             var clb = PageBoard(PClaude, "claude", 12, 8, 8);
             clb.Add("steps", "Шагов сегодня", t1, 0, 0, 4, 2, false);
             clb.Add("written", "Написал сегодня", t2, 4, 0, 4, 2, false);
@@ -6248,7 +5959,6 @@ namespace Kapsula
             clb.Add("sessions", "Сессии", claudeScroll, 0, 2, 12, 5, false);
             clb.Add("project", "Папка", proj, 0, 7, 3, 1, false);
             clb.Add("task", "Новая задача", fieldCard, 3, 7, 9, 1, false);
-            GC.KeepAlive(dock);
             return FinishBoard(clb);
         }
 
@@ -6266,13 +5976,17 @@ namespace Kapsula
             var l = ClaudeProjects();
             l.Remove(dir); l.Insert(0, dir);
             if (l.Count > 8) l.RemoveRange(8, l.Count - 8);
-            Store.Set("claudeProjects", string.Join("|", l.ToArray()));
+            string joined = string.Join("|", l.ToArray());
+            if (joined != Store.Get("claudeProjects")) Store.Set("claudeProjects", joined);   // ничего не изменилось — настройки не переписываем
         }
 
-        string ClaudeTaskDir()
+        string ClaudeTaskDir() { return ClaudeTaskDir(null); }
+
+        // projects — уже прочитанный список папок, чтобы не проверять их на диске ещё раз (null — прочитать)
+        string ClaudeTaskDir(List<string> projects)
         {
             if (claudeTaskDir != null && System.IO.Directory.Exists(claudeTaskDir)) return claudeTaskDir;
-            var l = ClaudeProjects();
+            var l = projects ?? ClaudeProjects();
             if (l.Count > 0) return l[0];
             return ClaudeBridge.LastProject;
         }
@@ -6302,16 +6016,22 @@ namespace Kapsula
         void RenderClaudeUsage()
         {
             if (claudeStepsVal == null) return;
+            // подсказка с подробностями — на всех трёх плитках; ту же самую заново не ставим, иначе открытая подсказка закрывается
             string tip = ClaudeUsageTip();
-            claudeStatsRow.ToolTip = tip;
+            foreach (Border tile in claudeTiles) if ((tile.ToolTip as string) != tip) tile.ToolTip = tip;
             if (!ClaudeUsage.Ready) { claudeStepsVal.Text = "…"; claudeOutVal.Text = "…"; claudeWeekVal.Text = "…"; return; }
             claudeStepsVal.Text = ClaudeUsage.Replies.ToString("N0");
             claudeOutVal.Text = ClaudeUsage.Short(ClaudeUsage.Out) + " ток.";
             claudeWeekVal.Text = ClaudeUsage.Short(ClaudeUsage.Week);
             // мини-график по дням: сегодня — ярче
-            claudeWeekBars.Children.Clear();
             Dictionary<DateTime, long> byDay;
             lock (ClaudeUsage.Days) byDay = new Dictionary<DateTime, long>(ClaudeUsage.Days);
+            // столбики пересоздаём, только когда изменились их цифры: иначе их подсказки пропадают, не успев открыться
+            var barsSig = new StringBuilder(DateTime.Today.ToString("yyyyMMdd"));
+            for (int i = 6; i >= 0; i--) { long v; byDay.TryGetValue(DateTime.Today.AddDays(-i), out v); barsSig.Append('|').Append(v); }
+            if (barsSig.ToString() == claudeBarsSig) return;
+            claudeBarsSig = barsSig.ToString();
+            claudeWeekBars.Children.Clear();
             long max = 1;
             for (int i = 6; i >= 0; i--) { long v; if (byDay.TryGetValue(DateTime.Today.AddDays(-i), out v)) max = Math.Max(max, v); }
             for (int i = 6; i >= 0; i--)
@@ -6320,7 +6040,7 @@ namespace Kapsula
                 long v; byDay.TryGetValue(d, out v);
                 double h = Math.Max(2, 26.0 * v / max);
                 claudeWeekBars.Children.Add(new Border { Width = 5, Height = h, CornerRadius = new CornerRadius(2), Margin = new Thickness(1.5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom,
-                    Background = i == 0 ? (Brush)accent : Faint, ToolTip = d.ToString("ddd d MMM") + " — " + ClaudeUsage.Short(v) + " токенов" });
+                    Background = i == 0 ? (Brush)accent : Faint, ToolTip = d.ToString("ddd d MMM", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + ClaudeUsage.Short(v) + " токенов" });
             }
         }
         static string ClaudeUsageTip()
@@ -6333,9 +6053,22 @@ namespace Kapsula
             if (claudeList == null) return;
             RenderClaudeUsage();
             List<ClaudeBridge.Session> list = ClaudeBridge.Sessions();
-            foreach (ClaudeBridge.Session s0 in list) if (!string.IsNullOrEmpty(s0.Cwd)) RememberClaudeProject(s0.Cwd);
-            if (ClaudeProjects().Count == 0 && !string.IsNullOrEmpty(ClaudeBridge.LastProject)) RememberClaudeProject(ClaudeBridge.LastProject);
-            string dir = ClaudeTaskDir();
+            // Вкладка обновляется каждые полсекунды, а пересобирается, только когда что-то изменилось: иначе подсказки
+            // пропадают, не успев открыться. «5 мин назад» и «работает N мин» сверяются раз в 10 секунд.
+            var sig = new StringBuilder();
+            sig.Append(ClaudeBridge.Enabled).Append('|').Append(claudeTaskDir).Append('|').Append(Environment.TickCount / 10000);
+            foreach (ClaudeBridge.Session s2 in list)
+                sig.Append('\n').Append(s2.Id).Append('|').Append(s2.Name).Append('|').Append(s2.State).Append('|').Append(s2.Detail).Append('|').Append(s2.Last)
+                   .Append('|').Append(s2.Cwd).Append('|').Append(s2.Transcript).Append('|').Append(s2.At).Append('|').Append(s2.Steps).Append('|').Append(s2.StartedAt);
+            if (sig.ToString() == claudePageSig) return;
+            claudePageSig = sig.ToString();
+            // папку сессии запоминаем, только когда она новая: список не переставляется и не пишется в настройки каждые полсекунды
+            List<string> projects = ClaudeProjects();
+            bool added = false;
+            foreach (ClaudeBridge.Session s0 in list) if (!string.IsNullOrEmpty(s0.Cwd) && !projects.Contains(s0.Cwd)) { RememberClaudeProject(s0.Cwd); added = true; }
+            if (added) projects = ClaudeProjects();
+            if (projects.Count == 0 && !string.IsNullOrEmpty(ClaudeBridge.LastProject)) { RememberClaudeProject(ClaudeBridge.LastProject); projects = ClaudeProjects(); }
+            string dir = ClaudeTaskDir(projects);
             claudeProjLabel.Text = string.IsNullOrEmpty(dir) ? "Папка…" : ProjectName(dir);
             claudeList.Children.Clear();
 
@@ -6362,11 +6095,16 @@ namespace Kapsula
 
             if (list.Count == 0)
             {
-                var empty = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) };
-                var pet = new PetView(1.8, Ink); pet.Mood("sleep"); pet.Context = "claude";
-                empty.Children.Add(pet.Root);
-                empty.Children.Add(new TextBlock { Text = "Сейчас ничего не запущено — дайте задачу строкой ниже", Foreground = Dim, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
-                claudeList.Children.Add(empty);
+                // Пустой список — один и тот же спящий зверёк между перерисовками (раз в 10 секунд и при каждой перемене): новый каждый раз
+                // не успевал бы ни уснуть по-настоящему, ни увидеть сон
+                if (claudeEmpty == null)
+                {
+                    claudeEmpty = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) };
+                    var pet = new PetView(1.8, Ink); pet.Mood("sleep"); pet.Context = "claude";
+                    claudeEmpty.Children.Add(pet.Root);
+                    claudeEmpty.Children.Add(new TextBlock { Text = "Сейчас ничего не запущено — дайте задачу строкой ниже", Foreground = Dim, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
+                }
+                claudeList.Children.Add(claudeEmpty);
                 return;
             }
             foreach (ClaudeBridge.Session s in list)
@@ -6509,8 +6247,6 @@ namespace Kapsula
         }
 
         // Глаза: 0 обычные, 1 вниз, 2 круглые, 3 довольные, 4 закрытые. Значок справа от зверька — «!», «✓», «z», «…».
-        void PetMood(int state) { }   // настроение теперь считает PetAnimate — и по Claude Code, и по обычным событиям
-
         void PetFace(int eyesKind, string mark, Brush markBrush)
         {
             if (petEyes[0] == null) return;
@@ -6528,6 +6264,22 @@ namespace Kapsula
                 if (icon) petMark.FontFamily = Icons; else petMark.ClearValue(TextBlock.FontFamilyProperty);
             }
             petMark.Foreground = markBrush ?? Faint;
+        }
+
+        // Глаза на свои места и в обычный размер. Подмигивание, прищур и взгляд за курсором ставит только обычное
+        // состояние — без сброса глаз так и оставались кривыми, если зверёк переключился на запись, звонок или музыку.
+        bool petEyesMoved;   // глаза сдвинуты или сжаты — вернуть их, когда зверёк займётся другим
+        void ResetPetEyes()
+        {
+            petEyesMoved = false;
+            if (petEyes[0] == null) return;
+            for (int set = 0; set < petEyes.Length; set++)
+                foreach (Rectangle r in petEyes[set])
+                {
+                    double[] home = (double[])r.Tag;
+                    Canvas.SetLeft(r, home[0]); Canvas.SetTop(r, home[1]);
+                    if (set == 0) r.Height = 2 * PetPx + 0.3;
+                }
         }
 
         // Зверёк — сам персонаж капсулы (а не только значок Claude Code)?
@@ -6554,47 +6306,8 @@ namespace Kapsula
             if (path != null)
                 try
                 {
-                    byte[] data = System.IO.File.ReadAllBytes(path);
-                    var dec = BitmapDecoder.Create(new System.IO.MemoryStream(data), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                    var frames = new List<BitmapSource>(); var delays = new List<int>();
-                    bool gif = dec is GifBitmapDecoder;
-                    WriteableBitmap canvas = null;
-                    foreach (BitmapFrame fr in dec.Frames)
-                    {
-                        if (frames.Count >= 300) break;
-                        int delay = 100;
-                        if (gif)
-                        {
-                            // кадры GIF бывают кусочками — собираем полный кадр поверх предыдущего
-                            var md = fr.Metadata as BitmapMetadata;
-                            int left = 0, top = 0;
-                            try { if (md != null) { delay = Math.Max(20, Convert.ToInt32(md.GetQuery("/grctlext/Delay")) * 10); left = Convert.ToInt32(md.GetQuery("/imgdesc/Left")); top = Convert.ToInt32(md.GetQuery("/imgdesc/Top")); } } catch { }
-                            int fw = dec.Frames[0].PixelWidth, fh = dec.Frames[0].PixelHeight;
-                            if (canvas == null) canvas = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Pbgra32, null);
-                            var src = new FormatConvertedBitmap(fr, PixelFormats.Pbgra32, null, 0);
-                            int w = Math.Min(src.PixelWidth, fw - left), h = Math.Min(src.PixelHeight, fh - top);
-                            if (w > 0 && h > 0)
-                            {
-                                var px = new byte[src.PixelWidth * src.PixelHeight * 4];
-                                src.CopyPixels(px, src.PixelWidth * 4, 0);
-                                var cur = new byte[fw * fh * 4];
-                                canvas.CopyPixels(cur, fw * 4, 0);
-                                for (int y = 0; y < h; y++)
-                                    for (int x = 0; x < w; x++)
-                                    {
-                                        int si = (y * src.PixelWidth + x) * 4, di = ((y + top) * fw + x + left) * 4;
-                                        if (px[si + 3] == 0) continue;   // прозрачное — оставляем прошлый кадр
-                                        cur[di] = px[si]; cur[di + 1] = px[si + 1]; cur[di + 2] = px[si + 2]; cur[di + 3] = px[si + 3];
-                                    }
-                                canvas.WritePixels(new Int32Rect(0, 0, fw, fh), cur, fw * 4, 0);
-                            }
-                            var snap = new WriteableBitmap(canvas); snap.Freeze();
-                            frames.Add(snap);
-                        }
-                        else { var f2 = fr.Clone(); f2.Freeze(); frames.Add(f2); }
-                        delays.Add(delay);
-                    }
-                    if (frames.Count > 0) { stickerFrames = frames; stickerDelays = delays; }
+                    List<BitmapSource> frames; List<int> delays;
+                    if (DecodeSticker(System.IO.File.ReadAllBytes(path), out frames, out delays)) { stickerFrames = frames; stickerDelays = delays; }
                 }
                 catch (Exception ex) { Store.LogError("стикер", ex); }
             if (stickerImg == null) return;
@@ -6620,11 +6333,79 @@ namespace Kapsula
             Dispatcher.BeginInvoke(new Action(delegate { try { RenderCompact(); } catch { } }));
         }
 
+        // Кадры стикера из файла. false — кадров нет; картинку, которую не открыть (нет кодека WEBP, битый файл), — исключение.
+        // Кадры GIF бывают кусочками — собираем полный кадр поверх предыдущего и делаем с прошлым кадром то, что велит GIF:
+        // оставить (0, 1), стереть его место до прозрачного (2) или вернуть то, что было под ним (3) — иначе от движения остаются следы.
+        static bool DecodeSticker(byte[] data, out List<BitmapSource> frames, out List<int> delays)
+        {
+            frames = new List<BitmapSource>(); delays = new List<int>();
+            var dec = BitmapDecoder.Create(new System.IO.MemoryStream(data), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            bool gif = dec is GifBitmapDecoder;
+            int fw = 0, fh = 0, prevDisposal = 0;
+            byte[] cur = null, saved = null;   // холст и его копия до кадра с «верни как было»
+            Int32Rect prevRect = Int32Rect.Empty;
+            foreach (BitmapFrame fr in dec.Frames)
+            {
+                if (frames.Count >= 300) break;
+                int delay = 100;
+                if (gif)
+                {
+                    if (cur == null)
+                    {
+                        // холст — во весь «экран» GIF, а не по первому кадру: он тоже бывает кусочком
+                        fw = dec.Frames[0].PixelWidth; fh = dec.Frames[0].PixelHeight;
+                        try
+                        {
+                            int lw = Convert.ToInt32(dec.Metadata.GetQuery("/logscrdesc/Width")), lh = Convert.ToInt32(dec.Metadata.GetQuery("/logscrdesc/Height"));
+                            if (lw > 0 && lh > 0 && lw <= 4096 && lh <= 4096) { fw = lw; fh = lh; }
+                        }
+                        catch { }
+                        cur = new byte[fw * fh * 4];
+                    }
+                    var md = fr.Metadata as BitmapMetadata;
+                    int left = 0, top = 0, disposal = 0;
+                    try { if (md != null) { delay = Math.Max(20, Convert.ToInt32(md.GetQuery("/grctlext/Delay")) * 10); left = Convert.ToInt32(md.GetQuery("/imgdesc/Left")); top = Convert.ToInt32(md.GetQuery("/imgdesc/Top")); } } catch { }
+                    try { if (md != null) disposal = Convert.ToInt32(md.GetQuery("/grctlext/Disposal")); } catch { }
+                    // сначала — что GIF велел сделать с прошлым кадром
+                    if (prevDisposal == 2)
+                        for (int y = prevRect.Y; y < prevRect.Y + prevRect.Height; y++) Array.Clear(cur, (y * fw + prevRect.X) * 4, prevRect.Width * 4);
+                    else if (prevDisposal == 3 && saved != null) Buffer.BlockCopy(saved, 0, cur, 0, cur.Length);
+                    if (disposal == 3) saved = (byte[])cur.Clone();
+                    var src = new FormatConvertedBitmap(fr, PixelFormats.Pbgra32, null, 0);
+                    int w = Math.Min(src.PixelWidth, fw - left), h = Math.Min(src.PixelHeight, fh - top);
+                    if (w > 0 && h > 0)
+                    {
+                        var px = new byte[src.PixelWidth * src.PixelHeight * 4];
+                        src.CopyPixels(px, src.PixelWidth * 4, 0);
+                        for (int y = 0; y < h; y++)
+                            for (int x = 0; x < w; x++)
+                            {
+                                int si = (y * src.PixelWidth + x) * 4, di = ((y + top) * fw + x + left) * 4;
+                                if (px[si + 3] == 0) continue;   // прозрачное — оставляем то, что под ним
+                                cur[di] = px[si]; cur[di + 1] = px[si + 1]; cur[di + 2] = px[si + 2]; cur[di + 3] = px[si + 3];
+                            }
+                    }
+                    prevDisposal = disposal;
+                    prevRect = w > 0 && h > 0 ? new Int32Rect(left, top, w, h) : Int32Rect.Empty;
+                    var snap = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Pbgra32, null);
+                    snap.WritePixels(new Int32Rect(0, 0, fw, fh), cur, fw * 4, 0);
+                    snap.Freeze();
+                    frames.Add(snap);
+                }
+                else { var f2 = fr.Clone(); f2.Freeze(); frames.Add(f2); }
+                delays.Add(delay);
+            }
+            return frames.Count > 0;
+        }
+
         // Выбранная картинка копируется в папку Kapsula, чтобы стикер не пропал, если исходный файл удалят
         public bool SetSticker(string file)
         {
             try
             {
+                // сначала проверяем, что новая картинка открывается: иначе прежний стикер был бы уже удалён, а на его месте — битый файл
+                List<BitmapSource> testFrames; List<int> testDelays;
+                if (file != null && !DecodeSticker(System.IO.File.ReadAllBytes(file), out testFrames, out testDelays)) return false;
                 foreach (string ext in new[] { ".gif", ".png", ".webp", ".jpg" }) { string p = System.IO.Path.Combine(Store.Dir, "sticker" + ext); if (System.IO.File.Exists(p)) System.IO.File.Delete(p); }
                 if (file != null)
                 {
@@ -6659,8 +6440,9 @@ namespace Kapsula
 
         int petBlinkAt, petBlinkUntil, petNotifyUntil, petLowUntil;
         int petFlashUntil, petPokeUntil, petEggUntil, petGiftUntil, petHurtUntil, petStretchUntil, petPokes, petPokeAt, petCheerAt;
+        bool petLively;   // зверёк в капсуле сейчас в движении (подпрыгивает, машет, кивает) — CalmCheck не замедляет опрос
         bool PetProps() { return Character == "pet" && ShowEyes; }
-        static bool Until(int u) { return u != 0 && unchecked(Environment.TickCount - u) < 0; }
+        static bool Until(int u) { int left = unchecked(u - Environment.TickCount); return u != 0 && left > 0 && left <= 86400000; }   // по оставшемуся времени (не больше суток): давняя метка не «оживает», когда счётчик Windows через 25 дней работы меняет знак
 
         // Кликнули по зверьку: подпрыгивает; пять кликов подряд — маленькая пасхалка
         void PetPoke()
@@ -6754,17 +6536,18 @@ namespace Kapsula
         // радуется → спит → просто смотрит за курсором и моргает.
         void PetAnimate()
         {
+            petLively = false;
             if (claudeDot == null || claudeDot.Visibility != Visibility.Visible) return;
             if (petDressedAs != PetView.OutfitVersion) PetRedress();   // новый наряд — переодеться
             int now = Environment.TickCount;
             double t = now / 1000.0;
             bool chr = PetIsCharacter();
             bool asleep = Native.IdleMs() > 120000;
-            string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : unchecked(now - happyUntil) < 0 ? "happy" : asleep ? "sleep" : "");
+            string mood = TestMood ?? (timerRinging ? "alarm" : chatBusy ? "think" : Until(happyUntil) ? "happy" : asleep ? "sleep" : "");
             if (mood == "" || mood == "sleep")
             {
-                if (unchecked(now - petNotifyUntil) < 0) mood = "notify";
-                else if (unchecked(now - petLowUntil) < 0) mood = "low";
+                if (Until(petNotifyUntil)) mood = "notify";
+                else if (Until(petLowUntil)) mood = "low";
             }
             if (!chr && !PetDancing() && TestMood == null) mood = "";
             string act = TestMood != null ? TestMood : !PetProps() ? "" : Recorder.Active ? "rec"
@@ -6772,7 +6555,11 @@ namespace Kapsula
                 : steamDlApp != null || dlActive != null ? (steamDlApp != null && steamDlDone ? "carried" : "carry")
                 : toastOn && toastValue >= 0 ? (toastBright ? "bright" : toastCharge == 1 ? "charge" : "vol") : Until(petNetUntil) ? (netOnline ? "online" : "offline") : Until(petUpdUntil) ? "update" : Until(petBudsUntil) ? "buds" : Until(petFlashUntil) ? "flash" : Until(petEggUntil) ? "egg" : Until(petPokeUntil) ? "poke"
                 : Until(petGiftUntil) ? "gift" : Until(petHurtUntil) ? "hurt" : Until(petStretchUntil) ? "stretch" : Until(petWaveUntil) ? "wave" : Until(petLoveUntil) ? "love" : "";   // значок Claude Code при другом персонаже на таймер и чат не реагирует
+            // подпрыгивает, машет, кивает в звонке… — опрос не замедлять (CalmCheck): при 10 кадрах в секунду движение шло бы рывками.
+            // Спокойные — только обычное состояние, сон и усталость
+            petLively = act != "" || mood != "" && mood != "sleep" && mood != "low";
             petShift.X = 0; petShift.Y = 0; petMark.Opacity = 1;
+            bool eyesOwn = false;   // обычное состояние и танец ставят глаза сами; после остальных глаза возвращаются на место (в конце)
             if (act != "update" && act != "wave" && act != "hi" && act != "bye" && petMark.RenderTransform != Transform.Identity) petMark.RenderTransform = Transform.Identity;   // крутился значок «обновить» или махала лапа — выпрямить
             PetPaws(act == "vol" && toastValue >= 0.98);   // громкость на максимуме — зажал уши лапами
 
@@ -6806,9 +6593,9 @@ namespace Kapsula
                 // звонок: микрофон выключен — зверёк потупился, рядом красный крестик; в эфире — зелёный огонёк,
                 // а когда в разговоре звучит голос, зверёк кивает и огонёк пульсирует
                 bool voice = callVoiceAt != 0 && unchecked(now - callVoiceAt) < 900;
-                if (DiscordLive && dvDeaf) { PetFace(4, "", RecRed); petShift.Y = 0.5; }   // полный мут: зажмурился, рядом красные наушники
+                if (DiscordCall && dvDeaf) { PetFace(4, "", RecRed); petShift.Y = 0.5; }   // полный мут: зажмурился, рядом красные наушники
                 else if (callMuted) { PetFace(1, "×", RecRed); petShift.Y = 0.5; }
-                else if (DiscordLive && dvStream)
+                else if (DiscordCall && dvStream)
                 {
                     // демонстрация экрана: красный огонёк «в эфире» мигает, а под голос зверёк ещё и кивает
                     PetFace(voice ? 3 : 0, "●", RecRed);
@@ -6902,8 +6689,10 @@ namespace Kapsula
             else if (chr && pomoPhase == 2 && timerEnd > DateTime.Now) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }       // помодоро, перерыв: отдыхает
             else if (PetDancing() && (claudeState == 0 || claudeState == 4))
             {
+                eyesOwn = true;
+                if (petEyesMoved) ResetPetEyes();   // танец двигает только обычные глаза: подмигивание или прищур не должны остаться
                 // Под музыку зверёк не спит. Раз в несколько секунд он выбирает новое движение — наугад, но не то же самое.
-                if (unchecked(now - petMoveUntil) >= 0)
+                if (petMoveUntil == 0 || unchecked(now - petMoveUntil) >= 0)
                 {
                     int next = rnd.Next(6);
                     if (next == petMove) next = (next + 1) % 6;
@@ -6951,11 +6740,13 @@ namespace Kapsula
                     double[] home = (double[])r.Tag;
                     Canvas.SetLeft(r, home[0] + look * PetPx); Canvas.SetTop(r, home[1]);
                 }
+                if (look != 0) petEyesMoved = true;
             }
             else if (mood == "sleep" || (claudeState == 4 && !chr)) { PetFace(4, "z", Faint); petMark.Opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.Sin(t * 1.6)); }
             else
             {
                 // Обычное состояние: глаза сдвигаются на клетку в сторону курсора; раз в несколько секунд зверёк моргает
+                eyesOwn = true;
                 if (petBlinkAt == 0) petBlinkAt = now + 2500 + rnd.Next(4000);
                 if (unchecked(now - petBlinkAt) >= 0) { petBlinkUntil = now + 140; petBlinkAt = now + 2500 + rnd.Next(4500); }
                 string wm = NeedsBreak() && chr ? "☕" : PetWeatherMark();
@@ -6963,7 +6754,7 @@ namespace Kapsula
                 bool night = hour < 5 || hour >= 23 || PetView.TestNight == 1 || act == "night";   // поздно — в колпаке и клюёт носом
                 if (night && unchecked(petBlinkUntil - now) > 100 && unchecked(petBlinkUntil - now) <= 140) petBlinkUntil = now + 900;   // ночью клюёт носом: глаза закрываются надолго
                 bool emoting = TestEmote != null || petEmote != "" && unchecked(now - petEmoteUntil) < 0;   // во время эмоции не моргает
-                if (unchecked(now - petBlinkUntil) < 0 && !emoting) { PetFace(4, night ? "z" : wm, night ? Faint : Dim); if (night) petShift.Y = 1; return; }
+                if (petBlinkUntil != 0 && unchecked(now - petBlinkUntil) < 0 && !emoting) { PetFace(4, night ? "z" : wm, night ? Faint : Dim); if (night) petShift.Y = 1; return; }
                 // сделано три круга помодоро и больше — время от времени довольно подпрыгивает
                 if (chr && DoneToday() >= 3)
                 {
@@ -7057,7 +6848,10 @@ namespace Kapsula
                         k++;
                     }
                 }
+                petEyesMoved = true;
             }
+            // Запись, звонок, яркость и прочее показывают глаза как есть — возвращаем их на место (один раз, а не каждый кадр)
+            if (!eyesOwn && petEyesMoved) ResetPetEyes();
         }
 
         // ---- случайные эмоции и реакции на курсор, пока зверёк просто следит за мышью
@@ -7189,21 +6983,6 @@ namespace Kapsula
             RenderCompact();
         }
 
-        string HotText(string key)
-        {
-            foreach (Hot h in Hots)
-                if (h.Key == key && h.Vk != 0)
-                {
-                    string s = "";
-                    if ((h.Mods & 0x2) != 0) s += "Ctrl+";
-                    if ((h.Mods & 0x1) != 0) s += "Alt+";
-                    if ((h.Mods & 0x4) != 0) s += "Shift+";
-                    if ((h.Mods & 0x8) != 0) s += "Win+";
-                    return s + ((char)h.Vk).ToString();
-                }
-            return "сочетание клавиш";
-        }
-
         // Запоминает уведомление в истории. true — сейчас «Не беспокоить», показывать карточку не нужно.
         bool Quiet(string source, string title, string text)
         {
@@ -7325,6 +7104,7 @@ namespace Kapsula
 
         void EarbudsTick()
         {
+            Earbuds.EnsureRunning();   // после выключения Bluetooth слушатель наушников сам не оживает — перезапускаем (не чаще раза в 15 с)
             EarbudsState s = Earbuds.Current;
             if (s == null) { budsSeen = false; return; }
             int now = Environment.TickCount;
@@ -7359,8 +7139,7 @@ namespace Kapsula
 
         // ---- заряд подключённых наушников в раскрытой панели (справа от вкладок)
         Border budsChip;
-        TextBlock budsChipText, budsChipGlyph;
-        Image budsChipImage;
+        TextBlock budsChipText;
         FrameworkElement budsChipIcon;
 
         // Полноразмерные наушники анфас: широкое оголовье и две вытянутые чашки со скруглёнными углами
@@ -7399,6 +7178,7 @@ namespace Kapsula
                 {
                     foreach (BtBattery.Device d in BtBattery.Connected())
                     {
+                        if (!d.Audio) continue;   // телефон, геймпад, клавиатура — не наушники: ни заряд, ни карточку подключения от них не берём
                         if (!any) { any = true; anyName = d.Name; }
                         int p = d.Battery;
                         if (p < 0 && (d.Name.IndexOf("AirPods", StringComparison.OrdinalIgnoreCase) >= 0 || d.Name.IndexOf("Beats", StringComparison.OrdinalIgnoreCase) >= 0))
@@ -7411,7 +7191,8 @@ namespace Kapsula
                 }
                 catch { }
                 finally { budsChipBusy = 0; }
-                Dispatcher.BeginInvoke(new Action(delegate { budsChipName = name; budsChipPct = pct; BudsChipRender(); BudsConnection(any, anyName, pct); }));
+                // в карточке — имя тех наушников, чей заряд показан, а не первых попавшихся
+                Dispatcher.BeginInvoke(new Action(delegate { budsChipName = name; budsChipPct = pct; BudsChipRender(); BudsConnection(any, pct >= 0 ? name : anyName, pct); }));
             });
         }
 
@@ -7423,9 +7204,6 @@ namespace Kapsula
             if (pct < 0) return;
             budsChipText.Text = pct + "%";
             budsChipText.Foreground = pct <= 10 ? RecRed : pct <= 20 ? (Brush)Amber : Dim;
-            // фото наушников под углом в маленьком значке смотрится плохо — здесь всегда рисованный значок анфас
-            budsChipImage.Visibility = Visibility.Collapsed;
-            budsChipGlyph.Visibility = Visibility.Collapsed;
             budsChip.ToolTip = (TestBuds >= 0 || TestChip >= 0 ? "AirPods Max" : budsChipName) + ": заряд " + pct + "%";
         }
 
@@ -7448,8 +7226,8 @@ namespace Kapsula
 
         void CalendarTick()
         {
+            Calendar.Refresh(false);   // события нужны и вкладке «Сегодня», и отсчёту в капсуле — даже без напоминаний
             if (Store.Get("calendar") == "0") return;
-            Calendar.Refresh(false);
             DateTime now = DateTime.Now;
             foreach (CalEvent e in Calendar.Events())
             {
@@ -7515,7 +7293,9 @@ namespace Kapsula
         {
             pomoPhase = 1; pomoRounds = 0;
             timerRinging = false;
+            timerTotal = TimeSpan.FromMinutes(25);   // кольцо на «Заметке» считает долю от длины отрезка
             timerEnd = DateTime.Now.AddMinutes(25);
+            if (ringArc != null) UpdateRing();
             RenderCompact(); SetTargets();
             Toast("", "Помодоро: 25 минут работы", null, -1, accent);
         }
@@ -7540,15 +7320,18 @@ namespace Kapsula
                 HabitAdd(3, 1);   // круг помодоро — к короне
                 int rest = pomoRounds % 4 == 0 ? 15 : 5;
                 pomoPhase = 2;
+                timerTotal = TimeSpan.FromMinutes(rest);
                 timerEnd = DateTime.Now.AddMinutes(rest);
                 Toast("", "Перерыв " + rest + " минут · кругов: " + pomoRounds, null, -1, accent);
             }
             else
             {
                 pomoPhase = 1;
+                timerTotal = TimeSpan.FromMinutes(25);
                 timerEnd = DateTime.Now.AddMinutes(25);
                 Toast("", "За работу: 25 минут", null, -1, accent);
             }
+            if (ringArc != null) UpdateRing();
             RenderCompact(); SetTargets();
             return true;
         }
@@ -8183,8 +7966,10 @@ namespace Kapsula
                 if (run != 0) steamRunAt = DateTime.Now;
                 steamRunId = run;
             }
-            if ((tick % 30 == 0 || steamFirst) && !steamScanning)
+            // по времени, а не по номеру тика: PollSteam зовётся только на нечётных тиках, и «tick % 30 == 0» не наступало
+            if ((steamFirst || unchecked(Environment.TickCount - steamScanAt) > 15000) && !steamScanning)
             {
+                steamScanAt = Environment.TickCount;
                 steamScanning = true;
                 ThreadPool.QueueUserWorkItem(delegate
                 {
@@ -8199,10 +7984,13 @@ namespace Kapsula
                             {
                                 // Была в загрузке, стала готова — сообщаем карточкой
                                 SteamGame old = steamGames.Find(delegate(SteamGame x) { return x.Id == g.Id; });
-                                if (g.Ready && (old == null || !old.Ready) && g.Id != steamRunId.ToString())
+                                // только из прежнего списка: игра, которой там не было (подключили диск с библиотекой, файл разок не прочитался), — не загрузка
+                                if (g.Ready && old != null && !old.Ready && g.Id != steamRunId.ToString())
                                 {
                                     string id = g.Id;
-                                    ShowCardEx(null, "", "Steam: игра готова", g.Name, delegate { Steam.Launch(id); }, "Играть", delegate { Steam.Launch(id); }, false);
+                                    // С плагином Millennium Steam сам присылает «Загрузка завершена» — вторая карточка не нужна
+                                    if (SteamBridge.Clients == 0 && !Quiet("Steam", "Steam: игра готова", g.Name))
+                                        ShowCardEx(null, "", "Steam: игра готова", g.Name, delegate { Steam.Launch(id); }, "Играть", delegate { Steam.Launch(id); }, false);
                                 }
                             }
                         steamGames = fresh;
@@ -8434,7 +8222,6 @@ namespace Kapsula
                 int id = w.ToInt32();
                 Hot hk = Hots.Find(delegate(Hot x) { return x.Id == id; });
                 if (hk != null && hk.Run != null) hk.Run();
-                else if (id >= DeckHotBase && id < DeckHotBase + 9) RunDeckSlot(id - DeckHotBase);
             }
             return IntPtr.Zero;
         }
@@ -8465,11 +8252,7 @@ namespace Kapsula
             };
             menu.Opening += delegate { lyr.Checked = LyricsOn(); };
             menu.Items.Add(lyr);
-            menu.Items.Add("Телефон как веб-камера…", null, delegate { OpenPhoneCam(); });
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
-            var home = new WF.ToolStripMenuItem("Вернуть остров наверх", null, delegate { Attach(true); });
-            menu.Opening += delegate { home.Visible = detached; };   // только когда остров отцеплен
-            menu.Items.Add(home);
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
             menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
             var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
@@ -8479,11 +8262,7 @@ namespace Kapsula
             awakeItem.Click += delegate { SetAwake(!awakeOn, TimeSpan.Zero, true); };
             menu.Items.Add(awakeItem);
             menu.Opening += delegate { awakeItem.Checked = awakeOn; };
-            menu.Opening += delegate { quiet.Text = QuietNow && !GamerMode ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };
-            var gamer = new WF.ToolStripMenuItem("Игровой режим");
-            gamer.Click += delegate { ToggleGamerMode(); };
-            menu.Items.Add(gamer);
-            menu.Opening += delegate { gamer.Checked = GamerMode; gamer.ShortcutKeyDisplayString = HotText("game"); };
+            menu.Opening += delegate { quiet.Text = QuietNow ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };   // то же условие, что у щелчка
             var games = new WF.ToolStripMenuItem("Показывать в играх и на весь экран");
             games.Click += delegate
             {
@@ -8498,7 +8277,6 @@ namespace Kapsula
             stopClaude.Click += delegate { ClaudeStop(null, null); };
             menu.Items.Add(stopClaude);
             menu.Opening += delegate { stopClaude.Visible = ClaudeBridge.Enabled && ClaudeBridge.Listening; stopClaude.Enabled = ClaudeBridge.Busy; };
-            menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add("Выход", null, delegate { tray.Visible = false; Application.Current.Shutdown(); });
             // Порядок по смыслу: главное сверху, переключатели, служебное, выход
             {
@@ -8772,6 +8550,7 @@ namespace Kapsula
         public void SetGlass(bool on)
         {
             GlassOn = on;
+            glassFailed = false; glassShotAt = 0;   // переключили вручную — пробуем снова, даже если стекло раньше сломалось
             Store.Set("glass", on ? "1" : "0");
             ApplyEffectiveTheme();   // у подписей на стекле другой контраст
             Wake();
@@ -8829,6 +8608,8 @@ namespace Kapsula
                 }
                 glassBrush.Viewport = new Rect(bx, 0, bw, bh);
             }
+            // Экран блокировки или окно UAC: снять экран нельзя, но это ненадолго — пропускаем кадр и пробуем через полторы секунды
+            catch (System.ComponentModel.Win32Exception) { glassShotAt = unchecked(now + 1500) | 1; }
             catch (Exception ex) { glassFailed = true; Store.LogError("матовое стекло", ex); }
         }
 
@@ -9139,7 +8920,6 @@ namespace Kapsula
             if (stickerOn) claudeDot.Visibility = Visibility.Collapsed;
             stickerImg.Visibility = stickerOn && plain && (PetIsCharacter() || PetDancing()) ? Visibility.Visible : Visibility.Collapsed;   // там же, где был бы зверёк
             stickerImg.Height = Math.Min(pillH - 6, 40);
-            PetMood(claudeState);
             int unread = unreadDiscord + unreadSteam;
             unreadBadge.Visibility = unread > 0 && plain ? Visibility.Visible : Visibility.Collapsed;
             unreadText.Text = unread > 99 ? "99+" : unread.ToString();
@@ -9150,7 +8930,7 @@ namespace Kapsula
 
             if (toastOn)
             {
-                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
+                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = string.IsNullOrEmpty(toastGlyph) ? Visibility.Collapsed : Visibility.Visible;
                 cGlyph.Text = toastGlyph ?? "";
                 cGlyph.Foreground = toastBrush ?? Fg;
@@ -9164,7 +8944,7 @@ namespace Kapsula
             if (Recorder.Active)
             {
                 // Идёт запись экрана: красная точка и время.
-                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
+                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = PetProps() ? Visibility.Collapsed : Visibility.Visible; cGlyph.Text = ""; cGlyph.Foreground = RecRed;
                 TimeSpan el = DateTime.Now - Recorder.Started;
                 cText.Text = "Запись · " + (int)el.TotalMinutes + ":" + el.Seconds.ToString("00");
@@ -9176,7 +8956,7 @@ namespace Kapsula
             if (steamDlApp != null && !timerRinging)
             {
                 // Steam скачивает игру: её значок, полоса и проценты (на паузе — «пауза»).
-                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
+                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = Visibility.Collapsed;
                 cDlIcon.Visibility = Visibility.Visible;
                 claudeDot.Visibility = Visibility.Collapsed;   // зверёк сейчас работает курьером на полосе
@@ -9205,7 +8985,7 @@ namespace Kapsula
             if (dlActive != null && !timerRinging)
             {
                 // Идёт загрузка: значок, сколько скачано и скорость.
-                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed; eyes.Visibility = Visibility.Collapsed;
+                micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = PetProps() ? Visibility.Collapsed : Visibility.Visible; cGlyph.Text = ""; cGlyph.Foreground = accent;
                 cText.Text = "Загрузка · " + SizeText(dlSize);
                 cRight.Visibility = Visibility.Visible; cRight.Text = SizeText(dlSpeed) + "/с"; cRight.Foreground = Dim;
@@ -9215,16 +8995,13 @@ namespace Kapsula
             cGlyph.Visibility = Visibility.Collapsed;
             micDot.Visibility = micInUse && !playing ? Visibility.Visible : Visibility.Collapsed;
             camDot.Visibility = camInUse ? Visibility.Visible : Visibility.Collapsed;
-            // Зверёк рисуется отдельно (он же показывает, чем занят Claude Code), остальные персонажи — в «глазах»
-            eyes.Visibility = Character != "pet" && (ShowEyes || TestCharacter != null) && (!playing || TestEyes) ? Visibility.Visible : Visibility.Collapsed;
-            if (TestEyes) cCover.Visibility = Visibility.Collapsed;
             cCover.Visibility = playing ? Visibility.Visible : Visibility.Collapsed;
             eq.Visibility = playing && !timing && !timerRinging && !PetDancing() ? Visibility.Visible : Visibility.Collapsed;
 
             if (timerRinging) { cText.Text = "Время вышло"; cRight.Visibility = Visibility.Collapsed; return; }
             if (CallVisible() && !timing)
             {
-                bool live = DiscordLive;   // плагин в Discord: канал, мут, полный мут и демонстрация — точно
+                bool live = DiscordCall;   // звонок Discord: канал, мут, полный мут и демонстрация — точно, по словам плагина
                 cText.Text = (live ? DvCallName("Звонок") : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
                 bool mutedNow = live ? dvMute : Audio.MicMuted();
                 // Состояние звонка показывает зверёк. Значки справа — только когда его в капсуле нет
@@ -9592,7 +9369,7 @@ namespace Kapsula
 
         void OnWheel(object sender, MouseWheelEventArgs e)
         {
-            if (unchecked(Environment.TickCount - wheelMuteUntil) < 0) { e.Handled = true; return; }   // хвост жеста над карточкой
+            if (WheelMuted(wheelMuteUntil, Environment.TickCount)) { e.Handled = true; return; }   // хвост жеста над карточкой
             if (CardWheel(e)) { e.Handled = true; return; }   // над карточкой: вниз — в панель, вверх — смахнуть
             // Ctrl + колёсико над капсулой или мини-плеером — яркость экрана
             if (BrightHud && (state == 0 || state == 1) && (GetAsyncKeyState(0x11) & 0x8000) != 0) { BrightnessWheel(e.Delta > 0 ? 5 : -5); e.Handled = true; return; }
@@ -9606,6 +9383,7 @@ namespace Kapsula
                 return;
             }
             if (!expanded || page != 0) return;
+            if (tabHost != null && tabHost.IsMouseOver) return;   // над вкладками колёсико листает их (tabHost.MouseWheel), а не крутит громкость
             // колёсико крутит то, что выбрано на «Главной»: громкость плеера или общую
             bool player = volPlayer && AppVolume.Get(PlayerKey()) >= 0;
             double v = player ? AppVolume.Get(PlayerKey()) : Audio.GetVolume();
@@ -9633,7 +9411,6 @@ namespace Kapsula
             var m = new Native.MEMORYSTATUSEX();
             m.dwLength = (uint)Marshal.SizeOf(typeof(Native.MEMORYSTATUSEX));
             if (Native.GlobalMemoryStatusEx(ref m)) { ramBar.Set(m.dwMemoryLoad / 100.0); ramText.Text = m.dwMemoryLoad + "%"; }
-            timerText.Text = timerEnd > DateTime.Now ? Fmt(timerEnd - DateTime.Now) : "";
             themeTile.SetActive(IsDarkTheme());
             bool muted = Audio.MicMuted();
             micTile.SetActive(muted);
@@ -9645,11 +9422,11 @@ namespace Kapsula
             if (sleepArmedAt != 0 && unchecked(Environment.TickCount - sleepArmedAt) > 3000) { sleepArmedAt = 0; sleepTile.Label.Text = "Сон"; }
         }
 
-        void AddTimer(int minutes) { AddTimerSpan(TimeSpan.FromMinutes(minutes)); }
-
         void AddTimerSpan(TimeSpan span)
         {
             timerRinging = false;
+            // таймер ставится заново, а не продлевается: это уже не помодоро, и его конец не засчитается кругом
+            if (timerEnd <= DateTime.Now) pomoPhase = 0;
             DateTime from = timerEnd > DateTime.Now ? timerEnd : DateTime.Now;
             timerEnd = from + span;
             timerTotal = timerEnd - DateTime.Now;
@@ -9667,9 +9444,11 @@ namespace Kapsula
             return d;
         }
 
-        static System.Drawing.Bitmap Grab()
+        // Монитор, на котором сейчас курсор: снимок, выделение, пипетка и запись — там, где вы работаете, а не всегда на основном
+        static System.Drawing.Rectangle CursorScreen() { return WF.Screen.FromPoint(WF.Cursor.Position).Bounds; }
+
+        static System.Drawing.Bitmap Grab(System.Drawing.Rectangle b)
         {
-            var b = WF.Screen.PrimaryScreen.Bounds;
             var bmp = new System.Drawing.Bitmap(b.Width, b.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen(b.X, b.Y, 0, 0, bmp.Size);
             return bmp;
@@ -9705,7 +9484,7 @@ namespace Kapsula
         {
             if (state != 0) SetState(0);
             System.Drawing.Bitmap bmp;
-            try { bmp = Grab(); } catch { return; }
+            try { bmp = Grab(WF.SystemInformation.VirtualScreen); } catch { return; }   // все мониторы сразу: код может быть на любом
             Toast("", "Ищу QR-код на экране…", null, -1, null);
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -9729,19 +9508,21 @@ namespace Kapsula
 
         // ------------------------------------------------------ запись экрана
         // Выбор прямоугольника на экране (без разметки) — общий шаг для распознавания текста и записи области.
-        void PickRect(Action<System.Drawing.Bitmap, System.Drawing.Rectangle> done)
+        // Прямоугольник — в точках снимка; третий аргумент — где этот снимок лежит на экране (левый верхний угол монитора).
+        void PickRect(Action<System.Drawing.Bitmap, System.Drawing.Rectangle, System.Drawing.Point> done)
         {
             if (snipActive) return;
             snipActive = true;
             if (state != 0) SetState(0);
+            System.Drawing.Rectangle scr = CursorScreen();
             System.Drawing.Bitmap bmp;
-            try { bmp = Grab(); } catch { snipActive = false; return; }
-            var win = new SnipWindow(bmp, ToSource(bmp), false, dpi) { RectOnly = true };
+            try { bmp = Grab(scr); } catch { snipActive = false; return; }
+            var win = new SnipWindow(bmp, ToSource(bmp), false, dpi) { RectOnly = true, Left = scr.X / dpi, Top = scr.Y / dpi };
             win.Cancelled = delegate { snipActive = false; bmp.Dispose(); };
             win.RectPicked = delegate(System.Drawing.Rectangle r)
             {
                 snipActive = false;
-                try { if (r.Width >= 8 && r.Height >= 8) done(bmp, r); }
+                try { if (r.Width >= 8 && r.Height >= 8) done(bmp, r, scr.Location); }
                 finally { bmp.Dispose(); }
             };
             win.Show();
@@ -9751,7 +9532,7 @@ namespace Kapsula
         // ------------------------------------------------- текст с экрана
         void StartOcr()
         {
-            PickRect(delegate(System.Drawing.Bitmap bmp, System.Drawing.Rectangle r)
+            PickRect(delegate(System.Drawing.Bitmap bmp, System.Drawing.Rectangle r, System.Drawing.Point at)
             {
                 byte[] png;
                 using (var crop = bmp.Clone(r, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
@@ -9810,10 +9591,11 @@ namespace Kapsula
             {
                 // Сначала выбираем область; запись начнётся после выбора.
                 recBusy = false;
-                PickRect(delegate(System.Drawing.Bitmap shot, System.Drawing.Rectangle r) { recBusy = true; BeginRecord(r); });
+                // ffmpeg ждёт координаты экрана, а выбранный прямоугольник — в точках снимка монитора: сдвигаем на его угол
+                PickRect(delegate(System.Drawing.Bitmap shot, System.Drawing.Rectangle r, System.Drawing.Point at) { recBusy = true; r.Offset(at); BeginRecord(r); });
                 return;
             }
-            BeginRecord(WF.Screen.PrimaryScreen.Bounds);
+            BeginRecord(CursorScreen());
         }
 
         void BeginRecord(System.Drawing.Rectangle b)
@@ -9942,7 +9724,7 @@ namespace Kapsula
         {
             SetExpanded(false);
             // Остров исключён из захвата экрана, поэтому в кадр он не попадает.
-            using (var bmp = Grab()) SaveShot(bmp);
+            using (var bmp = Grab(CursorScreen())) SaveShot(bmp);
         }
 
         void StartSnip(bool color)
@@ -9950,9 +9732,10 @@ namespace Kapsula
             if (snipActive) return;
             snipActive = true;
             SetExpanded(false);
+            System.Drawing.Rectangle scr = CursorScreen();
             System.Drawing.Bitmap bmp;
-            try { bmp = Grab(); } catch { snipActive = false; return; }
-            var win = new SnipWindow(bmp, ToSource(bmp), color, dpi);
+            try { bmp = Grab(scr); } catch { snipActive = false; return; }
+            var win = new SnipWindow(bmp, ToSource(bmp), color, dpi) { Left = scr.X / dpi, Top = scr.Y / dpi };   // окно выбора — на том же мониторе
             win.Cancelled = delegate { snipActive = false; bmp.Dispose(); };
             win.AreaPicked = delegate(BitmapSource shot)
             {
@@ -10086,7 +9869,6 @@ namespace Kapsula
                     }
                 }
             }
-            if (state == 0 && eyes.Visibility == Visibility.Visible) UpdateEyes();
             if (state == 0 && (!gameLite || pollN % 6 == 0)) PetAnimate();   // в игре — пять раз в секунду вместо тридцати
             GlassTick();
             DuckTick();
@@ -10118,7 +9900,7 @@ namespace Kapsula
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
             if (tick % 4 == 1) { MoodTick(); MorningTick(); }
-            if (tick % 4 == 3) { TaskRemindTick(); SoonTick(); HeadphonesTick(); NetTick(); UpdateTick(); }   // задача — карточкой в свой час, а до того — отсчёт в капсуле; наушники; интернет; обновления Windows
+            if (tick % 4 == 3) { TaskRemindTick(); SoonTick(); TodayCalendarTick(); HeadphonesTick(); NetTick(); UpdateTick(); }   // задача — карточкой в свой час, а до того — отсчёт в капсуле; наушники; интернет; обновления Windows
             if (state != 0) lastOpenAt = Environment.TickCount;
             if (tick % 60 == 7) TrimTick();     // панель давно закрыта — неиспользуемую память отдаём системе
             ExtrasTick();

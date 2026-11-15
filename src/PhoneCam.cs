@@ -49,6 +49,7 @@ namespace Kapsula
         {
             lock (writeLock)
             {
+                if (view == null) return;   // камеру удалили, пока кадр готовился: общей памяти уже нет
                 byte* p = null;
                 view.SafeMemoryMappedViewHandle.AcquirePointer(ref p);
                 try
@@ -225,6 +226,13 @@ namespace Kapsula
         {
             try { if (listener != null) listener.Stop(); } catch { }
             listener = null;
+            // общую память кадров (~66 МБ) тоже отпускаем; Start() откроет её заново
+            lock (writeLock)
+            {
+                try { if (view != null) view.Dispose(); } catch { }
+                try { if (map != null) map.Dispose(); } catch { }
+                view = null; map = null;
+            }
         }
 
         public static bool Streaming { get { return clients > 0 && unchecked(Environment.TickCount - lastFrameAt) < 3000; } }
@@ -477,7 +485,17 @@ namespace Kapsula
         // ---- журнал камеры (%APPDATA%\Kapsula\camera.log): сколько кадров, были ли тёмные, смены размера, переподключения
         static int dFrames, dDark, dJumps, dLast = -1, dAt = Environment.TickCount;
         static string dSize = "";
-        public static void Log(string s) { try { File.AppendAllText(Path.Combine(Store.Dir, "camera.log"), DateTime.Now.ToString("HH:mm:ss.fff") + " " + s + "\r\n"); } catch { } }
+        public static void Log(string s)
+        {
+            try
+            {
+                string f = Path.Combine(Store.Dir, "camera.log");
+                // во время трансляции строка пишется каждые 5 секунд — без предела журнал рос бы бесконечно
+                if (File.Exists(f) && new FileInfo(f).Length > 256 * 1024) File.Delete(f);
+                File.AppendAllText(f, DateTime.Now.ToString("HH:mm:ss.fff") + " " + s + "\r\n");
+            }
+            catch { }
+        }
 
         static void Diag(BitmapSource f)
         {

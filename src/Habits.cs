@@ -37,6 +37,8 @@ namespace Kapsula
                     if (eq > 0) habitMem[kv.Substring(0, eq).Trim()] = kv.Substring(eq + 1).Trim();
                 }
             }
+            // наряды, заслуженные до того, как полученное стало запоминаться, — тоже насовсем
+            for (int i = 0; i < OutfitIds.Length; i++) if (HabitCount(i) >= HabitGoal[i]) OutfitOwn(i);
             ApplyOutfit();
         }
 
@@ -44,7 +46,22 @@ namespace Kapsula
         void HSet(string key, string v) { if (habitMem == null) Store.Set(key, v); else habitMem[key] = v; }
 
         int HabitCount(int i) { int n; return int.TryParse(HGet(HabitKeys[i]), out n) ? n : 0; }
-        public bool OutfitHave(int i) { return HabitCount(i) >= HabitGoal[i]; }
+
+        // Полученный наряд остаётся насовсем: счёт задач идёт и вниз (сняли отметку), но заслуженное этим не отнимается
+        public bool OutfitHave(int i) { return OutfitOwned(i) || HabitCount(i) >= HabitGoal[i]; }
+        bool OutfitOwned(int i) { return OwnedHas(HGet("outfitsOwned"), OutfitIds[i]); }
+
+        void OutfitOwn(int i)
+        {
+            string list = HGet("outfitsOwned");
+            if (!OwnedHas(list, OutfitIds[i])) HSet("outfitsOwned", list.Length == 0 ? OutfitIds[i] : list + "," + OutfitIds[i]);
+        }
+
+        // Список полученных нарядов — через запятую: «band,crown»
+        static bool OwnedHas(string list, string id)
+        {
+            return !string.IsNullOrEmpty(list) && Array.IndexOf(list.Split(','), id) >= 0;
+        }
 
         // За что даётся наряд — для карточки и настроек
         public static string OutfitFor(int i)
@@ -64,11 +81,12 @@ namespace Kapsula
         {
             int was = HabitCount(i), now = Math.Max(0, was + by);
             HSet(HabitKeys[i], now.ToString());
-            if (was < HabitGoal[i] && now >= HabitGoal[i]) OutfitUnlocked(i);
+            if (was < HabitGoal[i] && now >= HabitGoal[i] && !OutfitOwned(i)) OutfitUnlocked(i);   // уже полученный — второй раз не «выдаём»
         }
 
         void OutfitUnlocked(int i)
         {
+            OutfitOwn(i);
             HSet("outfitLast", OutfitIds[i]);
             ApplyOutfit();      // «Сам» — надевает только что полученный
             outfitPending = i;  // карточку покажем, как только на острове будет спокойно

@@ -69,13 +69,14 @@ namespace Kapsula
         {
             DateTime now = DateTime.Now;
             CalEvent next = testCal;   // для проверок — выдуманное событие, а не ваш календарь
-            if (next == null && Store.Get("calendar") != "0")
+            // события показываются всегда: настройка «calendar» — только про карточку-напоминание за десять минут
+            if (next == null)
                 foreach (CalEvent e in Calendar.Events())
                 {
                     if (e.AllDay || e.Start < now.AddMinutes(-15)) continue;
                     if (next == null || e.Start < next.Start) next = e;
                 }
-            if (next == null) { hbCalTitle.Text = "Событий нет"; hbCalSub.Text = Store.Get("calendar") == "0" ? "календарь выключен в настройках" : "в календаре Windows пусто"; return; }
+            if (next == null) { hbCalTitle.Text = "Событий нет"; hbCalSub.Text = Calendar.Failed ? "календарь Windows не открылся" : "в календаре Windows пусто"; return; }
             hbCalTitle.Text = next.Subject.Length > 0 ? next.Subject : "Событие";
             hbCalSub.Text = next.Start <= now ? "идёт сейчас" : (next.Start - now).TotalHours < 3 ? Calendar.In(next.Start, now) : Calendar.When(next, now);
         }

@@ -91,9 +91,6 @@ namespace Kapsula
             return b;
         }
 
-        // На сколько панель должна стать выше, пока идёт правка (под блоками — полоска)
-        public const double TrayH = 56;
-
         public void Add(string id, string name, FrameworkElement el, int c, int r, int w, int h, bool hiddenByDefault)
         {
             // блок кладётся в обёртку: её двигаем и качаем, а у самого блока остаются его собственные эффекты

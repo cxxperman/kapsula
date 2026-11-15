@@ -385,14 +385,22 @@ namespace Kapsula
         // Что зверёк несёт на карточку: "" — письмо, "bell" — колокольчик (напоминание). Назначается до показа карточки.
         string cardCarry = "", cardCarryNext = "";
 
+        // С чем зверёк летит к карточке: с письмом, колокольчиком (напоминание), наушниками, кубком (достижение) или трубкой (звонок)
+        static string CarryMood(string carry)
+        {
+            return carry == "bell" || carry == "buds" || carry == "cup" || carry == "phone" ? carry : "post";
+        }
+
         // Долетел до карточки: отдаёт письмо, а напоминание — звонит в колокольчик
         void RiderHandOver()
         {
+            // к нему ещё прыгает с окна гуляющий зверёк, а сам попутчик пока невидимка — отдаст, когда тот долетит (WalkJoin)
+            if (walkerOut && walkPhase == 4) return;
             if (cardCarry == "bell") rider.Play("ring", 1300);
             else if (cardCarry == "buds") rider.Play("budson", 2200);   // наушники: надевает и пританцовывает
             else if (cardCarry == "cup") rider.Play("cupraise", 2200);  // достижение: поднимает кубок, вокруг искры
             else if (cardCarry == "phone") rider.Play("ringphone", 1600);   // входящий звонок: трубка трясётся
-            else if (riderDigNext) { riderDigNext = false; rider.Play("dig", 2600); }   // пятое письмо за минуту — выкапывается из кучи
+            else if (Until(riderDigUntil)) { riderDigUntil = 0; rider.Play("dig", 2600); }   // пятое письмо за минуту — выкапывается из кучи
             else rider.Play("give", 800);
         }
 
@@ -513,7 +521,7 @@ namespace Kapsula
             rider.Root.Opacity = 1;
             rider.Root.Visibility = Visibility.Visible;
             rider.Seated = false;
-            rider.Mood(rKind == 5 ? (cardCarry == "bell" ? "bell" : cardCarry == "buds" ? "buds" : cardCarry == "cup" ? "cup" : cardCarry == "phone" ? "phone" : "post") : "fly");   // к карточке — с письмом в лапах, к напоминанию — с колокольчиком, к наушникам — с наушниками, к достижению — с кубком, к звонку — с трубкой
+            rider.Mood(rKind == 5 ? CarryMood(cardCarry) : "fly");   // к карточке — с письмом в лапах, к напоминанию — с колокольчиком, к наушникам — с наушниками, к достижению — с кубком, к звонку — с трубкой
             SetRider(x0, y0, s0, 1, 1);
             Wake();
         }
@@ -1075,7 +1083,7 @@ namespace Kapsula
             if (state == 3) return "read";   // на карточке: смотрит на уведомление вместе с вами
             if (chatBusy) return "think";
             if (claudeState == 1) return "work";
-            if (unchecked(Environment.TickCount - happyUntil) < 0) return "happy";
+            if (Until(happyUntil)) return "happy";
             if (media.Has && media.Playing) return "dance";
             if (Native.IdleMs() > 120000) return "sleep";
             return "idle";
@@ -1093,11 +1101,18 @@ namespace Kapsula
                 case PText: case PChat: return "chat";
                 case PNote: return "timer";
                 case PWeather: return "weather";
-                case PSystem: case PDeck: return "nav";
+                case PSystem: return "nav";
                 case PClaude: return "claude";
                 case PNotif: return "notif";
             }
             return "default";
+        }
+
+        // Небо — для сценок зверька погоды: ☂ дождь, ❄ снег, ☀ ясно (ясной ночью — ☾: ночью не загорают); погоды нет — ""
+        string SkySign()
+        {
+            if (weather == null || weather.Error != null) return "";
+            return weather.IsDay || weather.Code > 1 ? Weather.Symbol(weather.Code) : "☾";
         }
 
         string riderOwn;   // свой наряд попутчика сейчас (наушники на карточке звонка) или null — общий
@@ -1117,13 +1132,15 @@ namespace Kapsula
             // сел на место зверька карточки звонка — надевает наушники, как он
             string ownWant = rKind == 2 && rSeat != null && rSeat == callPet ? "phones" : null;
             if (ownWant != riderOwn) { riderOwn = ownWant; rider.OwnOutfit = ownWant; }
+            // каска — только пока вкладку перестраивают; снимать и в полёте, иначе после правки он улетал бы в ней в капсулу
+            rider.Hat = EditingBoard() != null;
             if (rOut && !rFly)
             {
-                rider.Hat = EditingBoard() != null;
                 if (pollN % 6 == 0)
                 {
                     rider.Mood(RiderMood());
                     rider.Context = RiderContext();
+                    rider.Sky = rider.Context == "weather" ? SkySign() : "";   // на вкладке погоды сценки — по небу за окном
                     // глаза — за курсором
                     Native.POINT pt;
                     if (Native.GetCursorPos(out pt))
@@ -1316,10 +1333,11 @@ namespace Kapsula
             else
             {
                 int added = 0;
-                foreach (string f in files) if (!shelf.Contains(f)) { shelf.Add(f); added++; }
+                string last = null;   // какой файл добавился (уже лежащие на полке пропускаются — называть надо его, а не первый из брошенных)
+                foreach (string f in files) if (!shelf.Contains(f)) { shelf.Add(f); added++; last = f; }
                 SaveShelf();
                 RenderShelf();
-                if (added > 0) Toast(((char)0xE8F1).ToString(), added == 1 ? "На полке: " + System.IO.Path.GetFileName(files[0]) : "На полке файлов: " + added, null, -1, accent);
+                if (added > 0) Toast(((char)0xE8F1).ToString(), added == 1 ? "На полке: " + System.IO.Path.GetFileName(last) : "На полке файлов: " + added, null, -1, accent);
             }
             Happy(2200);
             if (rider != null && rOut) rider.Play("hop", 800);
@@ -1349,15 +1367,19 @@ namespace Kapsula
         }
 
         // ================================================================ экономный опрос
-        // Свёрнутый остров без музыки, когда курсор далеко, проверяет его 10 раз в секунду, а не 30: приближение
-        // курсора всё равно замечается вовремя, а компьютер лишний раз не просыпается.
-        bool calm;
+        // Как часто идёт опрос (OnPoll: курсор, зверёк в капсуле, громкость), решает только CalmCheck — два правила
+        // перебивали бы друг друга. Плавность главнее: пока на острове что-то движется или ждёт вас (кадры острова,
+        // зверёк, музыка, Claude Code, загрузка, запись, попутчик, таймер, надпись), — 30 раз в секунду. Иначе
+        // свёрнутый остров, когда курсор далеко, проверяет его 10 раз в секунду: приближение курсора всё равно
+        // замечается вовремя, а компьютер лишний раз не просыпается.
+        DispatcherTimer pollTimer;
+        bool calm;   // опрос сейчас редкий — тогда OnPoll смотрит громкость и Caps Lock на каждом шаге
         void CalmCheck()
         {
             if (pollTimer == null) return;
             bool want = false;
-            if (state == 0 && !toastOn && !(media.Has && media.Playing) && !GamerMode && !timerRinging && claudeState == 0 && dlActive == null && steamDlApp == null
-                && !Recorder.Active && !rOut && !walkerOut && ForceOpen == -1 && unchecked(Environment.TickCount - happyUntil) >= 0)
+            if (state == 0 && !frameOn && !petLively && !toastOn && !(media.Has && media.Playing) && !GamerMode && !timerRinging && claudeState == 0 && dlActive == null && steamDlApp == null
+                && !Recorder.Active && !rOut && !walkerOut && ForceOpen == -1 && !Until(happyUntil))
             {
                 Native.POINT pt;
                 if (Native.GetCursorPos(out pt))

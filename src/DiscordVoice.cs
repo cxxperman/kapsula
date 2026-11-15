@@ -34,6 +34,7 @@ namespace Kapsula
                 l.Prefixes.Add("http://127.0.0.1:" + port + "/");
                 l.Start();
                 listener = l;
+                Error = null;   // повторная попытка удалась — порт освободился
             }
             catch (Exception) { Error = "порт " + port + " занят другой программой"; return; }
             var t = new Thread(Loop) { IsBackground = true };
@@ -148,7 +149,7 @@ namespace Kapsula
 
     partial class IslandWindow
     {
-        class DvPerson { public string Id = "", Name = "", Avatar = ""; public bool Speaking, Mute, Deaf, Video, Stream, Me; }
+        class DvPerson { public string Id = "", Name = "", Avatar = ""; public bool Speaking, Mute, Deaf, Stream, Me; }
         List<DvPerson> dvPeople = new List<DvPerson>();
         bool dvInCall, dvMute, dvDeaf, dvStream, dvVideo, dvSpeaking;
         string dvChannel = "", dvGuild = "";
@@ -157,6 +158,10 @@ namespace Kapsula
 
         // Плагин на связи: присылал что-нибудь в последние восемь секунд (он отзывается хотя бы раз в три)
         public bool DiscordLive { get { return dvHeardAt != 0 && unchecked(Environment.TickCount - dvHeardAt) < 8000; } }
+
+        // Звонок на острове — звонок Discord по словам плагина. Плагин на связи и вне голоса, а звонок тогда может
+        // быть в Zoom, Teams или браузере: у него ни канала, ни мута Discord
+        bool DiscordCall { get { return DiscordLive && callApp == "Discord"; } }
 
         void DiscordVoiceInit()
         {
@@ -201,7 +206,7 @@ namespace Kapsula
                 {
                     var p = x as Dictionary<string, object>;
                     if (p == null) continue;
-                    people.Add(new DvPerson { Id = DText(p, "id"), Name = DText(p, "name"), Avatar = DText(p, "avatar"), Speaking = DFlag(p, "speaking"), Mute = DFlag(p, "mute"), Deaf = DFlag(p, "deaf"), Video = DFlag(p, "video"), Stream = DFlag(p, "stream"), Me = DFlag(p, "me") });
+                    people.Add(new DvPerson { Id = DText(p, "id"), Name = DText(p, "name"), Avatar = DText(p, "avatar"), Speaking = DFlag(p, "speaking"), Mute = DFlag(p, "mute"), Deaf = DFlag(p, "deaf"), Stream = DFlag(p, "stream"), Me = DFlag(p, "me") });
                 }
             // В ваш канал зашли или из него вышли — зверёк машет (не когда вы сами вошли или перешли в другой канал;
             // плагин присылает до двенадцати человек — в большом канале список сдвигается, там не машем)
@@ -222,8 +227,9 @@ namespace Kapsula
             double since = d.TryGetValue("since", out o) && o != null ? Convert.ToDouble(o) : 0;
             dvSince = since > 0 ? new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(since).ToLocalTime() : DateTime.Now;
             if (dvSince > DateTime.Now) dvSince = DateTime.Now;
-            if (!wasLive) Store.Set("discordPluginSeen", "1");   // в настройках: «плагин на связи»
-            DiscordCallTick();   // не ждать полсекунды до следующего опроса
+            // не ждать полсекунды до следующего опроса. Звонок в Zoom, Teams или браузере (догадка по микрофону),
+            // пока вы не в голосе Discord, сообщения плагина не снимают
+            if (dvInCall || callApp == "Discord") DiscordCallTick();
             // Демку и камеру видно сразу: надпись на острове, как только Discord их включил или выключил
             // (не при первом сообщении после запуска Kapsula и не при выходе из звонка — тогда это не новость)
             if (wasLive && dvInCall)

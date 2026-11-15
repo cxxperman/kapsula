@@ -21,6 +21,7 @@ namespace Kapsula
         public static int Clients { get { return clients; } }
         static System.Net.HttpListener listener;
         static readonly object gate = new object();
+        public static bool Listening { get { return listener != null; } }   // порт открыт — Discord может подключиться
 
         static string Roaming(string name) { return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), name); }
 
@@ -374,6 +375,7 @@ namespace Kapsula
                 if (d == null) return false;
                 string root = System.IO.Path.Combine(d, "kapsula");
                 if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true);
+                Stop();   // уведомления выключили — и уже загруженный в Steam плагин больше ничего не присылает
                 return true;
             }
             catch (Exception ex) { Store.LogError("удаление плагина Steam", ex); return false; }
@@ -391,12 +393,20 @@ namespace Kapsula
             catch { }
         }
 
+        // У уведомлений свой переключатель — плагин; от «Steam · бета» (игры) они не зависят
         public static void Start()
         {
-            if (server != null || !Steam.Enabled || !PluginInstalled) return;   // без плагина порт не открываем
+            if (server != null || !Steam.Found || !PluginInstalled) return;   // без плагина порт не открываем
             UpdatePluginIfOlder();
             server = new LocalWsServer(Port, OriginAllowed, OnMessage);
             server.Start();
+        }
+
+        public static void Stop()
+        {
+            if (server == null) return;
+            server.Stop();
+            server = null;
         }
 
         static readonly object logGate = new object();
@@ -498,7 +508,6 @@ namespace Kapsula
     {
         public string Id = "", Name = "";
         public int State;                 // 4 — установлена полностью
-        public long ToDownload, Downloaded;
         public bool Ready { get { return State == 4; } }
     }
 
@@ -563,8 +572,6 @@ namespace Kapsula
             string low = g.Name.ToLowerInvariant();
             if (g.Id == "228980" || low.StartsWith("steamworks") || low.StartsWith("proton") || low.StartsWith("steam linux runtime") || low.Contains("redistributable")) return null;
             int.TryParse(Field(acf, "StateFlags"), out g.State);
-            long.TryParse(Field(acf, "BytesToDownload"), out g.ToDownload);
-            long.TryParse(Field(acf, "BytesDownloaded"), out g.Downloaded);
             return g;
         }
 

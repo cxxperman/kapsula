@@ -169,6 +169,8 @@ T 'Поиск файлов: слишком короткий запрос не и
 T 'Плеер: имя из exe' (Call 'MediaWatcher' 'PrettyName' @('Spotify.exe')).Result 'Spotify'
 T 'Плеер: имя из пути' (Call 'MediaWatcher' 'PrettyName' @('C:\Program Files\AIMP\AIMP.exe')).Result 'AIMP'
 T 'Плеер: имя программы из магазина' (Call 'MediaWatcher' 'PrettyName' @('SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify')).Result 'SpotifyMusic'
+T 'Плеер: Firefox по хешу папки установки' (Call 'MediaWatcher' 'PrettyName' @('308046B0AF4A39CB')).Result 'Firefox'
+T 'Плеер: 16 обычных букв — не Firefox' (Call 'MediaWatcher' 'PrettyName' @('ABCDEFGHIJKLMNOP')).Result 'ABCDEFGHIJKLMNOP'
 
 T 'Громкость плеера: процесс подходит к названию' (Call 'AppVolume' 'Matches' @('Spotify', 'SpotifyMusic')).Result $true
 T 'Громкость плеера: чужой процесс не подходит' (Call 'AppVolume' 'Matches' @('chrome', 'Spotify')).Result $false
@@ -268,6 +270,14 @@ $usbc3 = Buds '07 19 01 1F 20 2B 07 80 05 12 C5 0D'
 T 'наушники: Max USB-C — байт не сходится с десятками, берём десятки' (BF $usbc3 'Single') 70
 T 'наушники: чужой сигнал Apple' ($null -eq (Buds '10 05 01 18 44 00 00 00 00')) $true
 T 'наушники: неизвестная модель' ($null -eq (Buds '07 19 01 FF FF 00 99 00 00')) $true
+# Beats: у Studio Buds два наушника и футляр, у накладных Solo 3 и Studio 3 — одна батарея
+$sb = Buds '07 19 01 11 20 2B 97 86 01 00 00'
+T 'наушники: Studio Buds — не одна батарея' (BF $sb 'Single') -1
+T 'наушники: Studio Buds — левый' (BF $sb 'Left') 70
+T 'наушники: Studio Buds — правый' (BF $sb 'Right') 90
+T 'наушники: Studio Buds — футляр' (BF $sb 'Case') 60
+T 'наушники: Solo 3 — одна батарея' (BF (Buds '07 19 01 06 20 02 F8 80 00 00 00') 'Single') 80
+T 'наушники: Studio 3 — одна батарея' (BF (Buds '07 19 01 09 20 02 F8 80 00 00 00') 'Single') 80
 
 # --- календарь: подписи времени
 $cal = $asm.GetType('Kapsula.Calendar'); $ce = $asm.GetType('Kapsula.CalEvent')
@@ -279,6 +289,11 @@ T 'календарь: весь день' $cal.GetMethod('When').Invoke($null, @
 T 'календарь: через минуты' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(10), $nowT)) 'через 10 мин'
 T 'календарь: через часы' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(65), $nowT)) 'через 1 ч 5 мин'
 T 'календарь: уже началось' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(-1), $nowT)) 'сейчас'
+
+# --- календарь: дата события по-русски, даже если в Windows английский формат
+$ceT = $asm.GetType('Kapsula.CalEvent'); $ce = [Activator]::CreateInstance($ceT); $ceT.GetField('Subject').SetValue($ce, 'Врач'); $ceT.GetField('Location').SetValue($ce, ''); $ceT.GetField('Start').SetValue($ce, [datetime]'2026-12-15 09:30')
+$was = [Threading.Thread]::CurrentThread.CurrentCulture; [Threading.Thread]::CurrentThread.CurrentCulture = 'en-US'; $cw = $asm.GetType('Kapsula.Calendar').GetMethod('When').Invoke($null, @($ce, [datetime]'2026-11-14 12:00')); [Threading.Thread]::CurrentThread.CurrentCulture = $was
+T 'календарь: дата события по-русски и в английской Windows' $cw '15 декабря в 9:30'
 
 # --- расход Claude Code: из строки журнала берутся только числа токенов; один ответ считается один раз, вчерашние не считаются
 $cu = $asm.GetType('Kapsula.ClaudeUsage')
@@ -337,6 +352,11 @@ T 'claude: битый файл цел' ([IO.File]::ReadAllText($tmpSet)) '{ эт
 Remove-Item $tmpSet, "$tmpSet.kapsula-bak" -ErrorAction SilentlyContinue
 $cb.GetField('SettingsOverride').SetValue($null, $null)
 
+# --- «claude …» в Windows Terminal: обратная косая черта в конце не съедает закрывающую кавычку
+$wq = $iw.GetMethod('WtQuoted', [Reflection.BindingFlags]'NonPublic,Static')
+T 'claude: папка в кавычках' ($wq.Invoke($null, @('C:\proj'))) '"C:\proj"'
+T 'claude: корень диска — косая черта удвоена' ($wq.Invoke($null, @('D:\'))) '"D:\\"'
+
 # --- QR-код для телефона: наш кодировщик → наш же декодер, для ссылок разной длины (версии 1–6)
 $qm = $asm.GetType('Kapsula.QrMake'); $qd = $asm.GetType('Kapsula.Qr')
 foreach ($s in @('hi', 'http://192.168.1.23:42075/?k=0123456789abcdef01234567', 'https://example.com/' + ('x' * 90))) {
@@ -349,6 +369,12 @@ foreach ($s in @('hi', 'http://192.168.1.23:42075/?k=0123456789abcdef01234567', 
     T "qr: туда и обратно ($($s.Length) симв.)" ($qd.GetMethod('Decode').Invoke($null, [object[]]@($bmp.PSObject.BaseObject))) $s
     $bmp.Dispose()
 }
+
+# --- пульт с телефона: длинный текст в адресе читается целиком (больше одного пакета)
+$rh = $asm.GetType('Kapsula.Phone').GetMethod('ReadHead', [Reflection.BindingFlags]'NonPublic,Static')
+$longReq = "GET /do?k=x&a=type&v=" + [Uri]::EscapeDataString('привет ' * 285) + " HTTP/1.1`r`nHost: a`r`n`r`n"
+$longMs = New-Object IO.MemoryStream (,[Text.Encoding]::ASCII.GetBytes($longReq))
+T 'пульт: длинный текст с телефона не обрезается' ($rh.Invoke($null, @($longMs.PSObject.BaseObject)) -eq $longReq) $true
 
 # --- задачи на сегодня естественным языком
 $tp = $asm.GetType('Kapsula.Tasks').GetMethod('Parse')
@@ -366,6 +392,21 @@ foreach ($c in @(@('https://kapsula.app/x', 2), @('#ff9f0a', 3), @('const x = ()
     $it = [Activator]::CreateInstance($ci); $ci.GetField('Text').SetValue($it, $c[0])
     T "буфер: тип «$($c[0])»" ($ck.Invoke($null, @($it))) $c[1]
 }
+
+# --- полка: фото «боком» поворачиваются по пометке EXIF
+Add-Type -AssemblyName PresentationCore, WindowsBase
+$ot = $asm.GetType('Kapsula.IslandWindow').GetMethod('OrientationTransform', [Reflection.BindingFlags]'NonPublic,Static')
+T 'полка: EXIF 1 — без поворота' ($null -eq $ot.Invoke($null, @(1))) $true
+T 'полка: EXIF 6 — на 90° по часовой' $ot.Invoke($null, @(6)).Angle 90
+T 'полка: EXIF 8 — на 270°' $ot.Invoke($null, @(8)).Angle 270
+$exifJpg = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'kapsula-exif-' + [Guid]::NewGuid().ToString('N') + '.jpg')
+$exifSrc = [System.Windows.Media.Imaging.BitmapSource]::Create(40, 20, 96, 96, [System.Windows.Media.PixelFormats]::Bgr32, $null, (New-Object byte[] (40 * 20 * 4)), 160)
+$exifMd = New-Object System.Windows.Media.Imaging.BitmapMetadata('jpg'); $exifMd.SetQuery('/app1/ifd/{ushort=274}', [uint16]6)
+$exifEnc = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder; $exifEnc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($exifSrc, $null, $exifMd, $null))
+$exifFs = [IO.File]::Create($exifJpg); $exifEnc.Save($exifFs); $exifFs.Close()
+$exifImg = $asm.GetType('Kapsula.IslandWindow').GetMethod('LoadImage', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @($exifJpg))
+T 'полка: фото с пометкой EXIF 6 открывается повёрнутым' ("$($exifImg.PixelWidth)x$($exifImg.PixelHeight)") '20x40'
+Remove-Item $exifJpg -ErrorAction SilentlyContinue
 
 # --- батарея ноутбука: сколько осталось и значок заряда
 $iwT = $asm.GetType('Kapsula.IslandWindow')
@@ -452,6 +493,39 @@ try {
     T 'discord: отключение от Vencord' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
     T 'discord: официальный Vencord вернулся' ((Get-Content (Join-Path $dist 'renderer.js') -Raw).Trim()) 'official vencord'
     T 'discord: метка снята' ($di.GetProperty('Installed').GetValue($null)) $false
+    # 4) Discord запущен (app.asar занят): «Подключить» не вышло — после него ничего не осталось; вторая попытка — как первая, «Отключить» убирает всё
+    Remove-Item (Join-Path $roam 'Vencord') -Recurse -Force
+    Remove-Item (Join-Path $res 'app.asar') -Force; Move-Item (Join-Path $res '_app.asar') (Join-Path $res 'app.asar')
+    $lock = [IO.File]::Open((Join-Path $res 'app.asar'), 'Open', 'Read', 'Read')
+    try { T 'discord: Discord занят — просим закрыть' ($di.GetMethod('Install').Invoke($null, @())) 'закройте Discord (и в трее у часов) и нажмите ещё раз' } finally { $lock.Close() }
+    T 'discord: после неудачи — ни сборки, ни резерва, ни метки' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula')) -or ($di.GetProperty('Installed').GetValue($null))) $false
+    T 'discord: после неудачи папки Vencord нет' (Test-Path (Join-Path $roam 'Vencord')) $false
+    T 'discord: после неудачи Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
+    T 'discord: вторая попытка' ($di.GetMethod('Install').Invoke($null, @())) $null
+    T 'discord: вторая попытка — Vencord наш' ((Get-Content (Join-Path $dist 'kapsula.txt') -Raw).Contains('vencord=kapsula')) $true
+    $res2 = Join-Path $loc 'Discord\app-1.0.9300\resources'
+    New-Item -ItemType Directory -Force $res2 | Out-Null
+    Set-Content (Join-Path $res2 '_app.asar') 'discord new'; Copy-Item (Join-Path $res 'app.asar') (Join-Path $res2 'app.asar')
+    T 'discord: отключение после неудачи' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: после отключения — оба Discord как были' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and ((Get-Content (Join-Path $res2 'app.asar') -Raw).Trim() -eq 'discord new') -and -not (Test-Path (Join-Path $res2 '_app.asar'))) $true
+    T 'discord: после отключения — ни сборки, ни резерва' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula'))) $false
+    Remove-Item (Join-Path $loc 'Discord\app-1.0.9300') -Recurse -Force
+    # 5) Сломанное прежней версией: в резерве наша же сборка, метка «vencord=before» — «Отключить» всё равно убирает всё
+    $bak = Join-Path $roam 'Vencord\dist-before-kapsula'
+    New-Item -ItemType Directory -Force $dist, $bak | Out-Null
+    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { foreach ($d in $dist, $bak) { Set-Content (Join-Path $d $f) ('// kapsula build "Kapsula" ' + $f + (' ' * 120)) } }
+    Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar'); [IO.File]::WriteAllBytes((Join-Path $res 'app.asar'), $stub)
+    Set-Content (Join-Path $dist 'kapsula.txt') "Kapsula`r`nvencord=before"
+    T 'discord: в резерве наша сборка — отключение' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: в резерве наша сборка — Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
+    T 'discord: в резерве наша сборка — ни сборки, ни резерва' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path $bak)) $false
+    # 6) Остатки нашей сборки без метки (неудачная попытка прежней версии) — не «прежний Vencord»: в резерв не уходят
+    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) ('// kapsula build "Kapsula" ' + $f + (' ' * 120)) }
+    T 'discord: подключение поверх своих остатков' ($di.GetMethod('Install').Invoke($null, @())) $null
+    T 'discord: свои остатки не ушли в резерв' (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula')) $false
+    T 'discord: свои остатки — Vencord наш' ((Get-Content (Join-Path $dist 'kapsula.txt') -Raw).Contains('vencord=kapsula')) $true
+    T 'discord: отключение после своих остатков' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
+    T 'discord: после своих остатков Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $dist 'renderer.js'))) $true
 } finally {
     Remove-Item Env:KAPSULA_TEST_APPDATA, Env:KAPSULA_TEST_LOCALAPPDATA, Env:KAPSULA_TEST_VENCORD_DIR -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -508,6 +582,15 @@ T 'задачи: на выходных' (TP 'уборка на выходных'
 T 'задачи: 14.30 — время, не дата' (TP 'в 14.30 созвон') '2026-11-11 14:30 Созвон'
 T 'задачи: две задачи через «потом»' (TP 'отчёт, потом в 14:00 созвон') '2026-11-11 - Отчёт | 2026-11-11 14:00 Созвон'
 T 'задачи: завтра в 9' (TP 'завтра в 9 спортзал') '2026-11-12 09:00 Спортзал'
+# время с минутами и «вечера», «ночи», «дня»; день отсчёта «когда-нибудь» — от сегодняшнего дня
+T 'задачи: в 7:30 вечера' (TP 'в 7:30 вечера кино') '2026-11-11 19:30 Кино'
+T 'задачи: в 7.30 вечера' (TP 'в 7.30 вечера кино') '2026-11-11 19:30 Кино'
+T 'задачи: в 12:00 ночи' (TP 'в 12:00 ночи звонок') '2026-11-11 00:00 Звонок'
+T 'задачи: в 2:15 дня' (TP 'обед в 2:15 дня') '2026-11-11 14:15 Обед'
+$sd = $tk.GetField('Someday').GetValue($null); $r = $tk.GetMethod('Parse').Invoke($null, @('завтра спорт', $sd))
+T 'задачи: «завтра» от «когда-нибудь» — от сегодняшнего дня' ($r[0].Day.ToString('yyyy-MM-dd')) ((Get-Date).Date.AddDays(1).ToString('yyyy-MM-dd'))
+$r = $tk.GetMethod('Parse').Invoke($null, @('в пятницу отчёт', $sd))
+T 'задачи: день недели от «когда-нибудь» — без ошибки' ($r[0].Day -lt $sd -and $r[0].Day -gt (Get-Date).Date) $true
 
 # --- Вид «Неделя»: понедельник недели, подпись диапазона, будущие разы повторяющихся задач
 $sf = [Reflection.BindingFlags]'NonPublic,Static'
@@ -532,6 +615,13 @@ T 'неделя: каждый день — завтра бледно' (RT 'd' '2
 T 'неделя: просроченная повторяющаяся — не в прошедшие дни' (RT 'd' '2026-11-11' '2026-11-13' '2026-11-14') $false
 T 'неделя: обычная задача не повторяется' (RT '' '2026-11-14' '2026-11-15' '2026-11-14') $false
 
+# --- «Всё на сегодня сделано»: сегодняшние разы повторяющихся задач
+$dc = $iwT.GetMethod('DayCount', $sf)
+T 'праздник: счётчик за сегодня' ($dc.Invoke($null, @('20261114:3', '20261114'))) 3
+T 'праздник: вчерашний счётчик не в счёт' ($dc.Invoke($null, @('20261113:5', '20261114'))) 0
+T 'праздник: счётчика ещё нет' ($dc.Invoke($null, @('', '20261114'))) 0
+T 'праздник: испорченный счётчик — ноль' ($dc.Invoke($null, @('20261114:abc', '20261114'))) 0
+
 # --- Погладить зверька: курсор ходит над ним туда-сюда (каждые 33 мс, как опрос острова)
 $stT = $asm.GetType('Kapsula.Stroke')
 function StrokeRun([scriptblock]$path, [int]$need) {
@@ -547,6 +637,14 @@ T 'гладить: вверх-вниз — тоже' (StrokeRun { param($t) @(10
 T 'гладить: провели мимо — нет' (StrokeRun { param($t) @((100 + $t * 0.3), 50) } 2) $false
 T 'гладить: дрожь руки — нет' (StrokeRun { param($t) @((100 + 2 * [math]::Sin($t / 1000 * [math]::PI * 2 * 4)), 50) } 2) $false
 T 'гладить: один разворот (подвели и ушли) — нет' (StrokeRun { param($t) @((100 + 30 * [math]::Sin([math]::Min($t, 700) / 700 * [math]::PI)), 50) } 2) $false
+
+# --- колёсико над карточкой: глушится только хвост жеста — и тогда, когда счётчик Windows ушёл в минус
+$wm = $iwT.GetMethod('WheelMuted', $sf)
+T 'колёсико: сразу после жеста над карточкой глушится' ($wm.Invoke($null, @([int]1450, [int]1000))) $true
+T 'колёсико: через полсекунды после жеста снова работает' ($wm.Invoke($null, @([int]1450, [int]1500))) $false
+T 'колёсико: без жеста не глушится и после 25 дней работы Windows' ($wm.Invoke($null, @([int]0, [int]-1000000000))) $false
+T 'колёсико: давний жест не глушит' ($wm.Invoke($null, @([int]-2000000000, [int]2000000000))) $false
+T 'колёсико: жест на переходе счётчика через край — глушится' ($wm.Invoke($null, @([int]-2147483448, [int]2147483447))) $true
 
 # --- Время звонка: после часа — с часами, как на iPhone
 $cc = $iwT.GetMethod('CallClock', $sf)
@@ -566,6 +664,33 @@ T 'не засыпать: caffeinate 2h' (AP 'caffeinate 2h') '120 мин'
 T 'не засыпать: «кофейня» — не команда' (AP 'кофейня') 'нет'
 T 'не засыпать: «кофе с молоком» — не команда' (AP 'кофе с молоком') 'нет'
 
+# --- строка команд: команда — само слово или его начало, а не любое слово с тем же началом («блокнот» не блокирует компьютер)
+$hk = $iwT.GetMethod('HasKey', [Reflection.BindingFlags]'NonPublic,Static')
+$lockKeys = [string[]]@('заблокировать', 'заблокируй', 'блокировка', 'блокировать', 'lock')
+T 'команды: «блокнот» — не блокировка компьютера' ($hk.Invoke($null, @('блокнот', $lockKeys))) $false
+T 'команды: начало слова «забл» — блокировка' ($hk.Invoke($null, @('забл', $lockKeys))) $true
+T 'команды: «lock screen» — блокировка' ($hk.Invoke($null, @('lock screen', $lockKeys))) $true
+T 'команды: «светлана» — не светлая тема' ($hk.Invoke($null, @('светлана', [string[]]@('светлая тема', 'светлый режим', 'light')))) $false
+T 'команды: «lightroom» — не светлая тема' ($hk.Invoke($null, @('lightroom', [string[]]@('светлая тема', 'светлый режим', 'light')))) $false
+T 'команды: «записки» — не запись экрана' ($hk.Invoke($null, @('записки', [string[]]@('запись экрана', 'записать экран', 'видеозапись', 'record')))) $false
+T 'команды: «запись» — запись экрана' ($hk.Invoke($null, @('запись', [string[]]@('запись экрана', 'записать экран', 'видеозапись', 'record')))) $true
+T 'команды: «голосование» — не диктовка' ($hk.Invoke($null, @('голосование', [string[]]@('диктовка', 'диктовать', 'голосовой ввод', 'голос', 'voice')))) $false
+T 'команды: «ии привет» — чат' ($hk.Invoke($null, @('ии привет', [string[]]@('чат', 'claude', 'клод', 'ии')))) $true
+
+# --- ярлыки: из перетащенного текста закрепляется только первая ссылка, без знаков препинания в конце
+$dl = $iwT.GetMethod('DroppedLink', [Reflection.BindingFlags]'NonPublic,Static')
+T 'ярлыки: ссылка и слова после неё' ($dl.Invoke($null, @('https://example.com is down'))) 'https://example.com'
+T 'ярлыки: запятая после ссылки' ($dl.Invoke($null, @('https://example.com,'))) 'https://example.com'
+T 'ярлыки: две ссылки строками — первая' ($dl.Invoke($null, @("https://a.com`r`nhttps://b.com"))) 'https://a.com'
+T 'ярлыки: скобка и точка из текста вокруг' ($dl.Invoke($null, @('https://example.com/page).'))) 'https://example.com/page'
+T 'ярлыки: своя скобка в ссылке остаётся' ($dl.Invoke($null, @('https://ru.wikipedia.org/wiki/Python_(язык)'))) 'https://ru.wikipedia.org/wiki/Python_(язык)'
+T 'ярлыки: «https://» без адреса — не ссылка' ($null -eq $dl.Invoke($null, @('https://'))) $true
+T 'ярлыки: обычный текст — не ссылка' ($null -eq $dl.Invoke($null, @('просто текст'))) $true
+
+# --- клавиши: подпись сочетания в настройках
+T 'клавиши: подпись сочетания Ctrl+Alt+G' ($asm.GetType('Kapsula.IslandWindow').GetMethod('HotText').Invoke($null, @([uint32]3, [uint32]0x47))) 'Ctrl+Alt+G'
+T 'клавиши: выключенное сочетание' ($asm.GetType('Kapsula.IslandWindow').GetMethod('HotText').Invoke($null, @([uint32]3, [uint32]0))) 'Отключено'
+
 # --- Зверёк — главное: своя вкладка сразу после «Главной», первый раздел настроек, лапка
 $pp = $iwT.GetField('PPet', $sf).GetValue($null)
 $tg = $iwT.GetField('TabGroups', $sf).GetValue($null)
@@ -573,12 +698,15 @@ $own = $false; foreach ($g in $tg) { if ($g.Length -eq 1 -and $g[0] -eq $pp) { $
 T 'вкладки: у зверька своя группа' $own $true
 T 'вкладки: зверёк сразу после «Главной»' ([int]$tg[1][0]) ([int]$pp)
 $to = $iwT.GetField('TabOrder', $sf).GetValue($null)
-T 'вкладки: каждая страница в порядке один раз' (@($to | Sort-Object -Unique).Count) 13
+T 'вкладки: каждая страница в порядке один раз' (@($to | Sort-Object -Unique).Count) 12
+T 'вкладки: номера страниц подряд, без пустых мест' (($to | Measure-Object -Maximum).Maximum) ($to.Length - 1)
 $swT = $asm.GetType('Kapsula.SettingsWindow')
 $so = $swT.GetField('SectionOrder', $sf).GetValue($null)
 T 'настройки: «Зверёк» — первый раздел' $so[0] 'Зверёк'
 $sg = $swT.GetField('SectionGlyphs', $sf).GetValue($null); $sh = $swT.GetField('SectionHints', $sf).GetValue($null); $sc = $swT.GetField('SectionColors', $sf).GetValue($null)
 T 'настройки: у каждого раздела значок, подсказка и цвет' (($so.Length -eq $sg.Length) -and ($so.Length -eq $sh.Length) -and ($so.Length -eq $sc.Length)) $true
+T 'настройки: пустого раздела «Главная» нет' ($so -contains 'Главная') $false
+T 'настройки: подсказки разделов не сдвинулись' ($sh[[array]::IndexOf($so, 'Музыка')]) 'Плеер, жидкий край, тексты песен, оценки'
 $tm = $swT.GetMethod('Times', $sf)
 T 'гладили: 1 раз' ($tm.Invoke($null, @(1))) 'раз'
 T 'гладили: 3 раза' ($tm.Invoke($null, @(3))) 'раза'
@@ -586,6 +714,12 @@ T 'гладили: 12 раз' ($tm.Invoke($null, @(12))) 'раз'
 T 'гладили: 22 раза' ($tm.Invoke($null, @(22))) 'раза'
 $pg = $asm.GetType('Kapsula.Ui').GetProperty('PawGeometry', [Reflection.BindingFlags]'Public,Static').GetValue($null, $null)
 T 'лапка: рисунок 9×8' ('{0}x{1}' -f $pg.Bounds.Width, $pg.Bounds.Height) '9x8'
+
+# --- превью в настройках: мини-плеер только у строк про текст песни
+$pk = $asm.GetType('Kapsula.SettingsWindow').GetMethod('PreviewKindFor', [Reflection.BindingFlags]'NonPublic,Static')
+T 'превью: «Скрывать текст уведомлений» — не мини-плеер' ($pk.Invoke($null, @('Скрывать текст уведомлений'))) -1
+T 'превью: «Сдвиг текста песни» — мини-плеер' ($pk.Invoke($null, @('Сдвиг текста песни'))) 2
+T 'превью: «Тексты песен» — мини-плеер' ($pk.Invoke($null, @('Тексты песен'))) 2
 
 # --- Демо-режим: на снимках только выдуманное
 $dw = $iwT.GetMethod('DemoWeather', $sf).Invoke($null, @())
@@ -605,6 +739,13 @@ T 'панель задач: спрятана — нет' ($tu.Invoke($null, @((R
 T 'панель задач: сверху — нет' ($tu.Invoke($null, @((RC 0 0 1920 48), $mon))) $false
 T 'панель задач: сбоку — нет' ($tu.Invoke($null, @((RC 0 0 62 1080), $mon))) $false
 
+# --- зверёк несёт к карточке то, что на ней (и попутчик, и тот, что прыгает с окна)
+$cm = $iwT.GetMethod('CarryMood', $sf)
+T 'карточка: обычная — с письмом' ($cm.Invoke($null, @(''))) 'post'
+T 'карточка: напоминание — с колокольчиком' ($cm.Invoke($null, @('bell'))) 'bell'
+T 'карточка: звонок — с трубкой' ($cm.Invoke($null, @('phone'))) 'phone'
+T 'карточка: достижение — с кубком' ($cm.Invoke($null, @('cup'))) 'cup'
+
 # --- Ночной колпак: ночью — на свободной голове, не поверх короны
 $pvT = $asm.GetType('Kapsula.PetView'); $oc = $pvT.GetMethod('OutfitCells', $sf)
 $pvT.GetField('TestNight').SetValue($null, 1)
@@ -614,6 +755,20 @@ T 'колпак: «без наряда» — без колпака' (($oc.Invoke
 $pvT.GetField('TestNight').SetValue($null, 0)
 T 'колпак: днём бабочка без колпака' (($oc.Invoke($null, @('bow'))).Length) 6
 $pvT.GetField('TestNight').SetValue($null, -1)
+
+# --- стикер: кадры GIF собираются по правилам самого GIF (холст во весь GIF, стирание и «верни как было»), битый файл — ошибка, а не пустой стикер
+$ds = $iwT.GetMethod('DecodeSticker', $sf)
+function GifLzw([int[]]$pix) { $codes = @(); foreach ($p in $pix) { $codes += 4, $p }; $codes += 5; $b = New-Object System.Collections.Generic.List[byte]; $acc = 0; $n = 0; foreach ($c in $codes) { $acc = $acc -bor ($c -shl $n); $n += 3; while ($n -ge 8) { $b.Add([byte]($acc -band 0xFF)); $acc = $acc -shr 8; $n -= 8 } }; if ($n -gt 0) { $b.Add([byte]($acc -band 0xFF)) }; ,([byte[]](@(2, $b.Count) + $b.ToArray() + @(0))) }
+function GifFrame([int]$disp, [int]$left, [int]$idx) { ,([byte[]](@(0x21, 0xF9, 4, (($disp -shl 2) -bor 1), 10, 0, 0, 0, 0x2C, $left, 0, 0, 0, 2, 0, 2, 0, 0) + (GifLzw @($idx, $idx, $idx, $idx)))) }
+function GifOf([object[]]$frames) { ,([byte[]]([Text.Encoding]::ASCII.GetBytes('GIF89a') + @(4, 0, 2, 0, 0x91, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255) + ($frames | ForEach-Object { $_ }) + @(0x3B))) }
+function GifPx($bmp, [int]$x) { $p = New-Object byte[] 4; $bmp.CopyPixels((New-Object System.Windows.Int32Rect $x, 0, 1, 1), $p, 4, 0); '{0:X2}{1:X2}{2:X2}{3:X2}' -f $p[3], $p[2], $p[1], $p[0] }
+$ga = [object[]]@((GifOf @((GifFrame 2 0 1), (GifFrame 1 2 3))), $null, $null); [void]$ds.Invoke($null, $ga)
+T 'стикер: холст GIF — во весь его экран, а не по первому кадру' ('{0}x{1}' -f $ga[1][0].PixelWidth, $ga[1][0].PixelHeight) '4x2'
+T 'стикер: место прошлого кадра стёрто (2) — без следов' ((GifPx $ga[1][1] 0) + ' ' + (GifPx $ga[1][1] 3)) '00000000 FF0000FF'
+$ga = [object[]]@((GifOf @((GifFrame 1 0 1), (GifFrame 3 0 3), (GifFrame 1 2 2))), $null, $null); [void]$ds.Invoke($null, $ga)
+T 'стикер: «верни как было» (3)' ((GifPx $ga[1][2] 0) + ' ' + (GifPx $ga[1][2] 3)) 'FFFF0000 FF00FF00'
+$gb = [object[]]@([byte[]](1, 2, 3, 4), $null, $null)
+T 'стикер: битый файл не открывается' $(try { [void]$ds.Invoke($null, $gb); 'открылся' } catch { 'ошибка' }) 'ошибка'
 
 # --- Порты Kapsula на этом компьютере не пересекаются (в 0.6.1–0.6.3 пульт и звонки Discord делили 42073)
 $ports = @('DiscordBridge', 'SteamBridge', 'ClaudeBridge', 'DiscordVoiceServer', 'PhoneCam', 'Phone') | ForEach-Object { $asm.GetType('Kapsula.' + $_).GetField('Port').GetValue($null) }
@@ -629,6 +784,12 @@ T 'discord: после отправки очередь пуста' ($dvs.GetMeth
 
 # --- наряды за привычки: у каждого наряда есть название
 T 'наряды: названий столько же, сколько нарядов' ($iwT.GetField('OutfitNames').GetValue($null).Length) ($iwT.GetField('OutfitIds').GetValue($null).Length)
+
+# --- полученные наряды остаются насовсем: список через запятую
+$oh = $iwT.GetMethod('OwnedHas', $sf)
+T 'наряды: полученный — в списке' ($oh.Invoke($null, @('band,crown', 'crown'))) $true
+T 'наряды: не полученный — нет' ($oh.Invoke($null, @('band,crown', 'bow'))) $false
+T 'наряды: список пуст' ($oh.Invoke($null, @('', 'band'))) $false
 
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

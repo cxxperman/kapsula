@@ -54,14 +54,6 @@ namespace Kapsula
             long was;
             lock (Days) { Days.TryGetValue(date, out was); Days[date] = was + outTokens; }
             if (date != today) return false;   // прошлые дни идут только в недельную сводку
-            var pm = rxCwd.Match(line);
-            if (pm.Success)
-            {
-                string cwd = pm.Groups[1].Value.Replace("\\\\", "\\").TrimEnd('\\', '/');
-                int cut = Math.Max(cwd.LastIndexOf('\\'), cwd.LastIndexOf('/'));
-                string name = cut >= 0 ? cwd.Substring(cut + 1) : cwd;
-                if (name.Length > 0) { Projects.TryGetValue(name, out was); Projects[name] = was + outTokens; }
-            }
             In += Num(line, u, "input_tokens");
             Out += outTokens;
             CacheRead += Num(line, u, "cache_read_input_tokens");
@@ -70,14 +62,12 @@ namespace Kapsula
             return true;
         }
 
-        // Написанные токены по дням за неделю и по проектам за сегодня
+        // Написанные токены по дням за неделю
         public static readonly Dictionary<DateTime, long> Days = new Dictionary<DateTime, long>();
-        public static readonly Dictionary<string, long> Projects = new Dictionary<string, long>();
-        static readonly System.Text.RegularExpressions.Regex rxCwd = new System.Text.RegularExpressions.Regex("\"cwd\":\"((?:[^\"\\\\]|\\\\.)*)\"");
 
         public static long Week { get { long s = 0; lock (Days) foreach (long v in Days.Values) s += v; return s; } }
 
-        public static void Reset() { In = Out = CacheRead = CacheWrite = 0; Replies = 0; seen.Clear(); offsets.Clear(); Days.Clear(); Projects.Clear(); }
+        public static void Reset() { In = Out = CacheRead = CacheWrite = 0; Replies = 0; seen.Clear(); offsets.Clear(); Days.Clear(); }
 
         public static void Refresh()
         {
@@ -217,7 +207,32 @@ namespace Kapsula
         }
 
         // Заполнение контекста сессии: входные токены последнего ответа из её файла (читаем только хвост)
+        // Вкладка «Claude» спрашивает это при каждой перерисовке: пока файл сессии не вырос, его хвост заново не читаем
+        static readonly Dictionary<string, long[]> contextCache = new Dictionary<string, long[]>();   // файл → { длина, токены }
         public static long ContextTokens(string transcript)
+        {
+            long len;
+            try
+            {
+                if (string.IsNullOrEmpty(transcript) || !System.IO.File.Exists(transcript)) return -1;
+                len = new System.IO.FileInfo(transcript).Length;
+            }
+            catch { return -1; }
+            lock (contextCache)
+            {
+                long[] hit;
+                if (contextCache.TryGetValue(transcript, out hit) && hit[0] == len) return hit[1];
+            }
+            long t = ReadContextTokens(transcript);
+            lock (contextCache)
+            {
+                if (contextCache.Count > 64) contextCache.Clear();
+                contextCache[transcript] = new long[] { len, t };
+            }
+            return t;
+        }
+
+        static long ReadContextTokens(string transcript)
         {
             try
             {
@@ -350,6 +365,8 @@ namespace Kapsula
 
         public static bool ForceOn;   // проверочный режим: слушать, не глядя на настройку
         public static bool Enabled { get { return ForceOn || Store.Get("claudeCode") == "1"; } }
+        // MCP-сервер для других агентов: включается переключателем или кнопкой «Скопировать настройку» и работает без «Claude Code на острове»
+        public static bool McpOn { get { return Store.Get("mcp") == "1"; } }
         public static bool Listening { get { return listener != null; } }
 
         static string TokenFile { get { return System.IO.Path.Combine(Store.Dir, "claude-token.txt"); } }
@@ -378,7 +395,7 @@ namespace Kapsula
         {
             lock (gate)
             {
-                if (listener != null || !Enabled) return;
+                if (listener != null || !(Enabled || McpOn)) return;
                 try
                 {
                     var l = new System.Net.HttpListener();
@@ -436,7 +453,8 @@ namespace Kapsula
             try { d = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 1024 * 1024 }.DeserializeObject(body) as Dictionary<string, object>; } catch { }
             string path = rq.Url.AbsolutePath;
             if (path == "/mcp") { HandleMcp(ctx, d); return; }
-            if (d == null) { Reply(ctx, 200, ""); return; }
+            // «Claude Code на острове» выключен, а сервер работает только для MCP — Claude Code спрашивает сам, как обычно
+            if (d == null || !Enabled) { Reply(ctx, 200, ""); return; }
 
             object ti;
             var input = d.TryGetValue("tool_input", out ti) ? ti as Dictionary<string, object> : null;
@@ -577,17 +595,24 @@ namespace Kapsula
         {
             public string Agent = "", Question = "";
             public string[] Options = new string[0];
+            public readonly int At = Environment.TickCount;   // когда агент спросил: карточка должна уйти раньше, чем через 120 с ответит таймер
             System.Net.HttpListenerContext ctx; object id; int done; Timer timer;
             internal McpQuestion(System.Net.HttpListenerContext c, object rid)
             {
                 ctx = c; id = rid;
                 timer = new Timer(delegate { Answer(null); }, null, 120000, Timeout.Infinite);
             }
+            public bool Answered { get { return done != 0; } }
+            // choice — выбранный вариант; "" — закрыли крестиком; null — не ответили за две минуты
             public void Answer(string choice)
+            {
+                Say(choice == null ? "Пользователь не ответил за две минуты." : choice.Length == 0 ? "Пользователь отказался отвечать." : "Пользователь выбрал: " + choice);
+            }
+            // Ответ агенту своими словами — например, что включено «Не беспокоить»
+            public void Say(string text)
             {
                 if (Interlocked.Exchange(ref done, 1) != 0) return;
                 try { timer.Dispose(); } catch { }
-                string text = choice == null ? "Пользователь не ответил за две минуты." : "Пользователь выбрал: " + choice;
                 Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("content", new object[] { MObj("type", "text", "text", text) }))));
             }
         }

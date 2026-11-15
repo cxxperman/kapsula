@@ -1,6 +1,6 @@
 ﻿// Kapsula — «остров» для Windows. Часть исходного кода: Extras.cs
-// Вкладка уведомлений, дека ярлыков с горячими клавишами, режим звонка, быстрые настройки (яркость, питание),
-// умные карточки буфера, свои сайты во вкладке чата и экономия процессора в покое.
+// Вкладка уведомлений, режим звонка, яркость монитора,
+// умные карточки буфера и свои сайты во вкладке чата.
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -11,19 +11,15 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using WF = System.Windows.Forms;
 
 namespace Kapsula
 {
     partial class IslandWindow
     {
-        System.Windows.Threading.DispatcherTimer pollTimer;
-
         void InitExtras()
         {
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                RegisterDeckHotkeys();
                 StartOverlays();
                 if (Store.Get("phoneRemote") == "1") Phone.Start(this);
                 if (PhoneCam.Installed) PhoneCam.Start(this);
@@ -104,20 +100,11 @@ namespace Kapsula
             Toast(((char)0xE714).ToString(), on ? "Телефон работает камерой · Kapsula Camera" : "Камера телефона отключена", null, -1, on ? (Brush)ClaudeGreen : null);
         }
 
-        // каждые полсекунды
+        // каждые полсекунды (частоту опроса мыши здесь не трогаем — её меняет только CalmCheck в Rider.cs)
         void ExtrasTick()
         {
             CallTick();
             OverlaysTick();
-            // В покое, когда курсор далеко от острова и ничего не движется, опрашиваем мышь реже — меньше нагрузки
-            if (pollTimer != null)
-            {
-                Native.POINT pt;
-                bool near = Native.GetCursorPos(out pt) && (pt.Y / dpi < Top + 160 || NearWalker(pt));   // у зверька на окне — тоже: вдруг его гладят
-                bool idle = state == 0 && !frameOn && !toastOn && !near && !timerRinging;
-                var want = TimeSpan.FromMilliseconds(idle ? 120 : 33);
-                if (pollTimer.Interval != want) pollTimer.Interval = want;
-            }
         }
 
         // ================================================================ Уведомления
@@ -125,21 +112,17 @@ namespace Kapsula
 
         FrameworkElement BuildNotifPage()
         {
-            var dock = new DockPanel();
             var foot = new Grid { Height = 28, Margin = new Thickness(0, 6, 0, 0) };
             notifCount = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             foot.Children.Add(notifCount);
             var clear = Btn("Очистить всё", false, 0, 28, delegate { seenNotes.Clear(); RenderNotifPage(); });
             clear.HorizontalAlignment = HorizontalAlignment.Right;
             foot.Children.Add(clear);
-            DockPanel.SetDock(foot, Dock.Bottom);
-            dock.Children.Add(foot);
             notifList = new StackPanel();
             var nsv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = notifList };
             var ntb = PageBoard(PNotif, "notif", 1, 9, 8);
             ntb.Add("list", "Список", nsv, 0, 0, 1, 8, false);
             ntb.Add("foot", "Счётчик и «Очистить всё»", foot, 0, 8, 1, 1, false);
-            GC.KeepAlive(dock);
             return FinishBoard(ntb);
         }
         TextBlock notifCount;
@@ -182,175 +165,6 @@ namespace Kapsula
             }
         }
 
-        // ================================================================ Дека
-        // Пронумерованные ярлыки: программы и действия. Ctrl+Alt+1…9 запускают нужное место.
-        const int DeckHotBase = 900;
-        class DeckItem { public string Kind = "app", Value = "", Name = ""; }
-        WrapPanel deckWrap;
-
-        static readonly string[][] DeckActions =
-        {
-            new string[] { "snip", "Снимок области", "" }, new string[] { "full", "Весь экран", "" }, new string[] { "rec", "Запись экрана", "" },
-            new string[] { "focus25", "Фокус 25", "" }, new string[] { "focus50", "Фокус 50", "" }, new string[] { "lock", "Блокировка", "" },
-            new string[] { "downloads", "Загрузки", "" }, new string[] { "cmd", "Команда", "" }, new string[] { "mute", "Микрофон", "" },
-            new string[] { "phonecam", "Камера телефона", "" }
-        };
-
-        List<DeckItem> DeckLoad()
-        {
-            var list = new List<DeckItem>();
-            string raw = Store.Get("deck");
-            if (raw == "" && Store.Get("deckInit") != "1") raw = "act~snip~¦act~focus50~¦act~downloads~¦act~lock~";
-            foreach (string part in raw.Split(new char[] { '¦' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                string[] p = part.Split('~');
-                if (p.Length >= 2) list.Add(new DeckItem { Kind = p[0], Value = p[1], Name = p.Length > 2 ? p[2] : "" });
-            }
-            return list;
-        }
-
-        void DeckSave(List<DeckItem> list)
-        {
-            var parts = new List<string>();
-            foreach (DeckItem d in list) parts.Add(d.Kind + "~" + d.Value.Replace("~", "") + "~" + d.Name.Replace("~", ""));
-            Store.Set("deck", string.Join("¦", parts.ToArray()));
-            Store.Set("deckInit", "1");
-            RegisterDeckHotkeys();
-        }
-
-        public void ReloadDeckHotkeys() { RegisterDeckHotkeys(); }
-        public void RefreshTabs() { if (page == PDeck && !DeckOn) ShowPage(PHome); else ShowPage(page); }
-
-        void RegisterDeckHotkeys()
-        {
-            if (hwnd == IntPtr.Zero) return;
-            for (int i = 0; i < 9; i++) Native.UnregisterHotKey(hwnd, DeckHotBase + i);
-            if (Store.Get("deckHotkeys") == "0" || !DeckOn) return;
-            int n = DeckLoad().Count;
-            for (int i = 0; i < n && i < 9; i++) Native.RegisterHotKey(hwnd, DeckHotBase + i, 0x1 | 0x2 | 0x4000, (uint)(0x31 + i));   // Ctrl+Alt+цифра
-        }
-
-        FrameworkElement BuildDeckPage()
-        {
-            var dock = new DockPanel();
-            var foot = new TextBlock { Text = "Перетащите сюда программу или файл · Ctrl+Alt+цифра запускает место · правый клик — убрать", Foreground = Faint, FontSize = 11.5, Margin = new Thickness(4, 6, 0, 0) };
-            DockPanel.SetDock(foot, Dock.Bottom);
-            dock.Children.Add(foot);
-            deckWrap = new WrapPanel();
-            var host = new Grid { Background = Brushes.Transparent, AllowDrop = true };
-            host.Children.Add(deckWrap);
-            host.Drop += delegate(object o, DragEventArgs e)
-            {
-                if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                List<DeckItem> list = DeckLoad();
-                foreach (string f in files)
-                {
-                    if (list.Count >= 9) break;
-                    list.Add(new DeckItem { Kind = "app", Value = f, Name = System.IO.Path.GetFileNameWithoutExtension(f) });
-                    Toast(((char)0xF0E2).ToString(), "Добавлено в деку · Ctrl+Alt+" + list.Count, null, -1, accent);
-                }
-                DeckSave(list);
-                RenderDeck();
-            };
-            dock.Children.Add(host);
-            return dock;
-        }
-
-        void RenderDeck()
-        {
-            if (deckWrap == null) return;
-            deckWrap.Children.Clear();
-            List<DeckItem> list = DeckLoad();
-            for (int i = 0; i < list.Count; i++)
-            {
-                int idx = i;
-                DeckItem d = list[i];
-                FrameworkElement icon;
-                string name = d.Name;
-                if (d.Kind == "act")
-                {
-                    string[] a = Array.Find(DeckActions, delegate(string[] x) { return x[0] == d.Value; });
-                    if (a == null) continue;
-                    if (name.Length == 0) name = a[1];
-                    icon = new TextBlock { Text = a[2], FontFamily = Icons, FontSize = 18, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                }
-                else
-                {
-                    ImageSource src = null;
-                    try { src = Shell.IconFor(d.Value); } catch { }
-                    icon = src != null ? (FrameworkElement)new Image { Source = src, Width = 28, Height = 28 } : new TextBlock { Text = ((char)0xE8A5).ToString(), FontFamily = Icons, FontSize = 18, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                }
-                var g = new Grid { Width = 84, Height = 80 };
-                var sq = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(14), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0), Child = icon };
-                g.Children.Add(sq);
-                g.Children.Add(new TextBlock { Text = (i + 1).ToString(), Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(14, 0, 0, 0) });
-                g.Children.Add(new TextBlock { Text = name, Foreground = Dim, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, MaxWidth = 80, Margin = new Thickness(0, 0, 0, 6) });
-                var b = new Border { Background = Brushes.Transparent, CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand, Child = g, ToolTip = name + " · Ctrl+Alt+" + (i + 1) };
-                b.MouseEnter += delegate { b.Background = Glass.Hover; };
-                b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
-                b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; RunDeckSlot(idx); };
-                b.MouseRightButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; List<DeckItem> cur = DeckLoad(); if (idx < cur.Count) { cur.RemoveAt(idx); DeckSave(cur); RenderDeck(); } };
-                Fx.Press(b, 0.94);
-                deckWrap.Children.Add(b);
-            }
-            if (list.Count < 9)
-            {
-                var add = new Grid { Width = 84, Height = 80 };
-                add.Children.Add(new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(14), BorderBrush = Line, BorderThickness = new Thickness(1.5), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0),
-                    Child = new TextBlock { Text = ((char)0xE710).ToString(), FontFamily = Icons, FontSize = 14, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
-                add.Children.Add(new TextBlock { Text = "Добавить", Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 6) });
-                var ab = new Border { Background = Brushes.Transparent, CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand, Child = add };
-                ab.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; DeckAddMenu(ab); };
-                deckWrap.Children.Add(ab);
-            }
-        }
-
-        void DeckAddMenu(FrameworkElement anchor)
-        {
-            var menu = new WF.ContextMenuStrip();
-            foreach (string[] a in DeckActions)
-            {
-                string id = a[0], nm = a[1];
-                menu.Items.Add(nm, null, delegate { List<DeckItem> l = DeckLoad(); if (l.Count < 9) { l.Add(new DeckItem { Kind = "act", Value = id }); DeckSave(l); RenderDeck(); } });
-            }
-            menu.Items.Add(new WF.ToolStripSeparator());
-            menu.Items.Add("Программа или файл…", null, delegate
-            {
-                var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Что положить в деку", Filter = "Программы и ярлыки|*.exe;*.lnk;*.url|Все файлы|*.*" };
-                if (dlg.ShowDialog() == true) { List<DeckItem> l = DeckLoad(); if (l.Count < 9) { l.Add(new DeckItem { Kind = "app", Value = dlg.FileName, Name = System.IO.Path.GetFileNameWithoutExtension(dlg.FileName) }); DeckSave(l); RenderDeck(); } }
-            });
-            DarkMenuRenderer.Apply(menu, 240, false);
-            Point at = anchor.PointToScreen(new Point(0, anchor.ActualHeight + 4));
-            menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
-        }
-
-        public void RunDeckSlot(int i)
-        {
-            List<DeckItem> list = DeckLoad();
-            if (i < 0 || i >= list.Count) return;
-            DeckItem d = list[i];
-            if (d.Kind == "app")
-            {
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(d.Value) { UseShellExecute = true }); }
-                catch { Toast(((char)0xF0E2).ToString(), "Не удалось открыть: " + d.Name, null, -1, null); }
-                return;
-            }
-            switch (d.Value)
-            {
-                case "snip": StartSnip(false); break;
-                case "full": FullShot(); break;
-                case "rec": ToggleRecord(false); break;
-                case "focus25": StartFocus(25, ""); break;
-                case "focus50": StartFocus(50, ""); break;
-                case "lock": Native.LockWorkStation(); break;
-                case "downloads": try { System.Diagnostics.Process.Start(DownloadsDir()); } catch { } break;
-                case "cmd": ToggleCommand(); break;
-                case "phonecam": OpenPhoneCam(); break;
-                case "mute": Audio.SetMicMuted(!Audio.MicMuted()); Toast(((char)0xE720).ToString(), Audio.MicMuted() ? "Микрофон выключен" : "Микрофон включён", null, -1, Audio.MicMuted() ? RecRed : (Brush)accent); break;
-            }
-        }
-
         // ================================================================ Звонок
         // Звонок — это когда программа для звонков одновременно держит микрофон и сама выводит звук (голосовой поток).
         // Одного микрофона мало: Discord, например, держит его открытым и вне звонка. Тогда на «Главной» большая кнопка микрофона.
@@ -373,7 +187,8 @@ namespace Kapsula
             return t.Minutes + ":" + t.Seconds.ToString("00");
         }
 
-        static string CallAppNow()
+        // skipDiscord — плагин Discord на связи: о звонке Discord он скажет сам, а открытый им микрофон — ещё не звонок
+        static string CallAppNow(bool skipDiscord)
         {
             try
             {
@@ -386,7 +201,7 @@ namespace Kapsula
                                 object v = s == null ? null : s.GetValue("LastUsedTimeStop");
                                 if (!(v is long) || (long)v != 0) continue;
                                 string exe = n.Substring(n.LastIndexOf('#') + 1).ToLowerInvariant().Replace(".exe", "");
-                                foreach (string a in CallApps) if ((exe == a || exe.StartsWith(a)) && AppVolume.SessionActive(exe)) return Pretty(exe);
+                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && (exe == a || exe.StartsWith(a)) && AppVolume.SessionActive(exe)) return Pretty(exe);
                             }
                 }
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"))
@@ -400,7 +215,7 @@ namespace Kapsula
                                 object v = s == null ? null : s.GetValue("LastUsedTimeStop");
                                 if (!(v is long) || (long)v != 0) continue;
                                 string low = n.ToLowerInvariant();
-                                foreach (string a in CallApps) if (low.Contains(a) && AppVolume.SessionActive(a)) return Pretty(a);
+                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && low.Contains(a) && AppVolume.SessionActive(a)) return Pretty(a);
                             }
                         }
                 }
@@ -428,11 +243,11 @@ namespace Kapsula
         {
             callTickN++;
             RingTick();   // входящий звонок: показать после другой карточки, убрать, если Discord закрыли
-            if (DiscordLive) { DiscordCallTick(); return; }   // плагин в Discord сообщает всё сам — догадки по микрофону не нужны
+            if (DiscordLive && (dvInCall || callApp == "Discord")) { DiscordCallTick(); return; }   // звонок Discord — по словам плагина; вне голоса Discord догадка по микрофону ищет Zoom, Teams, Telegram и браузер
             int now = Environment.TickCount;
-            if (callTest) callCandidate = "Discord";
+            if (callTest) callCandidate = DiscordLive ? null : "Discord";   // проверочный «звонок» — только без плагина, иначе плагин тут же снимал бы его
             else if (Store.Get("callMode") != "1") callCandidate = null;   // альфа: выключено, пока не включат в настройках
-            else if (callTickN % 4 == 0) callCandidate = CallAppNow();
+            else if (callTickN % 4 == 0) callCandidate = CallAppNow(DiscordLive);
             if (callCandidate != null)
             {
                 double pk = callTest ? (callTickN % 6 < 3 ? 0.3 : 0) : Math.Max(AppVolume.SessionPeak(callCandidate, 0), AppVolume.SessionPeak(callCandidate, 1));
@@ -458,73 +273,6 @@ namespace Kapsula
             }
         }
         // Карточка звонка на «Главной» (EnsureCallCard, PaintMute) — в CallCard.cs
-
-        // ================================================================ Быстрые настройки
-        Border powerChips;
-
-        FrameworkElement BuildQuickControls()
-        {
-            var g = new Grid { Height = 36, Margin = new Thickness(0, 6, 0, 0) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            // яркость: ползунок; если монитор не даёт её менять — подпись
-            var bright = new Grid { Margin = new Thickness(14, 0, 14, 0) };
-            bright.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-            bright.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            bright.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
-            bright.Children.Add(new TextBlock { Text = ((char)0xE706).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center });
-            var bv = new TextBlock { Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(bv, 2); bright.Children.Add(bv);
-            var bar = new Bar(150, 5, Fg, 22).Knob(17);
-            bar.Root.Cursor = Cursors.Hand; bar.Root.HorizontalAlignment = HorizontalAlignment.Stretch;
-            int cur = Brightness.Get();
-            if (cur < 0) { bv.Text = "—"; bar.Root.Opacity = 0.35; bar.Root.ToolTip = "Этот монитор не даёт менять яркость программам"; }
-            else { bar.Set(cur / 100.0); bv.Text = cur + "%"; }
-            Action<Point> setFrom = delegate(Point p) { if (cur < 0) return; double v = bar.ValueAt(p); bar.Set(v); bv.Text = Math.Round(v * 100) + "%"; Brightness.Set((int)Math.Round(v * 100)); };
-            bar.Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { bar.Root.CaptureMouse(); setFrom(e.GetPosition(bar.Root)); };
-            bar.Root.MouseMove += delegate(object s, MouseEventArgs e) { if (bar.Root.IsMouseCaptured) setFrom(e.GetPosition(bar.Root)); };
-            bar.Root.MouseLeftButtonUp += delegate { bar.Root.ReleaseMouseCapture(); };
-            bar.Root.SizeChanged += delegate { bar.Resize(Math.Max(40, bar.Root.ActualWidth)); };
-            Grid.SetColumn(bar.Root, 1); bright.Children.Add(bar.Root);
-            g.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Child = bright });
-            // режим питания
-            var chips = new StackPanel { Orientation = Orientation.Horizontal };
-            string[] names = { "Экономия", "Баланс", "Мощность" };
-            string active = Power.Active();
-            for (int i = 0; i < 3; i++)
-            {
-                int idx = i;
-                bool on = Power.Ids[i] == active;
-                var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(11, 0, 11, 1), Background = on ? (Brush)Glass.Strong : Brushes.Transparent, Cursor = Cursors.Hand,
-                    Child = new TextBlock { Text = names[i], FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
-                Ui.Seg(c, on);
-                c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
-                {
-                    e.Handled = true;
-                    if (!Power.Set(idx)) Toast(((char)0xE945).ToString(), "Этой схемы питания нет на компьютере", null, -1, null);
-                    else Toast(((char)0xE945).ToString(), "Питание: " + names[idx], null, -1, accent);
-                    var parent = (Panel)g.Parent; int at = parent.Children.IndexOf(g); parent.Children.RemoveAt(at); parent.Children.Insert(at, BuildQuickControls());
-                };
-                chips.Children.Add(c);
-            }
-            powerChips = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(3), Child = chips, ToolTip = "Схема питания Windows" };
-            Grid.SetColumn(powerChips, 2); g.Children.Add(powerChips);
-            // ночной свет и заряд батареи
-            var extra = new StackPanel { Orientation = Orientation.Horizontal };
-            var night = IconBtn(((char)0xE708).ToString(), 32, delegate { try { System.Diagnostics.Process.Start("ms-settings:nightlight"); } catch { } });
-            night.ToolTip = "Ночной свет — параметры Windows";
-            extra.Children.Add(AwakeBtn(32));   // «Не засыпать» — чашка
-            extra.Children.Add(night);
-            var ps = WF.SystemInformation.PowerStatus;
-            if (ps.BatteryChargeStatus != WF.BatteryChargeStatus.NoSystemBattery && ps.BatteryLifePercent <= 1)
-                extra.Children.Add(new TextBlock { Text = (int)Math.Round(ps.BatteryLifePercent * 100) + "%" + (ps.PowerLineStatus == WF.PowerLineStatus.Online ? " ⚡" : ""), Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0), ToolTip = "Заряд батареи" });
-            var extraCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(2), Child = extra };
-            Grid.SetColumn(extraCard, 4); g.Children.Add(extraCard);
-            return g;
-        }
 
         // ================================================================ Умный буфер
         StackPanel clipFilterRow;
@@ -630,9 +378,11 @@ namespace Kapsula
         {
             var parts = new List<string>(Store.Get("webSites").Split(new char[] { '¦' }, StringSplitOptions.RemoveEmptyEntries));
             if (i < 0 || i >= parts.Count) return;
+            // выбранный сайт читаем до того, как список стал короче: потом номер последнего уже вне списка,
+            // WebIndex() принял бы его за Duck.ai — и браузер остался бы на убранном сайте
+            int sel; if (!int.TryParse(Store.Get("webChat"), out sel)) sel = 0;
             parts.RemoveAt(i);
             Store.Set("webSites", string.Join("¦", parts.ToArray()));
-            int sel = WebIndex();
             if (sel == i + 3) { Store.Set("webChat", "0"); if (duck != null) duck.Go(WebUrls[0]); }
             else if (sel > i + 3) Store.Set("webChat", (sel - 1).ToString());
             RenderWebRow();
@@ -673,7 +423,7 @@ namespace Kapsula
             return res;
         }
         // ================================================================ «В избранное» и «Не интересует» (Cider)
-        readonly List<Border> rateBtns = new List<Border>(), favBtns = new List<Border>();
+        readonly List<Border> favBtns = new List<Border>();
         readonly List<FrameworkElement[]> favStars = new List<FrameworkElement[]>();   // [контурная, залитая]
         static readonly Brush StarYellow = new SolidColorBrush(Color.FromRgb(0xFF, 0xCC, 0x33));
         readonly List<Border> banBtns = new List<Border>();
@@ -714,7 +464,6 @@ namespace Kapsula
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.86);
             HoverFollows(b);
-            rateBtns.Add(b);
             return b;
         }
 
@@ -863,35 +612,6 @@ namespace Kapsula
         }
     }
 
-    // ---- схемы питания Windows
-    static class Power
-    {
-        // экономия, сбалансированная, высокая производительность
-        public static readonly string[] Ids = { "a1841308-3541-4fab-bc81-f71556f20b4a", "381b4222-f694-41f0-9685-ff5bb260df2e", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" };
-
-        static string Run(string args)
-        {
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo("powercfg", args) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true };
-                using (var p = System.Diagnostics.Process.Start(psi)) { string s = p.StandardOutput.ReadToEnd(); p.WaitForExit(3000); return s; }
-            }
-            catch { return ""; }
-        }
-
-        public static string Active()
-        {
-            Match m = Regex.Match(Run("/getactivescheme"), @"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOptions.IgnoreCase);
-            return m.Success ? m.Value.ToLowerInvariant() : "";
-        }
-
-        public static bool Set(int i)
-        {
-            Run("/setactive " + Ids[i]);
-            return Active() == Ids[i];
-        }
-    }
-
     // ---- яркость: у ноутбуков — через WMI, у внешних мониторов — по DDC/CI (если монитор это поддерживает)
     static class Brightness
     {
@@ -905,64 +625,67 @@ namespace Kapsula
         [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
         [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
 
-        static PHYSICAL_MONITOR[] Monitors()
+        // Физические мониторы за HMONITOR (IntPtr.Zero — главный экран)
+        static PHYSICAL_MONITOR[] Monitors(IntPtr mon)
         {
-            IntPtr mon = MonitorFromPoint(new POINT(), 1);
+            if (mon == IntPtr.Zero) mon = MonitorFromPoint(new POINT(), 1);
             uint n;
             if (!GetNumberOfPhysicalMonitorsFromHMONITOR(mon, out n) || n == 0) return null;
             var arr = new PHYSICAL_MONITOR[n];
             return GetPhysicalMonitorsFromHMONITOR(mon, n, arr) ? arr : null;
         }
 
-        // 0…100, -1 — менять нельзя
-        public static int Get()
+        // Яркость монитора mon (HMONITOR того, на котором остров): 0…100, -1 — менять нельзя. Сначала по DDC/CI у него
+        // самого; так он не умеет (экран ноутбука) — через Windows (WMI)
+        public static int Get(IntPtr mon)
         {
+            try
+            {
+                var arr = Monitors(mon);
+                if (arr != null)
+                {
+                    try
+                    {
+                        uint min, cur, max;
+                        if (GetMonitorBrightness(arr[0].h, out min, out cur, out max) && max > min) return (int)Math.Round((cur - min) * 100.0 / (max - min));
+                    }
+                    finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
+                }
+            }
+            catch { }
             try
             {
                 var s = new System.Management.ManagementObjectSearcher("root\\WMI", "SELECT CurrentBrightness FROM WmiMonitorBrightness");
                 foreach (System.Management.ManagementObject o in s.Get()) return Convert.ToInt32(o["CurrentBrightness"]);
             }
             catch { }
-            try
-            {
-                var arr = Monitors();
-                if (arr == null) return -1;
-                try
-                {
-                    uint min, cur, max;
-                    if (GetMonitorBrightness(arr[0].h, out min, out cur, out max) && max > min) return (int)Math.Round((cur - min) * 100.0 / (max - min));
-                }
-                finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
-            }
-            catch { }
             return -1;
         }
 
-        public static void Set(int v)
-        {
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate { SetNow(v); });
-        }
-
-        // То же, но сразу, в текущем потоке (монитор по DDC/CI отвечает десятки миллисекунд — не из потока окна)
-        public static void SetNow(int v)
+        // Поставить яркость монитору mon сразу, в текущем потоке (по DDC/CI он отвечает десятки миллисекунд — не из потока окна)
+        public static void SetNow(IntPtr mon, int v)
         {
             v = Math.Max(0, Math.Min(100, v));
             try
             {
-                var s = new System.Management.ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
-                foreach (System.Management.ManagementObject o in s.Get()) { o.InvokeMethod("WmiSetBrightness", new object[] { (uint)1, (byte)v }); return; }
+                var arr = Monitors(mon);
+                if (arr != null)
+                {
+                    bool done = false;
+                    try
+                    {
+                        uint min, cur, max;
+                        foreach (var m in arr) if (GetMonitorBrightness(m.h, out min, out cur, out max) && SetMonitorBrightness(m.h, (uint)(min + (max - min) * v / 100))) done = true;
+                    }
+                    finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
+                    if (done) return;
+                }
             }
             catch { }
             try
             {
-                var arr = Monitors();
-                if (arr == null) return;
-                try
-                {
-                    uint min, cur, max;
-                    foreach (var m in arr) if (GetMonitorBrightness(m.h, out min, out cur, out max)) SetMonitorBrightness(m.h, (uint)(min + (max - min) * v / 100));
-                }
-                finally { DestroyPhysicalMonitors((uint)arr.Length, arr); }
+                var s = new System.Management.ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
+                foreach (System.Management.ManagementObject o in s.Get()) { o.InvokeMethod("WmiSetBrightness", new object[] { (uint)1, (byte)v }); return; }
             }
             catch { }
         }

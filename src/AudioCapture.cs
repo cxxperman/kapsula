@@ -100,7 +100,8 @@ namespace Kapsula
         static double gain = 0.02;
         static readonly double[] re = new double[N], im = new double[N], window = new double[N];
 
-        static Spectrum() { for (int i = 0; i < N; i++) window[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1)); }
+        // retryAt — от текущего времени, а не ноль: после 24,9 суток работы Windows счётчик отрицательный, и ноль казался бы будущим
+        static Spectrum() { for (int i = 0; i < N; i++) window[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1)); retryAt = Environment.TickCount; }
 
         // Заполняет bands значениями 0…1 (от низких частот к высоким). false — звук снять не удалось или тишина.
         public static bool Read(double[] bands)
@@ -108,7 +109,13 @@ namespace Kapsula
             lastUseAt = Environment.TickCount;
             // Не вышло снять звук (нет устройства вывода) — пробуем снова не чаще раза в две секунды.
             if (string.IsNullOrEmpty(Player)) return false;
-            if (!running) { if (unchecked(Environment.TickCount - retryAt) >= 0) Start(); return false; }
+            if (!running)
+            {
+                // пауза между попытками не длиннее 2 секунд: «будущее» дальше этого — переполнившийся счётчик, а не пауза
+                int wait = unchecked(retryAt - Environment.TickCount);
+                if (wait <= 0 || wait > 2000) Start();
+                return false;
+            }
             if (runningFor != Player) return false;   // плеер сменился — поток сам закроется и откроется заново
             if (unchecked(Environment.TickCount - lastPacketAt) > 250) return false;   // давно ничего не играло
             lock (gate) { for (int i = 0; i < N; i++) { re[i] = ring[(ringPos + i) % N] * window[i]; im[i] = 0; } }
@@ -169,8 +176,6 @@ namespace Kapsula
             thread.IsBackground = true;
             thread.Start();
         }
-
-        [DllImport("ole32.dll")] static extern void CoTaskMemFree(IntPtr p);
 
         [System.Runtime.ExceptionServices.HandleProcessCorruptedStateExceptions]
         static void Run()

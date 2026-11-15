@@ -15,7 +15,6 @@ namespace Kapsula
     partial class IslandWindow
     {
         public bool AllowDetach = true;
-        public bool Detached { get { return detached; } }
         bool detached;
         double detFx = 0.5, detFy = 0.1;                    // где стоит отцепленный остров: центр по ширине и верх — доли рабочей области экрана
         readonly Spring se = new Spring(1, 320, 36);        // 1 — держится ушами за верхний край, 0 — отцеплен
@@ -139,30 +138,37 @@ namespace Kapsula
             };
             root.MouseLeftButtonUp += delegate(object s, MouseButtonEventArgs e)
             {
-                bool was = dragging;
                 dragArm = false;
-                if (!was) return;
-                dragging = false;
-                root.ReleaseMouseCapture();
-                holdOpenUntil = Environment.TickCount + 1200;
-                e.Handled = true;
-                Rect sc = ScreenDip();
-                if (Top - sc.Top < SnapTop) { Attach(true); return; }
-                // остаётся тут; у краёв рабочей области — прилипает
-                Rect wa = WorkDip();
-                double pillW = CompactWidth() * Scale, cx = Left + Width / 2, top = Top;
-                if (cx - pillW / 2 < wa.Left + SnapEdge) cx = wa.Left + EdgeGap + pillW / 2;
-                if (cx + pillW / 2 > wa.Right - SnapEdge) cx = wa.Right - EdgeGap - pillW / 2;
-                if (top + pillH * Scale > wa.Bottom - SnapEdge) top = wa.Bottom - EdgeGap - pillH * Scale;
-                if (top < wa.Top + EdgeGap) top = wa.Top + EdgeGap;
-                detFx = (cx - wa.Left) / wa.Width; detFy = (top - wa.Top) / wa.Height;
-                Store.Set("islandPos", detFx.ToString("0.####", CultureInfo.InvariantCulture) + ";" + detFy.ToString("0.####", CultureInfo.InvariantCulture));
-                se.Target = 0;
-                FloatTargets();
-                PlaceDetached(true);
-                if (rider != null && rOut && !rFly) rider.Play("hop", 700);
+                if (EndDrag()) e.Handled = true;
             };
-            root.LostMouseCapture += delegate { if (dragging) { dragging = false; dragArm = false; } };
+            // захват мыши пропал посреди перетаскивания (Alt+Tab, окно UAC, блокировка): остров остаётся там, где был, —
+            // как будто его отпустили; иначе он висел бы отцепленным на незапомненном месте и потом прыгал назад
+            root.LostMouseCapture += delegate { EndDrag(); };
+        }
+
+        // Перетаскивание кончилось: у верхнего края остров встаёт на место, иначе остаётся тут (у краёв прилипает) и место запоминается
+        bool EndDrag()
+        {
+            if (!dragging) return false;
+            dragging = false; dragArm = false;
+            if (root.IsMouseCaptured) root.ReleaseMouseCapture();
+            holdOpenUntil = Environment.TickCount + 1200;
+            Rect sc = ScreenDip();
+            if (Top - sc.Top < SnapTop) { Attach(true); return true; }
+            // остаётся тут; у краёв рабочей области — прилипает
+            Rect wa = WorkDip();
+            double pillW = CompactWidth() * Scale, cx = Left + Width / 2, top = Top;
+            if (cx - pillW / 2 < wa.Left + SnapEdge) cx = wa.Left + EdgeGap + pillW / 2;
+            if (cx + pillW / 2 > wa.Right - SnapEdge) cx = wa.Right - EdgeGap - pillW / 2;
+            if (top + pillH * Scale > wa.Bottom - SnapEdge) top = wa.Bottom - EdgeGap - pillH * Scale;
+            if (top < wa.Top + EdgeGap) top = wa.Top + EdgeGap;
+            detFx = (cx - wa.Left) / wa.Width; detFy = (top - wa.Top) / wa.Height;
+            Store.Set("islandPos", detFx.ToString("0.####", CultureInfo.InvariantCulture) + ";" + detFy.ToString("0.####", CultureInfo.InvariantCulture));
+            se.Target = 0;
+            FloatTargets();
+            PlaceDetached(true);
+            if (rider != null && rOut && !rFly) rider.Play("hop", 700);
+            return true;
         }
 
         // Вернуть остров к верхнему краю

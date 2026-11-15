@@ -1,6 +1,6 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Overlays.cs
-// Окна поверх всего: полоска с нагрузкой в играх, чат Twitch-канала и виджет на рабочем столе.
-// Все три — прозрачные для мыши и не забирают фокус.
+// Окна поверх всего: полоска с нагрузкой в играх и чат Twitch-канала.
+// Оба — прозрачные для мыши и не забирают фокус.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,55 +17,33 @@ namespace Kapsula
     // Окно-подложка: без рамки, не в панели задач, мышь проходит насквозь, фокус не берёт
     class OverlayWindow : Window
     {
-        readonly bool bottom;
-        public OverlayWindow(bool bottomMost)
+        public OverlayWindow()
         {
-            bottom = bottomMost;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
-            ShowInTaskbar = false; ShowActivated = false; Topmost = !bottomMost; ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false; ShowActivated = false; Topmost = true; ResizeMode = ResizeMode.NoResize;
             SizeToContent = SizeToContent.WidthAndHeight;
             SourceInitialized += delegate
             {
                 IntPtr h = new WindowInteropHelper(this).Handle;
                 int ex = GetWindowLong(h, -20);
                 SetWindowLong(h, -20, ex | 0x20 | 0x80 | 0x08000000 | 0x80000);   // прозрачное для мыши, служебное, без активации, слоёное
-                if (bottom) Sink();
             };
-            if (bottom) Activated += delegate { Sink(); };
-        }
-
-        public void Sink()
-        {
-            IntPtr h = new WindowInteropHelper(this).Handle;
-            if (h != IntPtr.Zero) SetWindowPos(h, new IntPtr(1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);   // HWND_BOTTOM, без размера и сдвига, без активации
         }
 
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
         [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
-        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
     }
 
     partial class IslandWindow
     {
-        OverlayWindow stripWin, chatWin, deskWin;
-        TextBlock stripText, deskDay, deskDate, deskInfo;
+        OverlayWindow stripWin, chatWin;
+        TextBlock stripText;
         StackPanel chatLines;
         int overlayN;
 
         // ---- для пульта с телефона
         public void PhoneMedia(int key) { watcher.Command(key); }
         public string PhoneTrack() { return media.Has ? (media.Artist.Length > 0 ? media.Artist + " — " : "") + media.Title : ""; }
-        public string[] DeckNames()
-        {
-            var res = new List<string>();
-            foreach (DeckItem d in DeckLoad())
-            {
-                string n = d.Name;
-                if (n.Length == 0) { string[] a = Array.Find(DeckActions, delegate(string[] x) { return x[0] == d.Value; }); n = a != null ? a[1] : d.Value; }
-                res.Add(n);
-            }
-            return res.ToArray();
-        }
 
         void StartOverlays()
         {
@@ -83,7 +61,7 @@ namespace Kapsula
             if (wantStrip && stripWin == null)
             {
                 stripText = new TextBlock { Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Cascadia Mono, Consolas") };
-                stripWin = new OverlayWindow(false) { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0xB0, 0, 0, 0)), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 4, 10, 5), Child = stripText } };
+                stripWin = new OverlayWindow { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0xB0, 0, 0, 0)), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 4, 10, 5), Child = stripText } };
                 stripWin.Left = 12; stripWin.Top = 10;
                 stripWin.Show();
             }
@@ -95,34 +73,13 @@ namespace Kapsula
             if (wantChat && chatWin == null)
             {
                 chatLines = new StackPanel { Width = 300 };
-                chatWin = new OverlayWindow(false) { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0x90, 0, 0, 0)), CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 8, 10, 8), Child = chatLines } };
+                chatWin = new OverlayWindow { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0x90, 0, 0, 0)), CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 8, 10, 8), Child = chatLines } };
                 var wa = SystemParameters.WorkArea;
                 chatWin.Left = wa.Right - 340; chatWin.Top = wa.Top + 120;
                 chatWin.Show();
                 RenderChatOverlay();
             }
             else if (!wantChat && chatWin != null) { chatWin.Close(); chatWin = null; }
-
-            // виджет на рабочем столе — внизу слева, под всеми окнами
-            bool wantDesk = Store.Get("deskWidget") == "1";
-            if (wantDesk && deskWin == null)
-            {
-                var sp = new StackPanel();
-                var shadow = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 0, Opacity = 0.6 };
-                deskDay = new TextBlock { Foreground = Brushes.White, FontSize = 54, FontWeight = FontWeights.Bold, Effect = shadow };
-                deskDate = new TextBlock { Foreground = new SolidColorBrush(Color.FromArgb(0xE0, 0xFF, 0xFF, 0xFF)), FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, -6, 0, 0), Effect = shadow };
-                deskInfo = new TextBlock { Foreground = new SolidColorBrush(Color.FromArgb(0xD0, 0xFF, 0xFF, 0xFF)), FontSize = 14, Margin = new Thickness(2, 8, 0, 0), LineHeight = 21, Effect = shadow };
-                sp.Children.Add(deskDay); sp.Children.Add(deskDate); sp.Children.Add(deskInfo);
-                deskWin = new OverlayWindow(true) { Content = sp };
-                var wa = SystemParameters.WorkArea;
-                deskWin.Left = wa.Left + 40;
-                deskWin.SizeChanged += delegate { deskWin.Top = SystemParameters.WorkArea.Bottom - deskWin.ActualHeight - 40; };
-                deskWin.Top = wa.Bottom - 220;
-                deskWin.Show();
-                UpdateDesk();
-            }
-            else if (!wantDesk && deskWin != null) { deskWin.Close(); deskWin = null; }
-            if (deskWin != null && overlayN % 20 == 0) { UpdateDesk(); deskWin.Sink(); }
         }
 
         ulong oIdle, oTotal;
@@ -161,31 +118,10 @@ namespace Kapsula
             return (int)Math.Min(100, Math.Round(sum));
         }
 
-        void UpdateDesk()
-        {
-            if (deskWin == null) return;
-            var ru = new System.Globalization.CultureInfo("ru-RU");
-            DateTime now = DateTime.Now;
-            string day = now.ToString("dddd", ru);
-            deskDay.Text = char.ToUpper(day[0]) + day.Substring(1);
-            deskDate.Text = now.ToString("d MMMM", ru);
-            var lines = new List<string>();
-            if (weather != null) lines.Add(Math.Round(weather.Temp) + "° · " + Weather.Describe(weather.Code));
-            foreach (CalEvent e in Calendar.Events())
-                if (e.Start > now && e.Start.Date == now.Date) { lines.Add(e.Start.ToString("H:mm") + " · " + e.Subject); break; }
-            if (timerEnd > now) lines.Add("Таймер · " + Fmt(timerEnd - now));
-            int left = 0;
-            foreach (DayTask t in Tasks.Load()) if (!t.Done && t.Day == now.Date) left++;
-            if (left > 0) lines.Add("Задач на сегодня: " + left);
-            deskInfo.Text = string.Join("\n", lines.ToArray());
-            deskInfo.Visibility = lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-
         // ================================================================ Twitch
         // Чат канала читаем анонимно (как гость «justinfan»): ни входа, ни ключа не нужно, писать в чат нельзя.
         readonly List<string[]> chatMsgs = new List<string[]>();
         string twitchJoined;
-        Thread twitchThread;
 
         public void TwitchSync()
         {
@@ -195,7 +131,6 @@ namespace Kapsula
             lock (chatMsgs) chatMsgs.Clear();
             if (ch.Length == 0) return;
             var t = new Thread(delegate() { TwitchLoop(ch); }) { IsBackground = true, Name = "Twitch" };
-            twitchThread = t;
             t.Start();
         }
 

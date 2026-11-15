@@ -1,5 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Agents.cs
-// ИИ-агенты на острове: строка «что делает Claude» рядом с музыкой, контекст сессий, запуск Claude Code из строки команд,
+// ИИ-агенты на острове: контекст сессий, запуск Claude Code из строки команд,
 // уведомления и вопросы от любых агентов по MCP.
 using System;
 using System.Collections.Generic;
@@ -12,44 +12,6 @@ namespace Kapsula
 {
     partial class IslandWindow
     {
-        // ---- «Claude · 2 мин · запускает тесты» в капсуле, пока играет музыка
-        string agentLine = "";
-        int agentLineAt;
-
-        void AgentLine(string tool, string detail, string project)
-        {
-            ClaudeBridge.Session s = null;
-            foreach (ClaudeBridge.Session x in ClaudeBridge.Sessions()) if (x.Name == project) { s = x; break; }
-            string mins = s != null && s.StartedAt != 0 ? " · " + Math.Max(1, unchecked(Environment.TickCount - s.StartedAt) / 60000) + " мин" : "";
-            string what = ToolWord(tool, detail);
-            agentLine = (project.Length > 0 ? project : "Claude") + mins + " · " + what;
-            agentLineAt = Environment.TickCount;
-        }
-
-        bool AgentLineFresh()
-        {
-            return agentLine.Length > 0 && unchecked(Environment.TickCount - agentLineAt) < 25000 && ClaudeBridge.Busy && Store.Get("claudeActivity") != "0";
-        }
-
-        // Понятное слово вместо названия инструмента
-        static string ToolWord(string tool, string detail)
-        {
-            string d = detail ?? "";
-            int slash = Math.Max(d.LastIndexOf('\\'), d.LastIndexOf('/'));
-            string file = slash >= 0 ? d.Substring(slash + 1) : d;
-            if (file.Length > 28) file = file.Substring(0, 27) + "…";
-            switch (tool)
-            {
-                case "Edit": case "MultiEdit": case "Write": return "правит " + file;
-                case "Read": return "читает " + file;
-                case "Bash": return d.IndexOf("test", StringComparison.OrdinalIgnoreCase) >= 0 ? "запускает тесты" : "выполняет команду";
-                case "Grep": case "Glob": return "ищет в коде";
-                case "WebFetch": case "WebSearch": return "ищет в интернете";
-                case "Task": case "Agent": return "работает с помощником";
-                default: return tool.Length > 0 ? tool : "работает";
-            }
-        }
-
         static string Plural(int n, string one, string few, string many)
         {
             int m10 = n % 10, m100 = n % 100;
@@ -75,13 +37,23 @@ namespace Kapsula
         {
             if (string.IsNullOrEmpty(dir) || !System.IO.Directory.Exists(dir)) dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string arg = task.Replace("\"", "'");
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("wt.exe", "-d \"" + dir + "\" claude \"" + arg + "\"") { UseShellExecute = true }); }
+            // Windows Terminal делит команду по каждой «;», даже в кавычках: «\;» для него — просто точка с запятой
+            string wtArg = arg.Replace(";", "\\;");
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("wt.exe", "-d " + WtQuoted(dir) + " claude " + WtQuoted(wtArg)) { UseShellExecute = true }); }
             catch
             {
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/k claude \"" + arg + "\"") { WorkingDirectory = dir, UseShellExecute = true }); }
                 catch { Toast(ClaudeGlyph, "Не нашёл Claude Code в системе", null, -1, null); return; }
             }
             Toast(ClaudeGlyph, "Claude Code получил задание", null, -1, accent);
+        }
+
+        // В кавычках для wt.exe. «\» перед закрывающей кавычкой экранирует её («D:\"» сбивает все аргументы) — удваиваем
+        static string WtQuoted(string s)
+        {
+            int n = 0;
+            while (n < s.Length && s[s.Length - 1 - n] == '\\') n++;
+            return "\"" + s + new string('\\', n) + "\"";
         }
 
         static string ProjectName(string dir)
@@ -134,13 +106,54 @@ namespace Kapsula
             {
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    var acts = new Action[q.Options.Length];
-                    for (int i = 0; i < q.Options.Length; i++) { string opt = q.Options[i]; acts[i] = delegate { q.Answer(opt); }; }
-                    ShowCardOptions(((char)0xE99A).ToString(), q.Agent + " спрашивает", q.Question, q.Options, acts, delegate { q.Answer(null); }, 110000);
-                    CardPet("ask");
-                    ClaudeSound();
+                    if (QuietNow) { q.Say(McpQuiet); return; }   // «Не беспокоить»: не показываем, и агент узнаёт об этом сразу
+                    mcpQueue.Add(q);
+                    McpPump();
                 }));
             };
+        }
+
+        // ---- вопросы агентов — по одному, как запросы Claude Code: ждут, пока остров свободен (панель закрыта, другой
+        // карточки нет). Карточку вопроса сменила другая или панель — вопрос вернётся, когда остров освободится
+        readonly List<ClaudeBridge.McpQuestion> mcpQueue = new List<ClaudeBridge.McpQuestion>();
+        ClaudeBridge.McpQuestion mcpNow;   // вопрос, чья карточка сейчас на острове
+        Action mcpNo;                      // её крестик: пока он у карточки, на острове всё ещё она
+        System.Windows.Threading.DispatcherTimer mcpTimer;
+        const string McpQuiet = "Пользователь включил «Не беспокоить» — спросите позже.";
+
+        void McpPump()
+        {
+            mcpQueue.RemoveAll(delegate(ClaudeBridge.McpQuestion x) { return x.Answered; });
+            if (mcpNow != null)
+            {
+                bool shown = object.ReferenceEquals(cardNoAction, mcpNo);
+                if (mcpNow.Answered) { if (shown && state == 3) SetState(0); mcpNow = null; }   // ответ ушёл, а карточка висит — значит, ответил таймер: её кнопки уже ничего не отправят
+                else if (shown && state == 3) return;                  // вопрос на острове — ждём ответа
+                else if (shown && state == 0) mcpNow = null;           // карточку закрыли или её время вышло — агенту ответит таймер
+                else { mcpQueue.Insert(0, mcpNow); mcpNow = null; }   // её сменила другая карточка или панель — покажем снова
+            }
+            if (mcpQueue.Count == 0) { if (mcpTimer != null) mcpTimer.Stop(); return; }
+            if (QuietNow) { foreach (ClaudeBridge.McpQuestion w in mcpQueue) w.Say(McpQuiet); mcpQueue.Clear(); if (mcpTimer != null) mcpTimer.Stop(); return; }
+            if (mcpTimer == null)
+            {
+                mcpTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                mcpTimer.Tick += delegate { McpPump(); };
+            }
+            mcpTimer.Start();   // пока есть вопросы — смотрим раз в полсекунды, не освободился ли остров
+            if (state != 0 || claudeQueue.Count > 0) return;   // остров занят (или своей очереди ждёт Claude Code) — подождём
+            ClaudeBridge.McpQuestion q = mcpQueue[0];
+            mcpQueue.RemoveAt(0);
+            // вопрос мог долго ждать очереди: карточка держится только до 115 с от вопроса, через 120 с агенту ответит таймер
+            int left = 115000 - unchecked(Environment.TickCount - q.At);
+            if (left < 3000) { q.Answer(null); return; }   // времени почти не осталось — показывать незачем
+            var acts = new Action[q.Options.Length];
+            for (int i = 0; i < q.Options.Length; i++) { string opt = q.Options[i]; acts[i] = delegate { q.Answer(opt); }; }
+            Action no = delegate { q.Answer(""); };   // крестик — отказ, а не «не ответил за две минуты»
+            ShowCardOptions(((char)0xE99A).ToString(), q.Agent + " спрашивает", q.Question, q.Options, acts, no, Math.Min(110000, left));
+            if (state != 3) { mcpQueue.Insert(0, q); return; }
+            mcpNow = q; mcpNo = no;
+            CardPet("ask");
+            ClaudeSound();
         }
 
         // Строки командной строки про агентов: «claude …» и «открыть проект в VS Code»

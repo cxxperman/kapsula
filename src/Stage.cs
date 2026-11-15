@@ -151,8 +151,14 @@ namespace Kapsula
         public bool BrightHud = true;
         System.Management.ManagementEventWatcher brightWatch;
         bool toastBright;                 // текущая надпись в капсуле — про яркость: зверёк щурится или таращит глаза
-        int brightCache = -2;             // -2 — ещё не спрашивали, -1 — монитор не даёт менять яркость
-        int brightTarget = -1, brightHintAt;
+        int brightCache = -1;             // последняя известная яркость, -1 — не знаем
+        int brightCacheAt;                // когда её узнали: значению старше пары секунд не верим — яркость могли сменить кнопками монитора
+        IntPtr brightMon;                 // чья это яркость: у каждого монитора своя
+        int brightFailAt, brightHintAt;   // монитор не дал менять яркость — снова спросить его не раньше чем через полминуты
+        IntPtr brightFailMon;
+        // для потока яркости (под замком): точное значение, шаги «от того, что сейчас на мониторе», и какой монитор
+        int brightTarget = -1, brightDelta;
+        IntPtr brightWant;
         bool brightBusy;
         readonly object brightLock = new object();
 
@@ -188,44 +194,74 @@ namespace Kapsula
         // Показать яркость в капсуле: значок солнца, полоса и проценты
         void BrightnessShown(int v)
         {
-            brightCache = v;
+            brightCache = v; brightCacheAt = Environment.TickCount;
             if (!BrightHud || state == 2 || state == 4) return;   // в панели яркость и так видна ползунком
             Toast(((char)0xE706).ToString(), null, v + "%", Math.Max(0, Math.Min(1, v / 100.0)), Amber);
             toastBright = true;
         }
 
-        // Колёсико над островом с зажатым Ctrl: яркость на 5% за щелчок
+        // Колёсико над островом с зажатым Ctrl: яркость на 5% за щелчок — у того монитора, на котором остров
         void BrightnessWheel(int step)
         {
-            if (brightCache == -2) brightCache = Brightness.Get();   // первый раз спрашиваем монитор — это бывает небыстро
-            if (brightCache < 0)
-            {
-                if (unchecked(Environment.TickCount - brightHintAt) > 4000)
-                {
-                    brightHintAt = Environment.TickCount;
-                    Toast(((char)0xE706).ToString(), "Этот монитор не даёт менять яркость", null, -1, Dim);
-                }
-                return;
-            }
-            int v = Math.Max(0, Math.Min(100, brightCache + step));
-            BrightnessShown(v);
+            int now = Environment.TickCount;
+            IntPtr mon = hwnd != IntPtr.Zero ? Native.MonitorFromWindow(hwnd, 2) : IntPtr.Zero;
+            if (brightFailAt != 0 && brightFailMon == mon && unchecked((uint)(now - brightFailAt)) < 30000u) { BrightnessNo(); return; }
+            // своё недавнее значение — шаг сразу от него; старое или другого монитора — поток сначала спросит сам монитор
+            // (это бывает небыстро — не в потоке окна)
+            bool known = brightCache >= 0 && brightMon == mon && unchecked((uint)(now - brightCacheAt)) <= 2500u;
+            int v = known ? Math.Max(0, Math.Min(100, brightCache + step)) : -1;
+            if (known) BrightnessShown(v);
             // монитор отвечает медленно: применяем только последнее значение, промежуточные шаги пропускаем
             lock (brightLock)
             {
-                brightTarget = v;
+                if (known) brightTarget = v; else brightDelta += step;
+                brightWant = mon;
                 if (brightBusy) return;
                 brightBusy = true;
             }
-            ThreadPool.QueueUserWorkItem(delegate
+            ThreadPool.QueueUserWorkItem(delegate { BrightnessWork(); });
+        }
+
+        // Поток яркости: ставит последнее, что накрутили колёсиком. Шаги «от текущей» сначала узнают у монитора,
+        // сколько сейчас (или берут то, что поток сам только что поставил), и показывают итог в капсуле.
+        void BrightnessWork()
+        {
+            int last = -1; IntPtr lastMon = IntPtr.Zero;   // что этот поток сам только что поставил и какому монитору
+            while (true)
             {
-                while (true)
+                int t, d; IntPtr m;
+                lock (brightLock)
                 {
-                    int t;
-                    lock (brightLock) t = brightTarget;
-                    Brightness.SetNow(t);
-                    lock (brightLock) { if (t == brightTarget) { brightBusy = false; return; } }
+                    t = brightTarget; d = brightDelta; m = brightWant;
+                    if (t < 0 && d == 0) { brightBusy = false; return; }
+                    brightTarget = -1; brightDelta = 0;
                 }
-            });
+                if (d != 0)
+                {
+                    int cur = t >= 0 ? t : last >= 0 && lastMon == m ? last : Brightness.Get(m);
+                    if (cur < 0)
+                    {
+                        lock (brightLock) { brightTarget = -1; brightDelta = 0; brightBusy = false; }
+                        Dispatcher.BeginInvoke(new Action(delegate { brightFailAt = Environment.TickCount | 1; brightFailMon = m; brightCache = -1; BrightnessNo(); }));
+                        return;
+                    }
+                    t = Math.Max(0, Math.Min(100, cur + d));
+                    int shown = t;
+                    Dispatcher.BeginInvoke(new Action(delegate { brightMon = m; BrightnessShown(shown); }));
+                }
+                Brightness.SetNow(m, t);
+                last = t; lastMon = m;
+            }
+        }
+
+        // Монитор не даёт менять яркость — так и сказать, не чаще раза в четыре секунды (разность без знака:
+        // ноль в начале — «давно» и тогда, когда счётчик Windows через 25 дней работы ушёл в минус)
+        void BrightnessNo()
+        {
+            int now = Environment.TickCount;
+            if (unchecked((uint)(now - brightHintAt)) <= 4000u) return;
+            brightHintAt = now;
+            Toast(((char)0xE706).ToString(), "Этот монитор не даёт менять яркость", null, -1, Dim);
         }
     }
 }

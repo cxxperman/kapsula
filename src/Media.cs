@@ -50,6 +50,8 @@ namespace Kapsula
         public static string PrettyName(string id)
         {
             if (string.IsNullOrEmpty(id)) return "Плеер";
+            // Firefox записывает плеер под хешем своей папки установки: «308046B0AF4A39CB»
+            if (id.Length == 16 && System.Text.RegularExpressions.Regex.IsMatch(id, "^[0-9A-Fa-f]{16}$")) return "Firefox";
             string s = id;
             int bang = s.IndexOf('!'); if (bang > 0) s = s.Substring(0, bang);
             int slash = s.LastIndexOf('\\'); if (slash >= 0) s = s.Substring(slash + 1);
@@ -62,7 +64,7 @@ namespace Kapsula
 
         // Кнопки плеера: команда уходит выбранному плееру. Если плеер не выбран — обычная мультимедийная клавиша.
         readonly AutoResetEvent kick = new AutoResetEvent(false);
-        volatile int fastUntil;
+        volatile int fastUntil = Environment.TickCount;   // не ноль: после 24,9 суток работы Windows счётчик отрицательный, и ноль казался бы будущим
 
         // разбудить опрос немедленно и следующие 3 секунды опрашивать часто
         void Hurry() { fastUntil = Environment.TickCount + 3000; kick.Set(); }
@@ -138,7 +140,7 @@ namespace Kapsula
         void Loop()
         {
             GlobalSystemMediaTransportControlsSessionManager mgr = null;
-            string lastKey = null; byte[] cover = null; int coverTries = 0;
+            string lastKey = null, lastAlbum = ""; byte[] cover = null; int coverTries = 0;
             int keyAt = 0; string staleSig = null, coverSig = null; bool onlineTried = false;
             string sentSig = null;
             while (!stop)
@@ -183,13 +185,20 @@ namespace Kapsula
                             }
                             catch { }
                             string key = info.Title + "|" + info.Artist;
+                            string album = p.AlbumTitle ?? "";
                             int nowT = Environment.TickCount;
                             if (key != lastKey)
                             {
-                                // новый трек: обложку прошлого запоминаем, чтобы не принять её за новую
-                                staleSig = cover != null ? CoverSig(cover) : staleSig;
-                                lastKey = key; cover = null; coverSig = null; coverTries = 0; keyAt = nowT; onlineTried = false;
+                                // новый трек: обложку прошлого запоминаем, чтобы не принять её за новую.
+                                // У следующего трека того же альбома картинка та же — её оставляем, иначе она пропадала бы на 6 секунд
+                                if (album.Length == 0 || album != lastAlbum || cover == null)
+                                {
+                                    staleSig = cover != null ? CoverSig(cover) : staleSig;
+                                    cover = null; coverSig = null;
+                                }
+                                lastKey = key; coverTries = 0; keyAt = nowT; onlineTried = false;
                             }
+                            lastAlbum = album;
                             int age = unchecked(nowT - keyAt);
                             // Плееры часто отдают обложку с опозданием или сначала старую: первые 10 секунд перечитываем её
                             // каждую секунду, потом, пока её нет, — раз в 5 секунд ещё две минуты
@@ -197,19 +206,22 @@ namespace Kapsula
                             // поэтому и дальше раз в 3 секунды сверяем: если плеер отдал другую картинку — берём её
                             bool want = age < 10000 || coverTries % 3 == 0;
                             coverTries++;
+                            bool playerThumb = false;   // плеер дал свою картинку (пусть пока и прежнюю) — в интернете не ищем
                             if (want && p.Thumbnail != null)
                             {
                                 byte[] c = ReadCover(p.Thumbnail);
                                 string cs = c == null ? null : CoverSig(c);
+                                playerThumb = c != null;
                                 // та же картинка — оставляем прежний массив, чтобы остров не перерисовывал обложку зря
                                 if (c != null && !(age < 6000 && cs == staleSig) && cs != coverSig) { cover = c; coverSig = cs; }
                             }
                             // плеер так и не дал обложку — ищем её по названию и исполнителю
-                            if (cover == null && age > 4000 && !onlineTried && info.Artist.Length > 0)
+                            if (cover == null && want && !playerThumb && age > 4000 && !onlineTried && info.Artist.Length > 0)
                             {
                                 onlineTried = true;
                                 string k2 = key, t2 = info.Title, a2 = info.Artist;
-                                ThreadPool.QueueUserWorkItem(delegate { byte[] oc = OnlineCover(t2, a2); if (oc != null) lock (onlineCovers) onlineCovers[k2] = oc; });
+                                // найденные обложки копятся в памяти, поэтому их не больше 30
+                                ThreadPool.QueueUserWorkItem(delegate { byte[] oc = OnlineCover(t2, a2); if (oc != null) lock (onlineCovers) { if (onlineCovers.Count >= 30) onlineCovers.Clear(); onlineCovers[k2] = oc; } });
                             }
                             if (cover == null) { lock (onlineCovers) onlineCovers.TryGetValue(key, out cover); if (cover != null) coverSig = "online"; }   // иначе остров не заметил бы новую картинку
                             info.Cover = cover;
@@ -225,8 +237,10 @@ namespace Kapsula
                     var h = Updated;
                     if (h != null) h(info);
                 }
-                // обычно раз в секунду; сразу после нажатия кнопки — часто, чтобы трек, обложка и время подтянулись без задержки
-                kick.WaitOne(unchecked(Environment.TickCount - fastUntil) < 0 ? 120 : 1000);
+                // обычно раз в секунду; сразу после нажатия кнопки — часто, чтобы трек, обложка и время подтянулись без задержки.
+                // Частый опрос длится не больше 3 секунд: иначе переполнение счётчика времени (раз в 24,9 суток) включило бы его надолго
+                int fastLeft = unchecked(fastUntil - Environment.TickCount);
+                kick.WaitOne(fastLeft > 0 && fastLeft <= 3000 ? 120 : 1000);
             }
         }
 

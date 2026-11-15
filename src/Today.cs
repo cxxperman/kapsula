@@ -1,5 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Today.cs
-// Вкладка «Сегодня»: дата и неделя, ближайшее событие, погода и вторые часы, задачи со временем и датой.
+// Вкладка «Сегодня»: дата и неделя, ближайшее событие, погода, задачи со временем и датой.
 // Задачи пишутся обычной фразой: «отчёт, потом в 14:00 созвон» — две задачи; «в пятницу в 10 врач», «15 ноября …»,
 // «через неделю …» — на свой день. Под задачами дня — «Скоро»: что впереди на неделю. В свой час задача приходит
 // карточкой с колокольчиком. Плюс утреннее приветствие и «25м …» в строке.
@@ -40,6 +40,9 @@ namespace Kapsula
                 var t = new DayTask { Id = p[0], Done = p[1] == "1", Day = d, Text = p[4], Repeat = p.Length > 5 ? p[5] : "", Note = p.Length > 6 ? p[6].Replace("¶", "\n") : "" };
                 TimeSpan ts;
                 if (p[3].Length == 4 && TimeSpan.TryParseExact(p[3], "hhmm", Inv, out ts)) t.Time = ts;
+                // повторяющуюся не отметили в её день — пропущенный раз не в счёт, она переезжает на ближайший:
+                // иначе застряла бы в прошлом и больше не напоминала и не отсчитывалась в капсуле
+                if (t.Repeat.Length > 0 && !t.Done && t.Day < DateTime.Today) t.Day = NextDay(t.Repeat, DateTime.Today);
                 list.Add(t);
             }
             return list;
@@ -63,6 +66,7 @@ namespace Kapsula
         // «отчёт, потом в 14:00 созвон; завтра в 9 спортзал» → несколько задач со временем и днём
         public static List<DayTask> Parse(string input, DateTime today)
         {
+            if (today == Someday) today = DateTime.Today;   // от 31.12.9999 «завтра» и дни недели вышли бы за последний день календаря
             var res = new List<DayTask>();
             string[] parts = Regex.Split(input, @"\s*(?:,\s*(?:а\s+)?(?:потом|затем)\s*|;\s*|\s+(?:потом|затем)\s+|\s+и\s+потом\s+)\s*", RegexOptions.IgnoreCase);
             DateTime day = today;
@@ -78,8 +82,8 @@ namespace Kapsula
                 if (RepeatPhrase(ref t, today, out repeat, out first)) day = first;   // «каждый понедельник», «по будням», «ежедневно»
                 else { DateTime d; if (DatePhrase(ref t, today, out d)) day = d; }
                 TimeSpan? time = null;
-                // «в 14:00», «в 14.30», «14:30», «в 9», «в 9 утра», «в 7 вечера», «2pm»
-                Match m = Regex.Match(t, @"(?:\sв\s*|\s)(\d{1,2})[:.](\d{2})(?=\s)", RegexOptions.IgnoreCase);
+                // «в 14:00», «в 14.30», «14:30», «в 7:30 вечера», «в 9», «в 9 утра», «в 7 вечера», «2pm»
+                Match m = Regex.Match(t, @"(?:\sв\s*|\s)(\d{1,2})[:.](\d{2})(?:\s+(утра|дня|вечера|ночи))?(?=\s)", RegexOptions.IgnoreCase);
                 if (!m.Success) m = Regex.Match(t, @"\sв\s*(\d{1,2})()(?:\s*(?:ч|час|часа|часов))?(?:\s+(утра|дня|вечера|ночи))?(?=\s)", RegexOptions.IgnoreCase);
                 Match pm = Regex.Match(t, @"\s(\d{1,2})\s*(am|pm)(?=\s)", RegexOptions.IgnoreCase);
                 if (m.Success)
@@ -349,18 +353,24 @@ namespace Kapsula
         // ---- «Сегодня»: календарь месяца слева, план выбранного дня справа
         DateTime todayDay = DateTime.Today;                                   // выбранный день
         DateTime calMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        DateTime todaySetOn = DateTime.Today;                                 // в какой день выбрали todayDay
         TextBlock calTitle, dayTitle, dayDate, dayInfo, dayHint;
         UniformGrid calGrid;
         StackPanel todayList;
         TextBox todayBox;
 
+        // Kapsula работает сутками: выбор дня, сделанный вчера, после полуночи снова становится «сегодня» —
+        // иначе вкладка открывалась бы на «Вчера», а новые задачи ложились бы на вчерашний день
+        void SyncTodayDay()
+        {
+            if (todaySetOn == DateTime.Today) return;
+            todayDay = DateTime.Today;
+            calMonth = new DateTime(todayDay.Year, todayDay.Month, 1);
+            todaySetOn = DateTime.Today;
+        }
+
         FrameworkElement BuildTodayPage()
         {
-            var g = new Grid();
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(214) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
             // ---- месяц
             var cal = new DockPanel { Margin = new Thickness(12, 10, 12, 10) };
             var head = new Grid { Height = 26 };
@@ -395,7 +405,7 @@ namespace Kapsula
             dayDate = new TextBlock { Foreground = Dim, FontSize = 12 };
             titles.Children.Add(dayTitle); titles.Children.Add(dayDate);
             dhead.Children.Add(titles);
-            dayInfo = new TextBlock { Foreground = Dim, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 3, 0, 0), ToolTip = "Второй часовой пояс меняется в настройках" };
+            dayInfo = new TextBlock { Foreground = Dim, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 3, 0, 0) };
             dhead.Children.Add(dayInfo);
             DockPanel.SetDock(dhead, Dock.Top); day.Children.Add(dhead);
 
@@ -414,7 +424,6 @@ namespace Kapsula
             var tdb = PageBoard(PToday, "today", 12, 1, 10);
             tdb.Add("month", "Месяц", calCard, 0, 0, 5, 1, false);
             tdb.Add("day", "День", day, 5, 0, 7, 1, false);
-            GC.KeepAlive(g);
             // поверх доски — вид «Неделя»; видно что-то одно
             var host = new Grid();
             host.Children.Add(todayBoardRoot = FinishBoard(tdb));
@@ -494,6 +503,7 @@ namespace Kapsula
             if (on == todayWeek) return;
             if (on)
             {
+                SyncTodayDay();   // выбранный вчера день — уже не тот: неделя открывается с сегодняшней
                 weekStart = WeekOf(todayDay == Tasks.Someday ? DateTime.Today : todayDay); weekSetOn = DateTime.Today;
                 Board b = BoardFor(PToday);
                 if (b != null && b.Editing) EditPage(PToday, false);   // правка раскладки — только в виде «месяц и день»
@@ -573,7 +583,7 @@ namespace Kapsula
             dayHead.MouseLeave += delegate { if (!isToday) num.Background = Brushes.Transparent; };
             dayHead.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
-                e.Handled = true; todayDay = dd; calMonth = new DateTime(dd.Year, dd.Month, 1);
+                e.Handled = true; todayDay = dd; calMonth = new DateTime(dd.Year, dd.Month, 1); todaySetOn = DateTime.Today;
                 SetTodayWeek(false);
             };
             FrameworkElement headEl = dayHead;
@@ -734,24 +744,16 @@ namespace Kapsula
         void AddTasksFromText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
+            SyncTodayDay();   // после полуночи — на сегодня, а не на вчерашний выбранный день
             List<DayTask> all = Tasks.Load();
-            List<DayTask> fresh = Tasks.Parse(text, todayDay);   // без «завтра» и т. п. — на выбранный в календаре день
+            DateTime from = todayDay == Tasks.Someday ? DateTime.Today : todayDay;   // от 31.12.9999 «завтра» и дни недели не посчитать
+            List<DayTask> fresh = Tasks.Parse(text, from);   // без «завтра» и т. п. — на выбранный в календаре день
             all.AddRange(fresh);
             Tasks.Save(all);
-            if (fresh.Count > 0) todayDay = fresh[0].Day;
+            // выбор переезжает на день новой задачи; «когда-нибудь» — не день, она в своём списке под сегодняшним
+            if (fresh.Count > 0 && fresh[0].Day != Tasks.Someday) { todayDay = fresh[0].Day; calMonth = new DateTime(todayDay.Year, todayDay.Month, 1); todaySetOn = DateTime.Today; }
             Toast(((char)0xE73E).ToString(), fresh.Count == 1 ? "Задача добавлена" : "Добавлено задач: " + fresh.Count, null, -1, accent);
             RenderToday();
-        }
-
-        static string WorldClockLabel(out DateTime time)
-        {
-            string id = Store.Get("worldClock");
-            if (id == "") id = "Eastern Standard Time";
-            string label = Store.Get("worldClockName");
-            if (label == "") label = "Нью-Йорк";
-            try { time = TimeZoneInfo.ConvertTime(DateTime.Now, TimeZoneInfo.FindSystemTimeZoneById(id)); }
-            catch { time = DateTime.UtcNow; label = "UTC"; }
-            return label;
         }
 
         // События календаря Windows на день (уже загруженные; читаются с запасом на месяц назад и три вперёд)
@@ -762,11 +764,24 @@ namespace Kapsula
             return res;
         }
 
+        // События календаря читаются в фоне: дочитались после того, как вкладку нарисовали, — открытая «Сегодня»
+        // перерисовывается сама (иначе они появлялись только после следующего щелчка). Заметку, которую пишут, не трогаем.
+        int calSeen;   // Calendar.Version, с которым вкладка нарисована
+
+        void TodayCalendarTick()
+        {
+            if (!expanded || page != PToday || calSeen == Calendar.Version) return;
+            if (taskNoteBox != null && taskNoteBox.IsKeyboardFocusWithin) return;
+            RenderToday();
+        }
+
         void RenderToday()
         {
             if (calGrid == null) return;
+            SyncTodayDay();   // вчерашний выбор дня после полуночи — снова «Сегодня»
             if (taskNoteBox != null && taskNoteBox.Tag is string) TaskNoteSet((string)taskNoteBox.Tag, taskNoteBox.Text);   // недописанная заметка не теряется
             Calendar.Refresh(false);
+            calSeen = Calendar.Version;   // до чтения событий: дочитаются позже — TodayCalendarTick нарисует ещё раз
             var ru = new CultureInfo("ru-RU");
             DateTime now = DateTime.Now, today = DateTime.Today;
             List<DayTask> all = Tasks.Load();
@@ -801,7 +816,7 @@ namespace Kapsula
                 hit.MouseLeave += delegate { if (dd != today) circle.Background = Brushes.Transparent; };
                 hit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
-                    e.Handled = true; todayDay = dd;
+                    e.Handled = true; todayDay = dd; todaySetOn = DateTime.Today;
                     if (dd.Month != calMonth.Month || dd.Year != calMonth.Year) calMonth = new DateTime(dd.Year, dd.Month, 1);
                     RenderToday();
                 };
@@ -834,12 +849,8 @@ namespace Kapsula
             string dn = ru.DateTimeFormat.GetDayName(todayDay.DayOfWeek);
             dayTitle.Text = todayDay == today ? "Сегодня" : todayDay == today.AddDays(1) ? "Завтра" : todayDay == today.AddDays(-1) ? "Вчера" : char.ToUpper(dn[0]) + dn.Substring(1);
             dayDate.Text = (todayDay == today || todayDay == today.AddDays(1) || todayDay == today.AddDays(-1) ? dn + ", " : "") + todayDay.ToString("d MMMM", ru) + (todayDay.Year != today.Year ? " " + todayDay.Year : "");
-            DateTime other;
-            string city = WorldClockLabel(out other);
             dayInfo.Inlines.Clear();
-            if (weather != null && weather.Error == null && todayDay == today) dayInfo.Inlines.Add(new System.Windows.Documents.Run(Weather.Temp(weather.Temp) + " · ") { Foreground = Fg, FontWeight = FontWeights.SemiBold });
-            dayInfo.Inlines.Add(new System.Windows.Documents.Run(city + " ") { Foreground = Dim });
-            dayInfo.Inlines.Add(new System.Windows.Documents.Run(other.ToString("H:mm")) { Foreground = Fg, FontWeight = FontWeights.SemiBold });
+            if (weather != null && weather.Error == null && todayDay == today) dayInfo.Inlines.Add(new System.Windows.Documents.Run(Weather.Temp(weather.Temp)) { Foreground = Fg, FontWeight = FontWeights.SemiBold });
             dayHint.Text = todayDay == today ? "Добавить: «в 14:00 созвон, в пятницу отчёт»" : "Добавить на " + todayDay.ToString("d MMMM", ru) + ": «в 9 спорт»";
 
             todayList.Children.Clear();
@@ -910,7 +921,7 @@ namespace Kapsula
                     var head = new TextBlock { Text = label, Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 4, 0, 0), Cursor = Cursors.Hand, ToolTip = "Открыть этот день" };
                     head.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                     {
-                        e.Handled = true; todayDay = dd;
+                        e.Handled = true; todayDay = dd; todaySetOn = DateTime.Today;
                         if (dd.Month != calMonth.Month || dd.Year != calMonth.Year) calMonth = new DateTime(dd.Year, dd.Month, 1);
                         RenderToday();
                     };
@@ -1154,14 +1165,14 @@ namespace Kapsula
         {
             DateTime now = DateTime.Now;
             SoonItem best = null;
-            if (Store.Get("calendar") != "0")
-                foreach (CalEvent e in Calendar.Events())
-                {
-                    if (e.AllDay) continue;
-                    double m = (e.Start - now).TotalMinutes;
-                    if (m < -1 || m > maxMin) continue;
-                    if (best == null || e.Start < best.At) best = new SoonItem { Title = e.Subject, At = e.Start, Glyph = ((char)0xE787).ToString() };
-                }
+            // встречи — всегда: у отсчёта свой переключатель («soonPill»), а «calendar» — только про карточку-напоминание
+            foreach (CalEvent e in Calendar.Events())
+            {
+                if (e.AllDay) continue;
+                double m = (e.Start - now).TotalMinutes;
+                if (m < -1 || m > maxMin) continue;
+                if (best == null || e.Start < best.At) best = new SoonItem { Title = e.Subject, At = e.Start, Glyph = ((char)0xE787).ToString() };
+            }
             foreach (DayTask t in TasksCached())
             {
                 if (t.Done || !t.Time.HasValue || t.Day != now.Date) continue;
@@ -1211,16 +1222,18 @@ namespace Kapsula
         }
 
         // Задачи, разобранные из настроек, — заново только когда они изменились (проверки идут каждые две секунды)
+        // или наступил новый день: пропущенный раз повторяющейся задачи переезжает на сегодня (Tasks.Load)
         List<DayTask> TasksCached()
         {
             string raw = Store.Get("tasks");
-            if (!ReferenceEquals(raw, tasksSeenRaw) && raw != tasksSeenRaw) { tasksSeenRaw = raw; tasksSeen = Tasks.Load(); }
+            if ((!ReferenceEquals(raw, tasksSeenRaw) && raw != tasksSeenRaw) || tasksSeenDay != DateTime.Today) { tasksSeenRaw = raw; tasksSeenDay = DateTime.Today; tasksSeen = Tasks.Load(); }
             return tasksSeen;
         }
 
         // ---- задача со временем: в свой час зверёк приносит её карточку с колокольчиком, как напоминание
         HashSet<string> tasksRung;
         string tasksSeenRaw;
+        DateTime tasksSeenDay;
         List<DayTask> tasksSeen = new List<DayTask>();
 
         void TaskRemindTick()
@@ -1271,7 +1284,7 @@ namespace Kapsula
             if (first != null) next = "ближайшее: " + first.Text + " в " + new DateTime(first.Time.Value.Ticks).ToString("H:mm");
             else if (list.Count > 0) next = "первое: " + list[0].Text;
             else next = "задач на сегодня нет — добавьте во вкладке «Сегодня»";
-            string head = (now.Hour < 12 ? "Доброе утро" : "Добрый день") + (list.Count > 0 ? " · " + Plural(list.Count, "задача", "задачи", "задач") : "");
+            string head = "Доброе утро" + (list.Count > 0 ? " · " + Plural(list.Count, "задача", "задачи", "задач") : "");   // после полудня карточки нет (см. выше)
             ShowCardEx(null, ((char)0xE706).ToString(), head, next, delegate { SetState(2); ShowPage(PToday); }, "Фокус", delegate { PomodoroStart(); }, true);
             CardPet("happy");
             cardPage = PToday;   // раскрыть карточку — сразу во вкладку «Сегодня»
@@ -1375,13 +1388,12 @@ namespace Kapsula
         void StartFocus(int mins, string label)
         {
             timerRinging = false;
+            pomoPhase = 0;   // таймер у острова один: фокус заменяет помодоро, и его конец не должен засчитаться кругом
             timerTotal = TimeSpan.FromMinutes(mins);
             timerEnd = DateTime.Now + timerTotal;
-            focusLabel = label;
             if (ringArc != null) UpdateRing();
             RenderCompact(); SetTargets();
             Toast(((char)0xE916).ToString(), "Фокус " + mins + " мин" + (label.Length > 0 ? ": " + label : ""), null, -1, accent);
         }
-        string focusLabel = "";
     }
 }

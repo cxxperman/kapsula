@@ -235,7 +235,7 @@ namespace Kapsula
             walker.BeginAnimation(UIElement.OpacityProperty, null);
             walker.Opacity = 1;
             walker.Pet.Seated = false;
-            walker.Pet.Mood(rKind == 5 ? "post" : "fly");   // к карточке — с письмом в лапах
+            walker.Pet.Mood(rKind == 5 ? CarryMood(cardCarry) : "fly");   // к карточке — с тем же, что принёс бы попутчик: письмом, колокольчиком, трубкой…
             walker.Pet.Context = "";
             rider.Root.Opacity = 0;
             WalkerTop();
@@ -268,7 +268,11 @@ namespace Kapsula
             walkTimer.Stop();
             walkerOut = false; walkPhase = 0; walkMoving = false;
             walker.Hide();
-            if (rider != null) { rider.Root.Opacity = 1; if (!rFly) rLandAt = Environment.TickCount; Wake(); }   // приземлился — пружинит
+            if (rider != null)
+            {
+                rider.Root.Opacity = 1; if (!rFly) rLandAt = Environment.TickCount; Wake();   // приземлился — пружинит
+                if (rKind == 5 && rOut && !rFly && !ReducedMotion) RiderHandOver();   // и отдаёт то, что принёс на карточку (летит ещё — отдаст при посадке)
+            }
             walkNextAt = Environment.TickCount + 240000 + rnd.Next(240000);
             WalkLog("joined");
         }

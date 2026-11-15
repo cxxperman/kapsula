@@ -15,6 +15,9 @@ namespace Kapsula
         static List<CalEvent> events = new List<CalEvent>();
         static int loadedAt, running;
         public static volatile bool Failed;
+        // Растёт после каждой удачной загрузки: открытая вкладка «Сегодня» по нему видит, что события дочитались
+        public static int Version;
+        static readonly System.Globalization.CultureInfo Ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
 
         static T Wait<T>(Windows.Foundation.IAsyncOperation<T> op)
         {
@@ -51,6 +54,7 @@ namespace Kapsula
                         }
                     list.Sort(delegate(CalEvent x, CalEvent y) { return x.Start.CompareTo(y.Start); });
                     lock (typeof(Calendar)) events = list;
+                    Interlocked.Increment(ref Version);
                     Failed = false;
                 }
                 catch { Failed = true; }
@@ -58,11 +62,12 @@ namespace Kapsula
             });
         }
 
-        // «сегодня в 15:00», «завтра в 9:30», «сегодня, весь день»
+        // «сегодня в 15:00», «завтра в 9:30», «сегодня, весь день», «15 ноября в 10:00» — месяц всегда по-русски,
+        // как и остальной остров, даже если в Windows английский или украинский формат дат
         public static string When(CalEvent e, DateTime now)
         {
-            string day = e.Start.Date == now.Date ? "сегодня" : e.Start.Date == now.Date.AddDays(1) ? "завтра" : e.Start.ToString("d MMMM");
-            return e.AllDay ? day + ", весь день" : day + " в " + e.Start.ToString("H:mm");
+            string day = e.Start.Date == now.Date ? "сегодня" : e.Start.Date == now.Date.AddDays(1) ? "завтра" : e.Start.ToString("d MMMM", Ru);
+            return e.AllDay ? day + ", весь день" : day + " в " + e.Start.ToString("H:mm", Ru);
         }
 
         // «через 10 мин», «через 1 ч 5 мин», «сейчас»

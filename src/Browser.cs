@@ -63,10 +63,7 @@ namespace Kapsula
     // а внутри прозрачного окна Windows браузер не рисует, поэтому он живёт в своём окне-спутнике.
     class MiniBrowser
     {
-        [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int l, int t, int r, int b, int w, int h);
-        [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-        [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr hwnd, IntPtr rgn, bool redraw);
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
 
         readonly Window owner;
@@ -74,7 +71,7 @@ namespace Kapsula
         Window win;
         WebView2 view;
         IntPtr hwnd;
-        int lastX, lastY, lastW, lastH, lastR;
+        int lastX, lastY, lastW, lastH;
         bool starting, onScreen;
         string backHex = "#000000";
 
@@ -142,11 +139,14 @@ namespace Kapsula
                                 // Ссылки «в новом окне» открываются в обычном браузере, а не плодят окна
                                 core.NewWindowRequested += delegate(object s, CoreWebView2NewWindowRequestedEventArgs e)
                                 {
-                                    // окно входа через Google, Apple, Microsoft или GitHub открывается здесь же, иначе вход не завершится
+                                    // окно входа через Google, Apple, Microsoft или GitHub открывается здесь же, иначе вход не завершится.
+                                    // У GitHub — только страницы входа: остальные его ссылки (репозитории в ответах) — в обычный браузер
                                     try
                                     {
-                                        string host = new Uri(e.Uri).Host;
-                                        if (host == "accounts.google.com" || host == "appleid.apple.com" || host.EndsWith("login.microsoftonline.com") || host == "login.live.com" || host == "github.com") return;
+                                        var u = new Uri(e.Uri);
+                                        string host = u.Host;
+                                        bool ghLogin = host == "github.com" && (u.AbsolutePath.StartsWith("/login") || u.AbsolutePath.StartsWith("/session"));
+                                        if (host == "accounts.google.com" || host == "appleid.apple.com" || host.EndsWith("login.microsoftonline.com") || host == "login.live.com" || ghLogin) return;
                                     }
                                     catch { }
                                     e.Handled = true;
@@ -233,7 +233,7 @@ namespace Kapsula
                     SetWindowPos(hwnd, IntPtr.Zero, x, y, w, visible, 0x0010 | 0x0004);   // не активировать, порядок окон не менять
                     lastX = x; lastY = y; lastVisible = visible;
                 }
-                lastW = w; lastH = h; lastR = radius;
+                lastW = w; lastH = h;
                 if (!win.IsVisible) win.Show();
                 if (!onScreen) { onScreen = true; Fade(true); Log("show " + x + "," + y + " " + w + "x" + h); }
                 Start();
@@ -308,11 +308,6 @@ namespace Kapsula
             if (url == home) return;
             home = url;
             try { if (Ready && view.CoreWebView2 != null) view.CoreWebView2.Navigate(url); } catch { }
-        }
-
-        public void GoHome()
-        {
-            try { if (Ready && view.CoreWebView2 != null) view.CoreWebView2.Navigate(home); } catch { }
         }
     }
 }

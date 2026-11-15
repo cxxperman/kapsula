@@ -182,7 +182,7 @@ namespace Kapsula
 
         void CallKey(int k)
         {
-            bool live = DiscordLive;
+            bool live = DiscordCall;   // звонок в Zoom или Teams при живом плагине — кнопки Windows, а не Discord
             if (k == 0)
             {
                 if (live) DiscordCommand("mute");   // микрофон самого Discord, а не весь микрофон Windows
@@ -312,7 +312,7 @@ namespace Kapsula
         void PaintMute()
         {
             if (homeCallCard == null) return;
-            bool live = DiscordLive;
+            bool live = DiscordCall;   // канал, участники и мут Discord — только у звонка Discord
             bool deaf = live && dvDeaf;
             bool muted = live ? dvMute || dvDeaf : Audio.MicMuted();
             CallKeyState(0, muted, muted ?"Микрофон выключен — нажмите, чтобы включить" : "Вас слышно — нажмите, чтобы выключить микрофон");

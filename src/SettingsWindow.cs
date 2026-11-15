@@ -21,37 +21,10 @@ namespace Kapsula
 {
     // ============================================================= Первый запуск
     // Короткое окно, которое один раз объясняет новому человеку, что это за капсула вверху экрана и что с ней делать.
-    // Kapsula — украинский проект. Флаг рисуется в коде: две полосы, в большой карточке — с мягкой волной, как на ветру
+    // Kapsula — украинский проект. Флаг рисуется в коде: две полосы с мягкой волной, как на ветру
     static class Ua
     {
-        public const string Made = "Зроблено в Україні";
         static readonly Color Blue = Color.FromRgb(0x00, 0x5B, 0xBB), Yellow = Color.FromRgb(0xFF, 0xD5, 0x00);
-
-        public static FrameworkElement Flag(double w, double h)
-        {
-            var g = new Grid { Width = w, Height = h, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Kapsula — украинский проект" };
-            g.RowDefinitions.Add(new RowDefinition()); g.RowDefinitions.Add(new RowDefinition());
-            var top = new Border { Background = new SolidColorBrush(Blue), CornerRadius = new CornerRadius(h * 0.18, h * 0.18, 0, 0) };
-            var bottom = new Border { Background = new SolidColorBrush(Yellow), CornerRadius = new CornerRadius(0, 0, h * 0.18, h * 0.18) };
-            Grid.SetRow(bottom, 1);
-            g.Children.Add(top); g.Children.Add(bottom);
-            return g;
-        }
-
-        // Плашка: маленький флаг и подпись, рамка переливается из синего в жёлтый
-        public static FrameworkElement Pill(double size)
-        {
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(Flag(size * 1.45, size));
-            sp.Children.Add(new TextBlock { Text = Made, Foreground = new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xEA)), FontSize = size * 1.15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center });
-            return new Border
-            {
-                Child = sp, CornerRadius = new CornerRadius(size + 4), Padding = new Thickness(size * 0.8, size * 0.35, size, size * 0.4), HorizontalAlignment = HorizontalAlignment.Left,
-                Background = new LinearGradientBrush(Color.FromArgb(0x30, Blue.R, Blue.G, Blue.B), Color.FromArgb(0x24, Yellow.R, Yellow.G, Yellow.B), 0),
-                BorderBrush = new LinearGradientBrush(Color.FromArgb(0xA0, Blue.R, Blue.G, Blue.B), Color.FromArgb(0xA0, Yellow.R, Yellow.G, Yellow.B), 0), BorderThickness = new Thickness(1),
-                ToolTip = "Kapsula — украинский проект"
-            };
-        }
 
         // Флаг на ветру: полосы изгибаются бегущей волной, по краю — лёгкая тень складок. Анимация идёт, только пока флаг виден.
         public static FrameworkElement WavyFlag(double w, double h)
@@ -137,23 +110,9 @@ namespace Kapsula
     {
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
         static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
-        static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
-        static readonly Brush PaneBg = new SolidColorBrush(Color.FromArgb(0xD8, 0x15, 0x15, 0x18));       // правая часть поверх полупрозрачного окна
 
-        // ---- полупрозрачное окно (материал Mica в Windows 11): боковая панель просвечивает, как в современных системных окнах
+        // ---- фон окна — сплошной тёмный: полупрозрачный материал Windows (Mica) убран — на некоторых системах окно рисовалось белым
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins m);
-        struct Margins { public int L, R, T, B; }
-        static readonly bool MicaOk = false;   // полупрозрачный материал Windows отключён: на некоторых системах окно рисовалось белым; фон — сплошной тёмный
-        static int WinBuild()
-        {
-            try
-            {
-                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
-                { int b; return int.TryParse(k.GetValue("CurrentBuildNumber") as string, out b) ? b : 0; }
-            }
-            catch { return 0; }
-        }
 
         void ApplyMaterial()
         {
@@ -165,17 +124,9 @@ namespace Kapsula
                 if (hs != null && hs.CompositionTarget != null) hs.CompositionTarget.RenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
                 int dark = 1;
                 DwmSetWindowAttribute(h, 20, ref dark, 4);   // тёмный заголовок окна
-                if (!MicaOk) return;
-                var src = System.Windows.Interop.HwndSource.FromHwnd(h);
-                src.CompositionTarget.BackgroundColor = Colors.Transparent;
-                var m = new Margins { L = -1, R = -1, T = -1, B = -1 };
-                DwmExtendFrameIntoClientArea(h, ref m);
-                int mica = 2;
-                if (DwmSetWindowAttribute(h, 38, ref mica, 4) != 0) Background = Bg;
             }
             catch { Background = Bg; }
         }
-        static readonly Brush RowBg = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x23));
         static readonly Brush Txt = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
         static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
         static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
@@ -185,7 +136,7 @@ namespace Kapsula
             Title = "Kapsula";
             Icon = PetView.WindowIcon();
             Width = 520; SizeToContent = SizeToContent.Height;
-            Background = MicaOk ? Brushes.Transparent : Bg;
+            Background = Bg;
             SourceInitialized += delegate { ApplyMaterial(); };
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -254,24 +205,10 @@ namespace Kapsula
     {
         IslandWindow island;
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
-        static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
         static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
-        static readonly Brush PaneBg = new SolidColorBrush(Color.FromArgb(0xD8, 0x15, 0x15, 0x18));       // правая часть поверх полупрозрачного окна
 
-        // ---- полупрозрачное окно (материал Mica в Windows 11): боковая панель просвечивает, как в современных системных окнах
+        // ---- фон окна — сплошной тёмный: полупрозрачный материал Windows (Mica) убран — на некоторых системах окно рисовалось белым
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins m);
-        struct Margins { public int L, R, T, B; }
-        static readonly bool MicaOk = false;   // полупрозрачный материал Windows отключён: на некоторых системах окно рисовалось белым; фон — сплошной тёмный
-        static int WinBuild()
-        {
-            try
-            {
-                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
-                { int b; return int.TryParse(k.GetValue("CurrentBuildNumber") as string, out b) ? b : 0; }
-            }
-            catch { return 0; }
-        }
 
         void ApplyMaterial()
         {
@@ -283,13 +220,6 @@ namespace Kapsula
                 if (hs != null && hs.CompositionTarget != null) hs.CompositionTarget.RenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
                 int dark = 1;
                 DwmSetWindowAttribute(h, 20, ref dark, 4);   // тёмный заголовок окна
-                if (!MicaOk) return;
-                var src = System.Windows.Interop.HwndSource.FromHwnd(h);
-                src.CompositionTarget.BackgroundColor = Colors.Transparent;
-                var m = new Margins { L = -1, R = -1, T = -1, B = -1 };
-                DwmExtendFrameIntoClientArea(h, ref m);
-                int mica = 2;
-                if (DwmSetWindowAttribute(h, 38, ref mica, 4) != 0) Background = Bg;
             }
             catch { Background = Bg; }
         }
@@ -299,9 +229,6 @@ namespace Kapsula
         static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
         static readonly Brush OnBg = new SolidColorBrush(Color.FromRgb(0x52, 0x52, 0x5C));    // включённые плашки и главные кнопки — светлее фона, без цвета
         static readonly Brush OnTxt = Brushes.White;
-        static readonly Brush SegTrack = new SolidColorBrush(Color.FromArgb(0x66, 0x0A, 0x0A, 0x0C));   // дорожка переключателя вариантов
-        static readonly Brush SegThumb = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x52));          // «бегунок» под выбранным вариантом
-        static readonly Brush SegLine = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF));
         static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
         static readonly Color[] Palette =
         {
@@ -316,7 +243,7 @@ namespace Kapsula
             Title = "Kapsula — настройки";
             Icon = PetView.WindowIcon();
             Width = 840; Height = Math.Min(700, SystemParameters.WorkArea.Height - 16);   // на небольших экранах окно не должно уходить за край
-            Background = MicaOk ? Brushes.Transparent : Bg;
+            Background = Bg;
             SourceInitialized += delegate { ApplyMaterial(); };
             ResizeMode = ResizeMode.CanMinimize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -417,7 +344,7 @@ namespace Kapsula
                     var dlgOwner = new DialogOwner { Handle = new System.Windows.Interop.WindowInteropHelper(this).Handle };
                     if (dlg.ShowDialog(dlgOwner) == System.Windows.Forms.DialogResult.OK) island.ApplyFont(dlg.Font.FontFamily.Name, true);
                 }
-            }), true));
+            }, IslandWindow.FontNames.Length - 1, island.FontChoice), true));   // «Другой…» открывается и повторно; после «Отмены» подсветка — на прежнем шрифте
             sp.Children.Add(Row("Ширина капсулы", "Растяните капсулу вширь — например, под вырез вашего монитора или просто для вида. Остров меняется сразу.", SliderCtl(0, 240, 4, island.PillExtraW,
                 delegate(double v) { return v < 1 ? "как есть" : "+" + Math.Round(v); },
                 delegate(double v) { island.SetPillSize(v, island.PillH, false); },
@@ -553,7 +480,7 @@ namespace Kapsula
                     else if (ClaudeBridge.Installed && ClaudeBridge.Enabled)
                     {
                         string err = ClaudeBridge.Remove();
-                        Store.Set("claudeCode", "0"); ClaudeBridge.Stop();
+                        Store.Set("claudeCode", "0"); if (!ClaudeBridge.McpOn) ClaudeBridge.Stop();   // сервер нужен и другим агентам (MCP)
                         cNote = err == null ? "" : " Не удалось убрать строки из настроек: " + err + ".";
                     }
                     else
@@ -579,6 +506,7 @@ namespace Kapsula
                 var dText = ((StackPanel)((Grid)((Border)dRow).Child).Children[0]).Children[1] as TextBlock;
                 Action dShow = delegate
                 {
+                    if (DiscordBridge.Enabled && !DiscordBridge.Listening && DiscordBridge.Error == null) DiscordBridge.Start();   // Vencord поставили, пока Kapsula работала, — начать слушать
                     string st = Store.Get("discordVencord") == "0" ? "Выключено."
                         : DiscordBridge.Error != null ? "Не работает: " + DiscordBridge.Error + "."
                         : DiscordBridge.Clients > 0 ? "Подключено: сообщения и звонки Discord появляются на острове."
@@ -613,6 +541,7 @@ namespace Kapsula
                     System.Threading.ThreadPool.QueueUserWorkItem(delegate
                     {
                         string err = off ? DiscordInstall.Uninstall() : DiscordInstall.Install();
+                        if (!off && err == null) DiscordBridge.Start();   // Vencord появился только что — уведомления XSOverlay слушаем сразу, без перезапуска Kapsula
                         bool inBuild = !off && err == null && DiscordInstall.PluginInBuild;
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
@@ -628,14 +557,14 @@ namespace Kapsula
                 {
                     bool inst = DiscordInstall.Installed;
                     ((TextBlock)vBtn.Child).Text = inst ? "Отключить" : "Подключить";
-                    string st = island.DiscordLive ? "Плагин на связи." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
+                    string st = island.DiscordLive ? "Плагин на связи." : DiscordVoiceServer.Error != null ? "Не работает: " + DiscordVoiceServer.Error + "." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
                         : "Плагин пропал из Discord (видимо, Vencord переустановили) — нажмите «Отключить», потом «Подключить».");
                     if (vText != null && !vBusy)
                         vText.Text = "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы. " + st;
                 };
                 vShow();
                 var vTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-                vTimer.Tick += delegate { if (!vBusy) vShow(); };
+                vTimer.Tick += delegate { if (DiscordVoiceServer.Error != null) DiscordVoiceServer.Start(); if (!vBusy) vShow(); };   // порт освободился — звонки Discord снова слушаем
                 vTimer.Start();
                 Closed += delegate { vTimer.Stop(); };
                 sp.Children.Add(vRow);
@@ -709,15 +638,14 @@ namespace Kapsula
         }
 
         // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Зверёк", "Общее", "Внешний вид", "Поведение", "Главная", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
+        static readonly string[] SectionOrder = { "Зверёк", "Общее", "Внешний вид", "Поведение", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
         static readonly string[] SectionHints =
         {
             "Характер, прогулки по окнам, наряды и свой стикер",
             "Версия, обновления, запуск, монитор",
             "Цвет, размер, анимации, кромка, зверёк",
             "Когда остров прячется и что подсказывает",
-            "Что показывать на главной вкладке",
             "Конструктор: блоки вкладок перетаскиваются",
             "Плеер, жидкий край, тексты песен, оценки",
             "Карточки уведомлений и напоминания",
@@ -728,7 +656,7 @@ namespace Kapsula
             "Карточки и плагины Steam и Discord",
             "Звук в записи, остров на снимках",
             "Камера, микрофон, пароли, текст уведомлений",
-            "Пробные функции: звонки, дека, виджет",
+            "Пробные функции: звонки",
             "Сочетания клавиш"
         };        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
         List<Border> navItems = new List<Border>();
@@ -750,10 +678,10 @@ namespace Kapsula
             new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
             new[] { "Игры", "#Остров в играх", "Игровой режим", "Показывать в играх", "Новый трек поверх игр и видео", "Нагрузка в играх", "#Twitch", "Чат Twitch поверх игры", "Канал Twitch", "Чат Twitch и вне игр" },
             new[] { "Нейросети", "#Чат", "Кто отвечает в чате", "#Qwen на этом компьютере", "Модель Qwen 3.5", "Скачать на компьютер", "#Claude", "Ключ Claude API", "Модель Claude", "#Gemini", "Ключ Gemini API", "Модель Gemini", "#Claude Code", "Claude Code на острове", "Показывать, что делает Claude Code", "Звук, когда Claude Code ждёт вас", "Кнопка «Открыть в VS Code»", "#Другие ИИ-агенты (MCP)", "Остров для любых агентов" },
-            new[] { "Телефон", "#Пульт", "Пульт с телефона", "Подключить телефон", "Новая секретная ссылка", "#Камера телефона", "Телефон как веб-камера", "Качество камеры" },
+            new[] { "Телефон", "#Пульт", "Пульт с телефона", "Подключить телефон", "#Камера телефона", "Телефон как веб-камера", "Качество камеры" },
             new[] { "Запись и снимки", "Звук в записи экрана", "Показывать остров на скриншотах" },
             new[] { "Безопасность", "#Камера и микрофон", "Индикатор микрофона", "Индикатор камеры", "#Приватность", "Скрывать текст уведомлений", "Не запоминать пароли из буфера" },
-            new[] { "Дополнительно", "#Пробные функции", "Режим звонка", "Дека", "Клавиши деки", "Виджет на рабочем столе" },
+            new[] { "Дополнительно", "#Пробные функции", "Режим звонка" },
         };
 
         Border FindRow(string key)
@@ -891,7 +819,7 @@ namespace Kapsula
         static readonly Color[] SectionColors =
         {
             Ui.PetColor,
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x64, 0xD2, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x64, 0xD2, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
             Color.FromRgb(0x30, 0xD1, 0x58), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
@@ -997,7 +925,7 @@ namespace Kapsula
             DockPanel.SetDock(saved, Dock.Bottom);
             navDock.Children.Add(saved);
             navDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = nav });
-            root.Children.Add(new Border { Background = MicaOk ? Brushes.Transparent : RowBg, Child = navDock });
+            root.Children.Add(new Border { Background = RowBg, Child = navDock });
 
             var pane = new DockPanel { Margin = new Thickness(28, 22, 10, 0) };
             var head = new StackPanel { Margin = new Thickness(4, 0, 0, 12) };
@@ -1012,7 +940,7 @@ namespace Kapsula
             scroller =new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 16, 16) };
             pane.Children.Add(scroller);
             // правая часть — плотнее боковой панели, с тонкой линией-разделителем слева
-            var paneBack = new Border { Background = MicaOk ? PaneBg : Bg, BorderBrush = Divider, BorderThickness = new Thickness(1, 0, 0, 0) };
+            var paneBack = new Border { Background = Bg, BorderBrush = Divider, BorderThickness = new Thickness(1, 0, 0, 0) };
             Grid.SetColumn(paneBack, 1);
             root.Children.Add(paneBack);
             Grid.SetColumn(pane, 1);
@@ -1023,8 +951,8 @@ namespace Kapsula
             ShowSection(sections.ContainsKey(last) && sections[last].Children.Count > 0 ? last : "Зверёк");   // впервые — с раздела зверька
         }
 
-        // Превью: живая копия острова прямо в окне настроек. В разделе «Главная» показывает главную панель,
-        // в «Музыке» — мини-плеер, в остальных — сам остров как он сейчас выглядит на экране.
+        // Превью: живая копия острова прямо в окне настроек. В «Музыке» показывает мини-плеер, у строк про «Главную» —
+        // главную панель, в остальных — сам остров как он сейчас выглядит на экране.
         const double PvH = 150, PvHomeH = 210;
         FrameworkElement pvIsland, pvHome, pvMini;
         Border pvHomeBox, pvBox;
@@ -1088,7 +1016,7 @@ namespace Kapsula
         {
             string t = title ?? "";
             if (t.Contains("Главн")) return 1;
-            if (t.StartsWith("Мини-плеер") || t.Contains("екст")) return 2;
+            if (t.StartsWith("Мини-плеер") || t.StartsWith("Тексты песен") || t.Contains("текста песни")) return 2;   // только строки про текст песни, не «Скрывать текст уведомлений»
             if (t.StartsWith("Капсула") || t.Contains("край") || t.Contains("Край") || t.StartsWith("Новый трек") || t.StartsWith("Зверёк") || t.StartsWith("Секунды")) return 0;
             return -1;
         }
@@ -1096,7 +1024,7 @@ namespace Kapsula
         void UpdatePreview()
         {
             if (pvIsland == null) return;
-            int kind = hoverKind >= 0 ? hoverKind : currentSection == "Главная" ? 1 : currentSection == "Музыка" ? 2 : 0;
+            int kind = hoverKind >= 0 ? hoverKind : currentSection == "Музыка" ? 2 : 0;
             if (kind == 2 && !island.PreviewHasMedia) kind = 0;   // ничего не играет — мини-плеер пуст, показываем сам остров
             pvIsland.Visibility = kind == 0 ? Visibility.Visible : Visibility.Collapsed;
             pvHome.Visibility = kind == 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -1104,7 +1032,7 @@ namespace Kapsula
             if (kind == 1) { island.PreviewRefresh(); pvHomeBox.Height = island.PreviewHomeH; }
             // Высота рамки зависит только от раздела: иначе при наведении на разные строки рамка прыгала, строки
             // уезжали из-под курсора, и превью начинало мигать.
-            pvBox.Height = currentSection == "Главная" || currentSection == "Музыка" ? PvHomeH : PvH;
+            pvBox.Height = currentSection == "Музыка" ? PvHomeH : PvH;
             pvCaption.Text = kind == 1 ? "Главная" : kind == 2 ? "Мини-плеер" : "Остров сейчас";
         }
 
@@ -1286,7 +1214,11 @@ namespace Kapsula
 
         // Выбор одного варианта из нескольких: варианты лежат в общей дорожке, подсветка выбранного
         // переезжает от одного к другому — так же, как вкладки на самом острове.
-        FrameworkElement Chips(string[] labels, int selected, Action<int> pick)
+        FrameworkElement Chips(string[] labels, int selected, Action<int> pick) { return Chips(labels, selected, pick, -1, null); }
+
+        // again — вариант, который срабатывает и при повторном нажатии (открывает окно выбора, как «Другой…» у шрифта);
+        // current — что выбрано на самом деле после pick: окно закрыли «Отменой» — подсветка возвращается туда
+        FrameworkElement Chips(string[] labels, int selected, Action<int> pick, int again, Func<int> current)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             var items = new List<Border>();
@@ -1319,7 +1251,13 @@ namespace Kapsula
             {
                 int idx = i;
                 var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 0, 14, 1), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
-                c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (cur == idx) return; cur = idx; move(true); pick(idx); };
+                c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    if (cur == idx && idx != again) return;
+                    cur = idx; move(true); pick(idx);
+                    if (current != null) { int actual = current(); if (actual != cur) { cur = actual; move(true); } }
+                };
                 items.Add(c);
                 row.Children.Add(c);
             }
@@ -1376,92 +1314,6 @@ namespace Kapsula
             return wrap;
         }
 
-        // Несколько переключателей в ряд(ы): каждый включается и выключается отдельно
-        FrameworkElement MultiChips(string[] labels, bool[] on, Action<int, bool> changed)
-        {
-            var wrap = new WrapPanel { MaxWidth = 470 };
-            for (int i = 0; i < labels.Length; i++)
-            {
-                int idx = i;
-                bool state = on[i];
-                var tb = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-                var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Child = tb };
-                Action paint = delegate { c.Background = state ? OnBg : Brushes.Transparent; c.BorderBrush = state ? Brushes.Transparent : Divider; c.BorderThickness = new Thickness(1); tb.Foreground = state ? OnTxt : Sub; };
-                c.MouseLeftButtonDown += delegate { state = !state; paint(); changed(idx, state); };
-                paint();
-                wrap.Children.Add(c);
-            }
-            return wrap;
-        }
-
-        // «Что на «Главной»»: группы «Слева», «Плитки», «Снизу» и схема того, как ляжет панель
-        FrameworkElement HomeEditor()
-        {
-            var g = new Grid();
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
-            var left = new StackPanel();
-            left.Children.Add(new TextBlock { Text = "Что на «Главной»", Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold });
-            left.Children.Add(new TextBlock { Text = "Оставьте только нужное — например, один плеер или плеер и снимок области. «Главная» перестроится сама. Без музыки на месте плеера — недавно скопированное.", Foreground = Sub, FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 12, 0) });
-            var schema = new Canvas { Width = 150, Height = 96, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 0, 0) };
-            Action draw = null;
-            Func<string, bool, bool> on = delegate(string key, bool def) { string v = Store.Get(key); return v == "" ? def : v != "0"; };
-            Action<string, string[], string[], bool[]> group = null;
-            group = delegate(string head, string[] keys, string[] labels, bool[] defs)
-            {
-                left.Children.Add(new TextBlock { Text = head, Foreground = Sub, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 7) });
-                var states = new bool[keys.Length];
-                for (int i = 0; i < keys.Length; i++) states[i] = on(keys[i], defs[i]);
-                left.Children.Add(MultiChips(labels, states, delegate(int i, bool v) { Store.Set(keys[i], v ? "1" : "0"); island.ApplyHomeLayout(); draw(); }));
-            };
-            group("СЛЕВА", new string[] { "homePlayer", "homeClips", "homeVolume" }, new string[] { "Плеер", "Недавно скопировано", "Громкость" }, new bool[] { true, true, true });
-            // плитки хранятся списком выключенных
-            left.Children.Add(new TextBlock { Text = "ПЛИТКИ", Foreground = Sub, FontSize = 10.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 7) });
-            var tilesOff = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-            var tilesOn = new bool[IslandWindow.HomeTileIds.Length];
-            for (int i = 0; i < tilesOn.Length; i++) tilesOn[i] = !tilesOff.Contains(IslandWindow.HomeTileIds[i]);
-            left.Children.Add(MultiChips(IslandWindow.HomeTileNames, tilesOn, delegate(int i, bool v)
-            {
-                if (v) tilesOff.Remove(IslandWindow.HomeTileIds[i]); else tilesOff.Add(IslandWindow.HomeTileIds[i]);
-                Store.Set("homeTilesOff", string.Join(",", new List<string>(tilesOff).ToArray()));
-                island.ApplyHomeLayout(); draw();
-            }));
-            group("СНИЗУ", new string[] { "homeLauncher" }, new string[] { "Ярлыки" }, new bool[] { false });
-
-            // схема: прямоугольники на месте частей панели
-            Brush part = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x42)), hot = new SolidColorBrush(Color.FromRgb(0x5A, 0x5A, 0x66));
-            draw = delegate
-            {
-                schema.Children.Clear();
-                var frame = new Border { Width = 150, Height = 96, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x0E, 0x11)), BorderBrush = Divider, BorderThickness = new Thickness(1) };
-                schema.Children.Add(frame);
-                bool pl = on("homePlayer", true) || on("homeClips", true), vol = on("homeVolume", true), lau = on("homeLauncher", false);
-                var off2 = new HashSet<string>(Store.Get("homeTilesOff").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
-                int n = 0; foreach (string id in IslandWindow.HomeTileIds) if (!off2.Contains(id)) n++;
-                double x = 8, y = 8, w = 134, bottom = lau ? 72 : 88;
-                double tilesW = n > 0 ? 50 : 0, leftW = w - (n > 0 ? tilesW + 5 : 0);
-                Action<double, double, double, double, Brush> rect = delegate(double rx, double ry, double rw, double rh, Brush b)
-                {
-                    var r = new Border { Width = Math.Max(2, rw), Height = Math.Max(2, rh), CornerRadius = new CornerRadius(4), Background = b };
-                    Canvas.SetLeft(r, rx); Canvas.SetTop(r, ry); schema.Children.Add(r);
-                };
-                double mainH = bottom - y - (vol ? 13 : 0);
-                if (pl) rect(x, y, leftW, mainH, hot);
-                if (vol) rect(x, pl ? y + mainH + 4 : y, leftW, 9, part);
-                if (n > 0)
-                {
-                    int rows = Math.Max(1, (n + 1) / 2);
-                    double th = (bottom - y - (rows - 1) * 3) / rows;
-                    for (int k = 0; k < n; k++) rect(x + leftW + 5 + (k % 2) * 26, y + (k / 2) * (th + 3), 24, th, part);
-                }
-                if (lau) rect(x, bottom + 4, w, 12, part);
-            };
-            draw();
-            Grid.SetColumn(schema, 1);
-            g.Children.Add(left); g.Children.Add(schema);
-            return new Border { Background = RowBg, CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 16, 18, 18), Margin = new Thickness(0, 0, 0, 16), Child = g };
-        }
-
         // Список программ, в которых остров прячется: выбранные — плашками (клик убирает), «Добавить» — из открытых сейчас.
         FrameworkElement HideAppsEditor()
         {
@@ -1516,7 +1368,6 @@ namespace Kapsula
 
         ScrollViewer scroller;
         public void ScrollTo(double y) { if (scroller != null) scroller.ScrollToVerticalOffset(y); }
-        public void ScrollToBottom() { Loaded += delegate { scroller.ScrollToEnd(); }; }
 
         // ---- редактор горячих клавиш
         Hot capturing;
@@ -1590,22 +1441,17 @@ namespace Kapsula
             sp.Children.Add(Row("Скрывать текст уведомлений", "Карточки уведомлений Windows на острове показывают только программу, без текста сообщения, — если рядом кто-то смотрит на экран.", Toggle(Store.Get("hideNotifText") == "1", delegate(bool v) { Store.Set("hideNotifText", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Не запоминать пароли из буфера", "Пароли, скопированные из менеджеров паролей, не попадают в историю буфера Kapsula. История буфера и так хранится только в памяти и стирается при выходе.", Toggle(Store.Get("clipSecrets") != "0", delegate(bool v) { Store.Set("clipSecrets", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Показывать остров на скриншотах", "По умолчанию он скрыт от снимков, записи экрана и трансляций.", Toggle(island.ShowInCapture, delegate(bool v) { island.SetFlag("showInCapture", v); }), false));
-            sp.Children.Add(Header("Доступ с телефона"));
-            sp.Children.Add(Row("Новая секретная ссылка", "Ссылка из QR-кода открывает пульт и камеру. Если она могла попасть не туда — сделайте новую, старая сразу перестанет работать.", PillBtn("Сделать новую", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Чтобы подключить телефон снова, покажите ему новый QR-код.", "Kapsula"); }), false));
         }
 
-        // ---- «Дополнительно»: звонки, дека, телефон, игры, Twitch, виджет, утро, MCP
+        // ---- «Дополнительно»: звонки, телефон, игры, Twitch, утро, MCP
         void BuildExtrasSection(StackPanel sp)
         {
             sp.Children.Add(Header("Каждый день"));
-            sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: погода, первое событие, задачи и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: сколько задач на сегодня, ближайшая из них и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. Kapsula сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Дека · альфа", "Вкладка рядом с «Главной»: до 9 ярлыков программ и действий с запуском по Ctrl+Alt+1…9. Сырая функция, по умолчанию выключена.", Toggle(Store.Get("deckOn") == "1", delegate(bool v) { Store.Set("deckOn", v ? "1" : "0"); island.ReloadDeckHotkeys(); island.RefreshTabs(); }), false));
-            sp.Children.Add(Row("Клавиши деки", "Ctrl+Alt+1…9 запускают места на вкладке «Дека» — программы и действия.", Toggle(Store.Get("deckHotkeys") != "0", delegate(bool v) { Store.Set("deckHotkeys", v ? "1" : "0"); island.ReloadDeckHotkeys(); }), false));
 
             sp.Children.Add(Header("Поверх экрана"));
             sp.Children.Add(Row("Нагрузка в играх · бета", "В игре на весь экран в левом верхнем углу — маленькая полоска: процессор, видеокарта, память и время. Мышь проходит сквозь неё.", Toggle(Store.Get("gameStrip") == "1", delegate(bool v) { Store.Set("gameStrip", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Виджет на рабочем столе", "Крупный день недели и дата в левом нижнем углу рабочего стола, под окнами; ниже — погода, ближайшее событие, таймер и задачи.", Toggle(Store.Get("deskWidget") == "1", delegate(bool v) { Store.Set("deskWidget", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Чат Twitch поверх игры · бета", "Сообщения чата выбранного канала справа поверх игры. Читаются анонимно — входить в Twitch не нужно, писать в чат отсюда нельзя. Чат YouTube так показать нельзя: YouTube требует ключ разработчика.", Toggle(Store.Get("twitchOverlay") == "1", delegate(bool v) { Store.Set("twitchOverlay", v ? "1" : "0"); island.TwitchSync(); }), false));
             var chan = new TextBox { Width = 220, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13, Text = Store.Get("twitchChannel") };
             chan.LostFocus += delegate { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); };
@@ -1641,6 +1487,7 @@ namespace Kapsula
                     {
                         if (MessageBox.Show(this, "Удалить камеру «Kapsula Camera» из Windows? Понадобятся права администратора.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
                         bool ok = PhoneCam.Setup(false);
+                        if (ok) PhoneCam.Stop();   // драйвера больше нет — закрываем сервер камеры для телефона и отпускаем общую память кадров
                         camStatus.Text = ok ? "Камера удалена." : "Не удалось удалить: Windows не дала прав администратора.";
                         camPaint();
                     });
@@ -1662,28 +1509,39 @@ namespace Kapsula
                 Store.Set("phoneRemote", v ? "1" : "0");
                 if (v) Phone.Start(island); else Phone.Stop();
             }, out pSet);
-            sp.Children.Add(Row("Пульт с телефона · бета", "Телефон в той же сети Wi-Fi открывает страницу по QR-коду: музыка и громкость, курсор пальцем, ввод текста, слайды, программы из деки, файлы с полки, блокировка и сон. Работает только в домашней сети и только по секретной ссылке. Windows может спросить разрешение брандмауэра — разрешите для частных сетей. Пока идёт игра на весь экран или включён игровой режим, курсор, клавиши и ввод текста с телефона не работают — чтобы античит не принял их за макрос; музыка и громкость работают как обычно.", pBtn, false));
+            sp.Children.Add(Row("Пульт с телефона · бета", "Телефон в той же сети Wi-Fi открывает страницу по QR-коду: музыка и громкость, курсор пальцем, ввод текста, слайды, файлы с полки, блокировка и сон. Работает только в домашней сети и только по секретной ссылке. Windows может спросить разрешение брандмауэра — разрешите для частных сетей. Пока идёт игра на весь экран или включён игровой режим, курсор, клавиши и ввод текста с телефона не работают — чтобы античит не принял их за макрос; музыка и громкость работают как обычно.", pBtn, false));
             var pRow = new StackPanel { Orientation = Orientation.Horizontal };
             var qr = PillBtn("Показать QR-код", true, delegate { Phone.ShowQr(island, null); pSet(Store.Get("phoneRemote") == "1"); });
             pRow.Children.Add(qr);
             var renew = PillBtn("Новая ссылка", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Покажите новый QR-код телефону.", "Kapsula"); });
             renew.Margin = new Thickness(8, 0, 0, 0);
             pRow.Children.Add(renew);
-            sp.Children.Add(Row("Подключить телефон", "Если ссылка попала не туда — сделайте новую, старая перестанет работать.", pRow, false));
+            sp.Children.Add(Row("Подключить телефон", "Ссылка из QR-кода открывает пульт и камеру. Если она попала не туда — сделайте новую: старая сразу перестанет работать.", pRow, false));
 
             sp = Sec("Дополнительно");
             sp.Children.Add(Header("Другие ИИ-агенты (MCP)"));
             var mRow = new StackPanel { Orientation = Orientation.Horizontal };
+            // Переключатель сервера для агентов: без него сервер, раз включённый кнопкой, слушал бы при каждом запуске
+            Action<bool> mSet;
+            var mBtn = ToggleSet(ClaudeBridge.McpOn, delegate(bool v)
+            {
+                Store.Set("mcp", v ? "1" : "0");
+                if (v) ClaudeBridge.Start(); else if (!ClaudeBridge.Enabled) ClaudeBridge.Stop();   // «Claude Code на острове» сервер ещё нужен
+            }, out mSet);
+            mRow.Children.Add(mBtn);
             var copy = PillBtn("Скопировать настройку", true, delegate
             {
-                string tok = ClaudeBridge.Token();
-                if (tok.Length == 0) { MessageBox.Show(this, "Сначала включите «Claude Code на острове» в разделе «Нейросети» — MCP работает через то же подключение.", "Kapsula"); return; }
+                string tok = ClaudeBridge.Token();   // сначала ключ, потом сервер: сервер читает ключ при запуске
+                if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек Kapsula.", "Kapsula"); return; }
+                Store.Set("mcp", "1"); ClaudeBridge.Start(); mSet(true);   // MCP-серверу не нужен «Claude Code на острове»
+                if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + (ClaudeBridge.Error ?? "неизвестная ошибка") + ".", "Kapsula"); return; }
                 string json = "{\n  \"mcpServers\": {\n    \"kapsula\": {\n      \"type\": \"http\",\n      \"url\": \"" + ClaudeBridge.McpUrl + "\",\n      \"headers\": { \"X-Kapsula-Token\": \"" + tok + "\", \"X-Kapsula-Agent\": \"Мой агент\" }\n    }\n  }\n}";
                 try { Clipboard.SetText(json); } catch { }
                 MessageBox.Show(this, "Настройка скопирована. Вставьте её в файл MCP-серверов вашего агента (Cursor, Codex, Claude Desktop и т. п.) и поменяйте «Мой агент» на его имя.\n\nВ настройке есть секретный ключ — не публикуйте её.", "Kapsula");
             });
+            copy.Margin = new Thickness(12, 0, 0, 0);
             mRow.Children.Add(copy);
-            sp.Children.Add(Row("Остров для любых агентов", "Агенты с поддержкой MCP могут показывать на острове уведомления (notify) и задавать вопросы с кнопками (ask). Сервер слушает только этот компьютер: " + ClaudeBridge.McpUrl + " и пускает только с ключом.", mRow, true));
+            sp.Children.Add(Row("Остров для любых агентов", "Агенты с поддержкой MCP могут показывать на острове уведомления (notify) и задавать вопросы с кнопками (ask). Сервер слушает только этот компьютер: " + ClaudeBridge.McpUrl + " и пускает только с ключом. Переключатель держит сервер включённым и без «Claude Code на острове».", mRow, true));
         }
         Border PillBtn(string text, bool main, Action click)
         {
@@ -1713,8 +1571,7 @@ namespace Kapsula
             {
                 var m = QwenLocal.Chosen;
                 string mode = QwenLocal.Busy ? "busy" : QwenLocal.Downloaded(m) && QwenLocal.EngineReady ? (QwenLocal.CanSpeedUp ? "ready-slow" : "ready") : "none";
-                if (mode != shown + "") { }
-                string key = mode + m.Id;
+                string key = mode + m.Id + QwenLocal.HasFiles(m);   // появилось или удалено недокачанное — перестроить кнопки
                 if (key != shown)
                 {
                     shown = key;
@@ -1737,8 +1594,23 @@ namespace Kapsula
                             fast.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(fast);
                         }
                     }
-                    else row.Children.Add(PillBtn("Скачать Qwen " + m.Name + " · " + m.SizeGb.ToString("0.#") + " ГБ", true, delegate { QwenLocal.Download(m); shown = null; paint(); }));
+                    else
+                    {
+                        row.Children.Add(PillBtn("Скачать Qwen " + m.Name + " · " + m.SizeGb.ToString("0.#") + " ГБ", true, delegate { QwenLocal.Download(m); shown = null; paint(); }));
+                        if (QwenLocal.HasFiles(m))
+                        {
+                            // недокачанная модель или оставшийся движок — их тоже убирает «Удалить»
+                            var drop = PillBtn("Удалить", false, delegate
+                            {
+                                if (MessageBox.Show(this, "Удалить с компьютера то, что уже скачано для Qwen " + m.Name + "?", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                                QwenLocal.Delete(m); shown = null; paint();
+                            });
+                            drop.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(drop);
+                        }
+                    }
                 }
+                double partGb = mode == "none" ? QwenLocal.UsedGb() : 0;   // недокачанное тоже занимает место — показываем сколько
+                string partNote = partGb > 0.05 ? " Занято " + partGb.ToString("0.#") + " ГБ." : "";
                 bar.Visibility = QwenLocal.Busy ? Visibility.Visible : Visibility.Collapsed;
                 if (QwenLocal.Busy)
                 {
@@ -1747,9 +1619,9 @@ namespace Kapsula
                     fill.Width = 320 * p;
                     status.Text = QwenLocal.Status + (tot > 0 ? " — " + Math.Round(p * 100) + "% · " + (d / 1048576.0).ToString("0") + " из " + (tot / 1048576.0).ToString("0") + " МБ" : "");
                 }
-                else if (QwenLocal.Error != null) status.Text = QwenLocal.Error + ".";
+                else if (QwenLocal.Error != null) status.Text = QwenLocal.Error + "." + partNote;
                 else if (mode.StartsWith("ready")) status.Text = (QwenLocal.EngineKind.StartsWith("cuda") ? "Скачана, работает через CUDA. " : "Скачана. ") + "Всего занято " + QwenLocal.UsedGb().ToString("0.#") + " ГБ." + (Ai.Local ? " Отвечает в чате и в действиях с текстом." : "");
-                else status.Text = QwenLocal.EngineReady ? "llama.cpp уже скачан, осталась модель." : "Пока ничего не скачано.";
+                else status.Text = (QwenLocal.EngineReady ? "llama.cpp уже скачан, осталась модель." : partGb > 0.05 ? "Скачано не до конца." : "Пока ничего не скачано.") + partNote;
             };
             qwenRefresh = delegate { shown = null; paint(); };
             paint();

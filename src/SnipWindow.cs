@@ -44,7 +44,6 @@ namespace Kapsula
         static readonly Color[] Palette = { Color.FromRgb(0xFF, 0x3B, 0x30), Color.FromRgb(0xFF, 0xCC, 0x00), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Colors.White, Colors.Black };
         UIElement cur;
         Point inkStart;
-        Rect selRect;
         Int32Rect selPx;
         public Action Cancelled;
         Path dim;
@@ -108,6 +107,8 @@ namespace Kapsula
             PreviewKeyDown += OnKey;
             MouseRightButtonDown += delegate { if (!editing) Finish(true); };
             Deactivated += delegate { if (!editing) Finish(true); };
+            // Закрыли не нашими кнопками (Alt+F4 во время разметки) — это тоже отмена, иначе остров так и ждал бы конца выделения
+            Closed += delegate { if (done) return; done = true; if (Cancelled != null) Cancelled(); };
             MouseLeftButtonDown += OnDown;
             MouseMove += OnMove;
             MouseLeftButtonUp += OnUp;
@@ -198,10 +199,10 @@ namespace Kapsula
         {
             editing = true;
             Cursor = Cursors.Arrow;
-            selRect = r;
             int px = (int)Math.Round(r.X * scale), py = (int)Math.Round(r.Y * scale);
             int pw = Math.Min(bmp.Width - px, (int)Math.Round(r.Width * scale)), ph = Math.Min(bmp.Height - py, (int)Math.Round(r.Height * scale));
             selPx = new Int32Rect(px, py, Math.Max(1, pw), Math.Max(1, ph));
+            start = r.TopLeft;   // тянуть могли из любого угла, а рамка строится от start до второго угла
             UpdateSel(r.BottomRight);
             sizeText.Visibility = Visibility.Collapsed;
 

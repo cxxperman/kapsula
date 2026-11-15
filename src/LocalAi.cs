@@ -281,11 +281,36 @@ namespace Kapsula
             }
         }
 
+        // Удалить модель — и недокачанную тоже (её .part и «зрение»). Моделей больше не осталось — не нужны и движок
+        // llama.cpp (40–600 МБ), и недокачанные архивы: «Удалить» убирает всё, что Kapsula скачала для Qwen
         public static void Delete(ModelInfo m)
         {
             if (Busy) return;
             if (loaded == m.Id) Stop();
-            try { Directory.Delete(Path.Combine(ModelsDir, m.Id), true); } catch (Exception ex) { Store.LogError("qwen удаление", ex); }
+            string dir = Path.Combine(ModelsDir, m.Id);
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch (Exception ex) { Store.LogError("qwen удаление", ex); }
+            if (AnyModel() || !Monitor.TryEnter(gate)) return;   // Qwen как раз запускается для вопроса в чате — движок не трогаем
+            try { Stop(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
+            catch (Exception ex) { Store.LogError("qwen удаление", ex); }
+            finally { Monitor.Exit(gate); }
+        }
+
+        // Есть что удалить: папка этой модели (и недокачанной) или, когда моделей нет вовсе, движок и его недокачанные архивы
+        public static bool HasFiles(ModelInfo m)
+        {
+            try
+            {
+                if (Directory.Exists(Path.Combine(ModelsDir, m.Id))) return true;
+                return !AnyModel() && Directory.Exists(Root) && (Directory.Exists(EngineDir) || Directory.GetFiles(Root).Length > 0);
+            }
+            catch { return false; }
+        }
+
+        // Скачана (или начата) хоть какая-нибудь модель
+        static bool AnyModel()
+        {
+            try { return Directory.Exists(ModelsDir) && Directory.GetDirectories(ModelsDir).Length > 0; }
+            catch { return true; }   // не разобрать — движок лучше оставить
         }
 
         // Сколько места занято всем, что скачано для Qwen
@@ -348,8 +373,7 @@ namespace Kapsula
 
         // Запускает сервер с выбранной моделью и ждёт, пока он загрузит её. null — готово, иначе текст ошибки.
         // vision — нужен ли разбор картинок: «зрение» модели (ещё ~1 ГБ) грузим только тогда
-        static string Ensure(Action<string> progress) { return Ensure(progress, false); }
-        static string Ensure(Action<string> progress, bool vision)
+        static string Ensure(bool vision)
         {
             lock (gate)
             {
@@ -357,13 +381,13 @@ namespace Kapsula
                 if (!EngineReady || !Downloaded(m)) return "Qwen ещё не скачан — настройки, «Нейросети».";
                 vision = vision && File.Exists(ProjPath(m));
                 if (Running && loaded == m.Id && (!vision || loadedVision)) return null;
-                string err = Start(m, vision, true, progress);
-                if (err == "args") err = Start(m, vision, false, progress);   // старая или новая сборка не знает какой-то ключ — запускаем с самыми простыми
+                string err = Start(m, vision, true);
+                if (err == "args") err = Start(m, vision, false);   // старая или новая сборка не знает какой-то ключ — запускаем с самыми простыми
                 return err;
             }
         }
 
-        static string Start(ModelInfo m, bool vision, bool lean, Action<string> progress)
+        static string Start(ModelInfo m, bool vision, bool lean)
         {
             {
                 Stop();
@@ -397,7 +421,6 @@ namespace Kapsula
                 }
                 catch (Exception ex) { server = null; return "Не запустился llama.cpp: " + ex.Message; }
                 loaded = m.Id; loadedVision = vision;
-                if (progress != null) progress("Qwen просыпается…");
                 var sw = Stopwatch.StartNew();
                 while (sw.ElapsedMilliseconds < 180000)
                 {
@@ -425,15 +448,6 @@ namespace Kapsula
             }
         }
 
-        static volatile bool warming;
-        // Загрузить модель заранее (в фоне), если она ещё не загружена
-        public static void Warm()
-        {
-            if (warming || Busy || forgotten || (Running && loaded == Chosen.Id)) return;
-            warming = true;
-            ThreadPool.QueueUserWorkItem(delegate { try { Ensure(null); } catch { } finally { warming = false; } });
-        }
-
         static void Touch()
         {
             lastUse = Environment.TickCount;
@@ -445,11 +459,9 @@ namespace Kapsula
         }
 
         // «Очистить» в чате: модель забывает разговор целиком — процесс закрывается вместе со всей своей памятью
-        // (и видеопамятью) и сам больше не запускается: только когда зададут новый вопрос (около 2 секунд на запуск)
-        static volatile bool forgotten;
+        // (и видеопамятью) и снова запускается только на новом вопросе (около 2 секунд на запуск)
         public static void Forget()
         {
-            forgotten = true;
             ThreadPool.QueueUserWorkItem(delegate { lock (gate) Stop(); });
         }
 
@@ -467,10 +479,9 @@ namespace Kapsula
         // Возвращает null при успехе, иначе текст ошибки. Текст ответа приходит кусками через onText.
         public static string Send(List<ChatMsg> history, string system, Action<string> onText)
         {
-            forgotten = false;   // новый вопрос — модель снова можно держать наготове
             bool vision = false;
             foreach (ChatMsg h in history) if (h.ImageB64 != null) vision = true;
-            string err = Ensure(null, vision);
+            string err = Ensure(vision);
             if (err != null) return err;
             try
             {

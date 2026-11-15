@@ -186,6 +186,8 @@ namespace Kapsula
             if (!netKnown) { netKnown = true; netOnline = on; return; }
             if (on == netOnline) return;
             netOnline = on;
+            // Интернет вернулся, а прогноз так и не загрузился (после сна, при входе в Windows) — загружаем сразу, не ждём следующей попытки
+            if (on && (weather == null || weather.Error != null) && Store.Get("cityQuery") != "") RefreshWeather(Store.Get("cityQuery"));
             if (StartingUp() || QuietNow || state != 0) return;
             int len = on ? 3200 : 4500;
             petNetUntil = now + len; if (petNetUntil == 0) petNetUntil = 1;
