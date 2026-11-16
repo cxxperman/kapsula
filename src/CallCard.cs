@@ -53,8 +53,10 @@ namespace Kapsula
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-            callTitle = new TextBlock { Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            callAppText = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            // название и подпись — до двух строк, сколько вместит блок (FitCallHead); целиком — в подсказке
+            callTitle = new TextBlock { Foreground = Brushes.White, FontSize = 13.5, FontWeight = FontWeights.SemiBold };
+            callAppText = new TextBlock { Foreground = Secondary, FontSize = 12.5, Margin = new Thickness(0, 1, 0, 0) };
+            Ui.Lines(callTitle, 1); Ui.Lines(callAppText, 1);
             names.Children.Add(callTitle); names.Children.Add(callAppText);
             head.Children.Add(names);
             // справа — метки «LIVE» (вы показываете экран) и камеры, как в Discord, и зелёный таймер; метки одной
@@ -118,9 +120,10 @@ namespace Kapsula
             callMusicArt = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(7), Background = Glass.Fill };
             mg.Children.Add(callMusicArt);
             var mt = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0) };
-            callMusicTitle = new TextBlock { Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            callMusicTitle = new TextBlock { Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold };
             callMusicArtist = new TextBlock { Foreground = Secondary, FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis };
-            mt.Children.Add(callMusicTitle); mt.Children.Add(callMusicArtist);
+            mt.Children.Add(new Marquee(callMusicTitle).Root);   // длинное название трека плавно уезжает, как в плеерах Apple
+            mt.Children.Add(callMusicArtist);
             Grid.SetColumn(mt, 1); mg.Children.Add(mt);
             var ctl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             ctl.Children.Add(MusicKey(MediaShape("prev", 12, Brushes.White), 0xB1));
@@ -252,15 +255,30 @@ namespace Kapsula
                 foreach (KeyValuePair<string, string> w in windows)
                 {
                     string id = w.Key;
-                    string label = w.Value.Length > 46 ? w.Value.Substring(0, 45) + "…" : w.Value;
+                    string label = WindowLabel(w.Value);
                     var it = new WF.ToolStripMenuItem(label.Replace("&", "&&"));
+                    if (label != w.Value) it.ToolTipText = w.Value;   // сокращённое название — целиком в подсказке
                     it.Click += delegate { DiscordCommand("stream:" + id); };
                     menu.Items.Add(it);
                 }
             }
             DarkMenuRenderer.Apply(menu, 300, true);
+            // строки не уже самого длинного названия: иначе его конец (а там программа) обрезается по краю строки
+            int wide = menu.GetPreferredSize(System.Drawing.Size.Empty).Width;
+            if (wide > 300) foreach (WF.ToolStripItem x in menu.Items) if (!(x is WF.ToolStripSeparator)) x.Width = wide;
             Point at = callKeys[4].PointToScreen(new Point(0, callKeys[4].ActualHeight + 4));
             menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
+        }
+
+        // Название окна в меню демки — не длиннее 50 знаков. В конце обычно программа («… — Visual Studio Code»): она
+        // остаётся целиком, а сокращается середина названия документа: «Kapsula — остров для…заметки — Visual Studio Code».
+        static string WindowLabel(string t)
+        {
+            const int Max = 50;
+            if (t.Length <= Max) return t;
+            int dash = Math.Max(Math.Max(t.LastIndexOf(" — ", StringComparison.Ordinal), t.LastIndexOf(" – ", StringComparison.Ordinal)), t.LastIndexOf(" - ", StringComparison.Ordinal));
+            string app = dash > 0 && t.Length - dash <= 28 ? t.Substring(dash) : "";
+            return Ui.MiddleEllipsis(t.Substring(0, t.Length - app.Length), Max - app.Length) + app;
         }
 
         // Что-то не вышло — сказать прямо в карточке (красной строкой на три с половиной секунды) и надписью в капсуле
@@ -287,7 +305,8 @@ namespace Kapsula
                 foreach (AudioOutDevice dev in AudioOut.List(flow))
                 {
                     AudioOutDevice d = dev;
-                    var it = new WF.ToolStripMenuItem(d.Name) { Checked = d.Default };
+                    // одиночный «&» меню приняло бы за подчёркнутую букву и съело («Speakers & Mic» → «Speakers  Mic»)
+                    var it = new WF.ToolStripMenuItem((d.Name ?? "").Replace("&", "&&")) { Checked = d.Default };
                     it.Click += delegate { AudioOut.SetDefault(d.Id); };
                     menu.Items.Add(it);
                     any = true;
@@ -328,6 +347,8 @@ namespace Kapsula
             bool note = callNote != null && unchecked(Environment.TickCount - callNoteUntil) < 0;   // что-то не вышло — красной строкой
             if (note) callAppText.Text = callNote;
             callAppText.Foreground = note ? AppleRed : Secondary;
+            callTitle.ToolTip = callTitle.Text;   // не влезло — целиком в подсказке
+            callAppText.ToolTip = callAppText.Text.Length > 0 ? callAppText.Text : null;
             if (callTimeText != null && callApp != null) callTimeText.Text = CallTime();
             callLive.Visibility = live && dvStream ? Visibility.Visible : Visibility.Collapsed;
             callCam.Visibility = live && dvVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -350,7 +371,7 @@ namespace Kapsula
                 Brush pic = FaceImage(p.Avatar);
                 Brush fill = pic ?? FaceTones[(int)((uint)p.Id.GetHashCode() % (uint)FaceTones.Length)];
                 if (facePics[i].Fill != fill) facePics[i].Fill = fill;
-                faceLetters[i].Text = pic != null || p.Name.Length == 0 ? "" : p.Name.Substring(0, 1).ToUpper();
+                faceLetters[i].Text = pic != null ? "" : FaceLetter(p.Name);
                 faceRings[i].Opacity = p.Speaking && !pm ? 1 : 0;   // говорит — зелёное кольцо, как в Discord
                 faceBadges[i].Visibility = pm || pd ? Visibility.Visible : Visibility.Collapsed;
                 faceBadgeGlyphs[i].Text = pd ? "\uE7F6" : "\uE720";   // \u043F\u0435\u0440\u0435\u0447\u0451\u0440\u043A\u043D\u0443\u0442\u044B\u0435 \u043D\u0430\u0443\u0448\u043D\u0438\u043A\u0438 \u0438\u043B\u0438 \u043C\u0438\u043A\u0440\u043E\u0444\u043E\u043D
@@ -365,11 +386,56 @@ namespace Kapsula
             {
                 if (callMusicTitle.Text != media.Title) callMusicTitle.Text = media.Title ?? "";
                 if (callMusicArtist.Text != media.Artist) callMusicArtist.Text = media.Artist ?? "";
+                // название при «Меньше движения» не едет, длинный исполнитель кончается «…» — оба целиком в подсказках
+                callMusicTitle.ToolTip = callMusicTitle.Text.Length > 0 ? callMusicTitle.Text : null;
+                callMusicArtist.ToolTip = callMusicArtist.Text.Length > 0 ? callMusicArtist.Text : null;
+                // нет исполнителя — нет и пустой строки под названием: оно встаёт по центру обложки, высота ряда та же (28)
+                callMusicArtist.Visibility = callMusicArtist.Text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
                 Brush art = coverBrush != null ? (Brush)coverBrush : Glass.Fill;
                 if (callMusicArt.Background != art) callMusicArt.Background = art;
                 callMusicPlay.Visibility = media.Playing ? Visibility.Collapsed : Visibility.Visible;
                 callMusicPause.Visibility = media.Playing ? Visibility.Visible : Visibility.Collapsed;
             }
+            FitCallHead();
+        }
+
+        // Название и подпись — по две строки, если блок их вмещает. Высота блока на «Главной» постоянная, и с аватарками
+        // и строкой музыки места в нём ровно по одной строке. Вторую строку сначала получает подпись (в ней участники
+        // и красная строка ошибки), потом название. Что не влезло — «…», а целиком — в подсказке.
+        void FitCallHead()
+        {
+            var content = homeCallCard.Child as FrameworkElement;
+            double room = homeCallCard.ActualHeight - 2, w = homeCallCard.ActualWidth - 2;   // без рамки
+            for (int k = 0; k < 3; k++)
+            {
+                Ui.Lines(callTitle, k == 0 ? 2 : 1);   // строк у названия и подписи: 2 и 2, 1 и 2, 1 и 1
+                Ui.Lines(callAppText, k < 2 ? 2 : 1);
+                if (k == 2 || content == null || room <= 0 || w <= 0) continue;   // блок ещё не разложен — по одной строке
+                // мерить заново всю цепочку от строк до карточки: иначе Measure с тем же местом вернул бы прежний размер,
+                // и вариант «1 и 2» не выбирался бы никогда (сразу «1 и 1»), а выросшая подпись не замечалась бы
+                foreach (TextBlock t in new TextBlock[] { callTitle, callAppText })
+                    for (DependencyObject d = t; d != null && d != homeCallCard; d = VisualTreeHelper.GetParent(d))
+                    {
+                        UIElement u = d as UIElement;
+                        if (u != null) u.InvalidateMeasure();
+                    }
+                content.Measure(new Size(w, double.PositiveInfinity));
+                if (content.DesiredSize.Height <= room + 0.5) return;
+            }
+        }
+
+        // Буква на цветном круге вместо аватарки: первая буква или цифра имени («🎮 Геймер» → «Г»), а если их нет —
+        // первый знак целиком: эмодзи (пара половинок-суррогатов) пополам не режется. Та же буква — у карточки звонка
+        static string FaceLetter(string name)
+        {
+            string s = (name ?? "").Trim();
+            var e = System.Globalization.StringInfo.GetTextElementEnumerator(s);
+            while (e.MoveNext())
+            {
+                string t = e.GetTextElement();
+                if (char.IsLetterOrDigit(t, 0)) return t.ToUpper();
+            }
+            return s.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(s).ToUpper() : "";
         }
 
         // Аватарки — только с сервера картинок Discord, в памяти, пока Kapsula открыта

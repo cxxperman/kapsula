@@ -113,7 +113,8 @@ namespace Kapsula
 
         public static string Short(long n)
         {
-            if (n >= 1000000) return (n / 1000000.0).ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " млн";
+            // с 999 950 — уже «1 млн»: до десятых тысяч такое число округлилось бы в «1000 тыс.»
+            if (n >= 999950) return (n / 1000000.0).ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " млн";
             if (n >= 1000) return (n / 1000.0).ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " тыс.";
             return n.ToString();
         }
@@ -275,7 +276,8 @@ namespace Kapsula
             if (id.Length == 0) id = "?";
             string cwd = Str(d, "cwd").TrimEnd('\\', '/');
             int cut = Math.Max(cwd.LastIndexOf('\\'), cwd.LastIndexOf('/'));
-            string name = Clean(cut >= 0 ? cwd.Substring(cut + 1) : cwd, 28);
+            // имя папки целиком (конец различает «…-v2» и «…-backend»): коротко его делает тот, кто показывает, — Ui.MiddleEllipsis
+            string name = Clean(cut >= 0 ? cwd.Substring(cut + 1) : cwd, 80);
             lock (sessions)
             {
                 Session s;
@@ -458,12 +460,12 @@ namespace Kapsula
 
             object ti;
             var input = d.TryGetValue("tool_input", out ti) ? ti as Dictionary<string, object> : null;
-            string tool = Clean(Str(d, "tool_name"), 40);
+            string tool = Clean(Str(d, "tool_name"), 100);   // имена инструментов MCP длинные — приходят целиком
 
             if (path == "/claude/permission")
             {
                 Session s = Touch(d, "ждёт разрешения", tool);
-                var ask = new Ask(ctx) { Tool = tool, Cwd = Str(d, "cwd"), Detail = Clean(Describe(input), 160), Project = s.Name, SessionId = s.Id };
+                var ask = new Ask(ctx) { Tool = tool, Cwd = Str(d, "cwd"), Detail = Clean(Describe(input), 400), Project = s.Name, SessionId = s.Id };
                 ask.Always = FirstAllowRule(d);
                 var h = Asked;
                 if (h == null || ask.Tool.Length == 0) { ask.Pass(); return; }
@@ -549,7 +551,7 @@ namespace Kapsula
                     string l = od != null ? Str(od, "label") : "";
                     if (l.Length == 0) return null;
                     labels.Add(l);
-                    notes.Add(Clean(Str(od, "description"), 60));
+                    notes.Add(Clean(Str(od, "description"), 200));   // пояснение — вторая строка под вариантом, целиком в подсказке
                 }
                 string text = Str(one, "question");
                 if (text.Length == 0 || !seen.Add(text)) return null;
@@ -579,7 +581,10 @@ namespace Kapsula
             var sb = new StringBuilder();
             foreach (char c in s) { if (c == '\r' || c == '\n' || c == '\t') sb.Append(' '); else if (!char.IsControl(c)) sb.Append(c); }
             string r = sb.ToString().Trim();
-            return r.Length > max ? r.Substring(0, max - 1) + "…" : r;
+            if (r.Length <= max) return r;
+            int n = max - 1;
+            if (n > 0 && char.IsHighSurrogate(r[n - 1])) n--;   // эмодзи (пара половинок-суррогатов) пополам не режем
+            return r.Substring(0, n).TrimEnd() + "…";
         }
 
         static string MJson(object o) { return new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 }.Serialize(o); }
@@ -660,7 +665,8 @@ namespace Kapsula
                 {
                     var q = new McpQuestion(ctx, id) { Agent = agent, Question = Clean(Str(args, "question"), 160) };
                     object oo; var list = new List<string>();
-                    if (args.TryGetValue("options", out oo) && oo is object[]) foreach (object x in (object[])oo) { string t = Clean(Convert.ToString(x), 40); if (t.Length > 0 && list.Count < 3) list.Add(t); }
+                    // вариант целиком: его же получит агент в ответе. Длинный сокращает только кнопка на карточке
+                    if (args.TryGetValue("options", out oo) && oo is object[]) foreach (object x in (object[])oo) { string t = Clean(Convert.ToString(x), 200); if (t.Length > 0 && list.Count < 3) list.Add(t); }
                     q.Options = list.ToArray();
                     var h = McpAsked;
                     if (h == null || q.Options.Length == 0) { q.Answer(null); return; }

@@ -23,7 +23,7 @@ namespace Kapsula
         static bool ShelfIsImage(string p) { return Array.IndexOf(ShelfImageExt, (Path.GetExtension(p) ?? "").ToLowerInvariant()) >= 0; }
         TextBlock shelfHint;
         DispatcherTimer shelfHintTimer;
-        const string ShelfHintDefault = "Правый щелчок — действия";
+        const string ShelfHintDefault = "Правый клик — действия";   // «клик», как во всём острове («Клик — вставить» в «Буфере»)
 
         // Свободное имя в папке: «отчёт.zip», «отчёт (2).zip», …
         static string FreeName(string dir, string name, string ext)
@@ -73,17 +73,20 @@ namespace Kapsula
             menu.Show(WF.Cursor.Position);
         }
 
-        // Короткая подпись в шапке полки (если она на экране) или надпись на капсуле
+        // Короткая подпись в шапке полки (если она на экране) или надпись на капсуле. Не влезла в шапку целиком —
+        // вся она во всплывающей подсказке.
         void ShelfSay(string text, bool good)
         {
             if (state == 2 && page == PShelf && shelfHint != null)
             {
                 shelfHint.Text = text;
+                shelfHint.ToolTip = text;
                 shelfHint.Foreground = good ? (Brush)accent : Dim;
                 if (shelfHintTimer == null)
                 {
                     shelfHintTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3200) };
-                    shelfHintTimer.Tick += delegate { shelfHintTimer.Stop(); shelfHint.Text = ShelfHintDefault; shelfHint.Foreground = Faint; };
+                    // на пустой полке подсказки про действия с файлами нет — как в RenderShelf
+                    shelfHintTimer.Tick += delegate { shelfHintTimer.Stop(); shelfHint.Text = shelf.Count > 0 ? ShelfHintDefault : ""; shelfHint.ToolTip = null; shelfHint.Foreground = Faint; };
                 }
                 shelfHintTimer.Stop(); shelfHintTimer.Start();
             }
@@ -106,7 +109,8 @@ namespace Kapsula
                     {
                         if (!shelf.Contains(made)) shelf.Add(made);
                         SaveShelf(); RenderShelf();
-                        ShelfSay(doneText + ": " + Path.GetFileName(made), true);
+                        // длинное имя — с «…» в середине: расширение нового файла (.zip, .jpg) остаётся видно
+                        ShelfSay(doneText + ": " + Ui.MiddleEllipsis(Path.GetFileName(made), 30), true);
                     }
                     else ShelfSay(err ?? "Не получилось", false);
                 }));
@@ -252,7 +256,7 @@ namespace Kapsula
                     {
                         try { Clipboard.SetText(text); } catch { }
                         int lines = text.Split('\n').Length;
-                        ShelfSay("Текст скопирован · строк: " + lines, true);
+                        ShelfSay("Текст скопирован · " + Plural(lines, "строка", "строки", "строк"), true);   // «· 12 строк»
                     }
                     else ShelfSay(err ?? "Текста на картинке не нашлось", false);
                 }));

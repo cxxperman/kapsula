@@ -69,12 +69,12 @@ namespace Kapsula
             switch (i) { case 0: return "3 перерыва после долгой работы"; case 1: return "10 выполненных задач"; case 2: return "10 часов музыки"; default: return "10 кругов помодоро"; }
         }
 
-        // «2 из 3», «4 ч из 10» или «есть»
+        // «2 из 3», «4 из 10 ч» или «есть»: единица — в конце, за ней на вешалке встаёт «музыки»
         public string OutfitProgress(int i)
         {
             if (OutfitHave(i)) return "есть";
             int n = HabitCount(i);
-            return i == 2 ? n / 60 + " ч из 10" : Math.Max(0, n) + " из " + HabitGoal[i];
+            return i == 2 ? n / 60 + " из 10 ч" : Math.Max(0, n) + " из " + HabitGoal[i];
         }
 
         void HabitAdd(int i, int by)
@@ -151,7 +151,8 @@ namespace Kapsula
             if (outfitPending < 0 || state != 0 || toastOn || hiddenFs || QuietNow || StartingUp() && !now) return;
             int i = outfitPending;
             outfitPending = -1;
-            ShowCardEx(null, "", "Новый наряд: " + OutfitNames[i].ToLower(), "За " + OutfitFor(i) + " · зверёк уже примерил", null, null, null, false);
+            // подпись — только за что: что зверёк уже в обновке, видно на самой карточке, а длинная строка не влезла бы
+            ShowCardEx(null, "", "Новый наряд: " + OutfitNames[i].ToLower(), "За " + OutfitFor(i), null, null, null, false);
             if (state != 3) return;
             HideCardButton();
             CardPet("happy");   // зверёк на карточке — уже в обновке

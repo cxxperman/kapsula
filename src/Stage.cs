@@ -24,6 +24,7 @@ namespace Kapsula
         LyricView stageLyrics;
         Border stageCover, stageBtn, lyricsBtn;
         TextBlock stageTitle;
+        Marquee stageTitleM;        // название не влезает — бежит строкой, а не обрезается
         Bar stageProgress;
         const double StageW = 540;
 
@@ -43,8 +44,11 @@ namespace Kapsula
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             stageCover = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Glass.Fill, VerticalAlignment = VerticalAlignment.Center };
             head.Children.Add(stageCover);
-            stageTitle = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(9, 0, 8, 1) };
-            Grid.SetColumn(stageTitle, 1); head.Children.Add(stageTitle);
+            // «название — исполнитель» бегущей строкой, как в плеерах Apple: длинное плавно уезжает и возвращается
+            stageTitle = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold };
+            stageTitleM = new Marquee(stageTitle);
+            stageTitleM.Root.VerticalAlignment = VerticalAlignment.Center; stageTitleM.Root.Margin = new Thickness(9, 0, 8, 1);
+            Grid.SetColumn(stageTitleM.Root, 1); head.Children.Add(stageTitleM.Root);
             stageBtn = MiniToggle(false);
             Grid.SetColumn(stageBtn, 2); head.Children.Add(stageBtn);
             stageHost.Children.Add(head);
@@ -110,6 +114,7 @@ namespace Kapsula
         {
             if (stageTitle == null) return;
             stageTitle.Text = string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
+            stageTitle.ToolTip = string.IsNullOrEmpty(stageTitle.Text) ? null : stageTitle.Text;   // при «Меньше движения» строка стоит — целиком в подсказке
             if (cover != null) stageCover.Background = cover;
         }
 
@@ -261,7 +266,7 @@ namespace Kapsula
             int now = Environment.TickCount;
             if (unchecked((uint)(now - brightHintAt)) <= 4000u) return;
             brightHintAt = now;
-            Toast(((char)0xE706).ToString(), "Этот монитор не даёт менять яркость", null, -1, Dim);
+            Toast(((char)0xE706).ToString(), "Монитор не даёт менять яркость", null, -1, Dim);   // короче: влезает в капсулу целиком
         }
     }
 }

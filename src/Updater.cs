@@ -29,22 +29,55 @@ namespace Kapsula
         public static bool SkipApi;
 
         static readonly AutoResetEvent wake = new AutoResetEvent(false);
-        static volatile bool manual, installed;
+        static volatile bool manual, installed, checking;
         static volatile string status = "";
 
         // Чем кончилась последняя проверка — показывается в настройках, чтобы было видно, работает ли обновление.
         public static string StatusText { get { return status; } }
-        static void SetStatus(string text) { status = "Проверено в " + DateTime.Now.ToString("HH:mm") + ": " + text; }
+        // Проверка идёт (или нажали кнопку и она вот-вот начнётся): в настройках — «Проверяю…», а не прошлый итог
+        public static bool Checking { get { return checking || manual; } }
+        // Новая версия уже скачана и лежит на месте старой: кнопка проверки теперь перезапускает Kapsula
+        public static bool Ready { get { return installed; } }
+        // «Проверено в 14:05: у вас последняя версия.», «Не удалось проверить в 14:05: …» — время после глагола, без двух двоеточий подряд
+        static void SetStatus(string text) { SetStatus("Проверено в ", text); }
+        static void SetStatus(string prefix, string text)
+        {
+            text = (text ?? "").Trim().TrimEnd('.', ' ');
+            // текст ошибки Windows («Невозможно соединиться…») идёт после двоеточия — со строчной буквы
+            if (text.Length > 1 && char.IsUpper(text[0]) && char.IsLower(text[1])) text = char.ToLower(text[0]) + text.Substring(1);
+            status = prefix + DateTime.Now.ToString("HH:mm") + (text.Length > 0 ? ": " + text + "." : ".");
+        }
         static void Say(string text) { if (island != null) island.Dispatcher.BeginInvoke(new Action(delegate { island.UpdateToast(text); })); }
 
-        // Кнопка «Проверить обновления»: не ждём очередного часа.
+        // Почему не вышло — своими словами. Текст исключений .NET без языкового пакета английский («The remote name could
+        // not be resolved…»): он только в error.log (Store.LogError). Свои отказы проверки (тип Exception) уже по-русски.
+        // Начало — со строчной буквы: SetStatus сделал бы из «GitHub …» «gitHub …»
+        static string FailText(Exception ex)
+        {
+            var web = ex as System.Net.WebException;
+            if (web != null)
+            {
+                if (web.Status != System.Net.WebExceptionStatus.ProtocolError) return "нет связи с GitHub";
+                int code = 0;
+                try { var hr = web.Response as System.Net.HttpWebResponse; if (hr != null) code = (int)hr.StatusCode; } catch { }   // ответ уже закрыт — без номера
+                return "сервер GitHub ответил ошибкой" + (code > 0 ? " " + code : "");
+            }
+            if (ex is UnauthorizedAccessException) return "нет прав на запись в папку программы";
+            if (ex is System.IO.IOException) return "не получилось заменить файл программы";
+            return ex.GetType() == typeof(Exception) ? ex.Message : "непонятный ответ GitHub";
+        }
+
+        // Кнопка «Проверить обновления»: не ждём очередного часа. Новая версия уже скачана — перезапуск.
         public static void CheckNow()
         {
             if (!Configured) return;
             if (installed) { island.RestartForUpdate(); return; }
+            if (!started) return;   // проверочный запуск без автообновления: проверять некому, «Проверяю…» не повисает
             manual = true;
             wake.Set();
         }
+
+        static volatile bool started;
 
         static string ExePath { get { return System.Reflection.Assembly.GetExecutingAssembly().Location; } }
 
@@ -54,6 +87,7 @@ namespace Kapsula
             // Прошлая версия остаётся рядом под именем Kapsula.old.exe, пока работает; при следующем запуске убираем её.
             try { string old = System.IO.Path.ChangeExtension(ExePath, ".old.exe"); if (System.IO.File.Exists(old)) System.IO.File.Delete(old); } catch { }
             if (!Configured) return;
+            started = true;
             var t = new Thread(delegate()
             {
                 wake.WaitOne(FeedOverride != null ? 2000 : 20000);
@@ -61,12 +95,14 @@ namespace Kapsula
                 while (true)
                 {
                     int wait = 60 * 60 * 1000;   // проверяем раз в час
-                    bool byHand = manual; manual = false;
+                    bool byHand = manual;
+                    if (Enabled || byHand) checking = true;   // сначала «идёт проверка», потом сбрасываем нажатие — «Проверяю…» не мигает
+                    manual = false;
                     if (Enabled || byHand)
                     {
                         try
                         {
-                            if (Check()) break;
+                            if (Check()) { checking = false; break; }
                             fails = 0;
                             SetStatus("у вас последняя версия");
                             if (byHand) Say("У вас последняя версия — " + CurrentText);
@@ -77,13 +113,14 @@ namespace Kapsula
                             if (fails == 0 || byHand) Store.LogError("обновление", ex);
                             fails++;
                             if (fails <= 5) wait = 2 * 60 * 1000;
-                            SetStatus("не удалось проверить: " + ex.Message);
+                            SetStatus("Не удалось проверить в ", FailText(ex));
                             if (byHand) Say("Не удалось проверить обновления");
                         }
+                        checking = false;
                     }
                     wake.WaitOne(wait);
                 }
-                SetStatus("скачана новая версия, включится после перезапуска");
+                SetStatus("Новая версия скачана в ", "включится после перезапуска");
                 // Новая версия уже на диске. Перезапускаемся сами, как только это никому не помешает.
                 int idleNeeded = FeedOverride != null ? 0 : 120000;
                 while (true)

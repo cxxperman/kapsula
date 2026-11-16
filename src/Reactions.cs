@@ -84,7 +84,7 @@ namespace Kapsula
             string inner = a >= 0 && b > a ? name.Substring(a + 1, b - a - 1) : name;
             inner = Regex.Replace(inner, @"\s+(Stereo|Hands-Free.*|Стерео|Головной телефон.*)$", "", RegexOptions.IgnoreCase).Trim();
             if (inner.Length == 0 || Regex.IsMatch(inner, @"Realtek|High Definition|Audio Device|USB Audio|^Audio$|Аудио", RegexOptions.IgnoreCase)) return null;
-            return inner.Length > 24 ? inner.Substring(0, 23) + "…" : inner;
+            return Ui.MiddleEllipsis(inner, 17);   // с «Наушники · » влезает в одну строку надписи на капсуле
         }
     }
 
@@ -112,7 +112,7 @@ namespace Kapsula
                 else
                 {
                     hpPendingAt = 0;
-                    if (was && state == 0 && !StartingUp() && !QuietNow) Toast("", "Звук — " + AudioOut.Short(name), null, -1, null);
+                    if (was && state == 0 && !StartingUp() && !QuietNow) Toast("", "Звук: " + AudioOut.ToastName(name), null, -1, null);   // как в меню «Микрофон и динамики»: длинное имя — с «…» в середине
                 }
             }
             if (hpPendingAt != 0 && unchecked(now - hpPendingAt) >= 0)

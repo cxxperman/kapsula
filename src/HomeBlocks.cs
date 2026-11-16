@@ -15,23 +15,29 @@ namespace Kapsula
     partial class IslandWindow
     {
         TextBlock hbCalTitle, hbCalSub, hbNetGlyph, hbNetName, hbNetSpeed, hbBatGlyph, hbBatPct, hbBatSub;
+        Border hbCalCard, hbBatCard;   // сами блоки — для подсказок с полным текстом
         long netRx = -1, netTx = -1;
         int netAt, netSampleAt;
         bool netBusy;
         CalEvent testCal;
 
         // Блок «Главной» в стиле плиток: значок в кружке и две строки. Широкий — значок слева, узкий — сверху.
+        // У широкого и название, и подпись — до двух строк (колонка текста там около 117 точек): «Событий нет» с пояснением,
+        // длинное название события и скорость сети не обрываются на полуслове.
         Border HomeBlock(string glyph, bool wide, out TextBlock glyphTb, out TextBlock title, out TextBlock sub, Action click)
         {
             glyphTb = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 13.5, Foreground = Tile.Light, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             var badge = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(14), Background = Tile.Badge, Child = glyphTb,
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = wide ? VerticalAlignment.Center : VerticalAlignment.Top };
             title = new TextBlock { Foreground = Fg, FontSize = wide ? 12.5 : 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            if (wide) { title.TextWrapping = TextWrapping.Wrap; title.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; title.LineHeight = 15.5; title.MaxHeight = 32; }   // длинное название события — в две строки
-            sub = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            if (wide) { title.LineHeight = 15.5; Ui.Lines(title, 2); }   // длинное название события — в две строки
+            sub = new TextBlock { Foreground = Dim, FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            if (wide) Ui.Lines(sub, 2);
             var texts = new StackPanel { VerticalAlignment = wide ? VerticalAlignment.Center : VerticalAlignment.Bottom, Margin = new Thickness(wide ? 38 : 0, 0, 0, 0) };
             texts.Children.Add(title); texts.Children.Add(sub);
-            var g = new Grid { Margin = new Thickness(wide ? 12 : 10, 9, 10, 8) };
+            // у широкого поля сверху и снизу на пару точек меньше (середина та же): две строки названия и две подписи
+            // (31 + 1 + 28) помещаются целиком, а не срезаются краем
+            var g = new Grid { Margin = wide ? new Thickness(12, 7, 10, 6) : new Thickness(10, 9, 10, 8) };
             g.Children.Add(badge); g.Children.Add(texts);
             var b = new Border { CornerRadius = Ui.Block, Child = g, Cursor = Cursors.Hand };
             Glass.Button(b);   // блок «Главной» — стекло, как плитки
@@ -44,9 +50,14 @@ namespace Kapsula
         void AddHomeBlocks(Board hb)
         {
             TextBlock calGlyph;
-            hb.Add("calendar", "Календарь", HomeBlock(((char)0xE787).ToString(), true, out calGlyph, out hbCalTitle, out hbCalSub, delegate { ShowPage(PToday); }), 0, 6, 4, 2, true);
+            hbCalCard = HomeBlock(((char)0xE787).ToString(), true, out calGlyph, out hbCalTitle, out hbCalSub, delegate { ShowPage(PToday); });
+            hb.Add("calendar", "Календарь", hbCalCard, 0, 6, 4, 2, true);
             hb.Add("net", "Сеть", HomeBlock(((char)0xE701).ToString(), true, out hbNetGlyph, out hbNetName, out hbNetSpeed, delegate { ShowPage(PSystem); }), 4, 6, 4, 2, true);
-            if (BatteryPresent()) hb.Add("battery", "Батарея", HomeBlock(BatGlyph(100, false), false, out hbBatGlyph, out hbBatPct, out hbBatSub, delegate { ShowPage(PSystem); }), 8, 6, 2, 2, true);
+            if (BatteryPresent())
+            {
+                hbBatCard = HomeBlock(BatGlyph(100, false), false, out hbBatGlyph, out hbBatPct, out hbBatSub, delegate { ShowPage(PSystem); });
+                hb.Add("battery", "Батарея", hbBatCard, 8, 6, 2, 2, true);
+            }
         }
 
         // Пока «Главная» на экране (вместе с остальным живым на ней)
@@ -59,7 +70,9 @@ namespace Kapsula
                 hbBatGlyph.Text = BatGlyph(batPct, batPlugged);
                 hbBatGlyph.Foreground = batPlugged ? (Brush)ClaudeGreen : batPct <= 20 ? (Brush)RecRed : Tile.Light;
                 hbBatPct.Text = batPct + "%";
-                hbBatSub.Text = batPlugged ? (batPct >= 100 ? "заряжена" : "заряжается") : batLeftMin > 0 ? "≈ " + LeftText(batLeftMin) : "от батареи";
+                // узкий блок: «≈ 12 ч 05 мин» не влезает — от десяти часов показываем целые часы, точное — в подсказке
+                hbBatSub.Text = batPlugged ? (batPct >= 100 ? "заряжена" : "заряжается") : batLeftMin > 0 ? "≈ " + (batLeftMin >= 600 ? (batLeftMin + 30) / 60 + " ч" : LeftText(batLeftMin)) : "от батареи";
+                if (hbBatCard != null) hbBatCard.ToolTip = "Батарея: " + batPct + "%" + (batPlugged ? (batPct >= 100 ? " · заряжена" : " · заряжается") : batLeftMin > 0 ? " · осталось " + LeftText(batLeftMin) : "");
             }
             if (hbNetName != null && homeBoard.IsShown("net") && unchecked(Environment.TickCount - netSampleAt) >= 1000) { netSampleAt = Environment.TickCount; NetSample(); }
         }
@@ -76,9 +89,18 @@ namespace Kapsula
                     if (e.AllDay || e.Start < now.AddMinutes(-15)) continue;
                     if (next == null || e.Start < next.Start) next = e;
                 }
-            if (next == null) { hbCalTitle.Text = "Событий нет"; hbCalSub.Text = Calendar.Failed ? "календарь Windows не открылся" : "в календаре Windows пусто"; return; }
+            if (next == null)
+            {
+                // прошедшие события и события на весь день сюда не попадают — поэтому «впереди пусто», а не «в календаре пусто»
+                hbCalTitle.Text = "Событий нет";
+                hbCalSub.Text = Calendar.Failed ? "календарь Windows не открылся" : "впереди в календаре Windows пусто";
+                if (hbCalCard != null) hbCalCard.ToolTip = hbCalTitle.Text + "\n" + hbCalSub.Text;
+                return;
+            }
             hbCalTitle.Text = next.Subject.Length > 0 ? next.Subject : "Событие";
             hbCalSub.Text = next.Start <= now ? "идёт сейчас" : (next.Start - now).TotalHours < 3 ? Calendar.In(next.Start, now) : Calendar.When(next, now);
+            // целиком — в подсказке: название, когда и где
+            if (hbCalCard != null) hbCalCard.ToolTip = hbCalTitle.Text + "\n" + Calendar.When(next, now) + (string.IsNullOrEmpty(next.Location) ? "" : " · " + next.Location);
         }
 
         // Скорость сети: раз в секунду, в фоне — сумма по включённым подключениям (без петли и туннелей)
@@ -108,7 +130,8 @@ namespace Kapsula
                     netBusy = false;
                     string speed = "";
                     double sec = unchecked(at - netAt) / 1000.0;
-                    if (netRx >= 0 && sec > 0.2 && rx >= netRx && tx >= netTx) speed = "↓ " + Rate((rx - netRx) / sec) + "  ↑ " + Rate((tx - netTx) / sec);
+                    // неразрывные пробелы внутри «↓ 112,4 МБ/с»: в две строки строка делится только между стрелками
+                    if (netRx >= 0 && sec > 0.2 && rx >= netRx && tx >= netTx) speed = "↓ " + Rate((rx - netRx) / sec).Replace(' ', ' ') + "  ↑ " + Rate((tx - netTx) / sec).Replace(' ', ' ');
                     netRx = rx; netTx = tx; netAt = at;
                     hbNetGlyph.Text = ((char)(name == null ? 0xF384 : wifi ? 0xE701 : 0xE839)).ToString();
                     hbNetName.Text = name ?? "Нет сети";
@@ -117,11 +140,13 @@ namespace Kapsula
             });
         }
 
-        // Байты в секунду — по-человечески: «0 КБ/с», «850 КБ/с», «2,4 МБ/с»
+        // Байты в секунду — по-человечески: «0 КБ/с», «850 КБ/с», «2,4 МБ/с». С 1000 КБ/с — уже мегабайты:
+        // в килобайтах не больше трёх цифр («1023 КБ/с» не влезал в блок)
         static string Rate(double bps)
         {
             if (bps < 1024) return "0 КБ/с";
-            if (bps < 1024 * 1024) return Math.Round(bps / 1024) + " КБ/с";
+            double kb = Math.Round(bps / 1024);
+            if (kb < 1000) return kb + " КБ/с";
             return (bps / 1048576).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',') + " МБ/с";
         }
     }

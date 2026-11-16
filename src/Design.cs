@@ -41,6 +41,42 @@ namespace Kapsula
             if (!double.IsNaN(b.Height) && b.Height > 0) b.CornerRadius = new CornerRadius(b.Height / 2);
         }
 
+        // Текст не больше n строк: переносится по словам (длинное слово без пробелов — по буквам), а то, что
+        // не влезло, кончается «…» в последней строке. Высота строки — своя, если задана, иначе по размеру шрифта.
+        public static void Lines(TextBlock tb, int n)
+        {
+            tb.TextWrapping = TextWrapping.Wrap;
+            tb.TextTrimming = TextTrimming.CharacterEllipsis;
+            double lh = !double.IsNaN(tb.LineHeight) && tb.LineHeight > 0 ? tb.LineHeight : Math.Ceiling(tb.FontSize * 1.32);
+            tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            tb.LineHeight = lh;
+            tb.MaxHeight = lh * n + 0.5;
+        }
+
+        // Короче, но по-человечески: середина уходит в «…», начало и расширение остаются
+        // («Отчёт за третий кв….pdf» вместо «Отчёт за тр…»). max — сколько знаков всего.
+        // Годится и для заголовков окон: расширение ищется без Path.GetExtension (он падает на «|», «<», «"»),
+        // а эмодзи (пара половинок-суррогатов) пополам не режется.
+        public static string MiddleEllipsis(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length <= max || max < 6) return s;
+            int dot = s.LastIndexOf('.');
+            string ext = dot > 0 && dot < s.Length - 1 && s.Length - dot <= 8 && s.IndexOfAny(new char[] { ' ', '\\', '/' }, dot) < 0 ? s.Substring(dot) : "";
+            string name = s.Substring(0, s.Length - ext.Length);
+            int keep = max - ext.Length - 1;
+            if (keep < 4)
+            {
+                int n = max - 1;
+                if (char.IsHighSurrogate(s[n - 1])) n--;
+                return s.Substring(0, n) + "…";
+            }
+            int head = (int)Math.Ceiling(keep * 0.7), tail = keep - head;
+            if (char.IsHighSurrogate(name[head - 1])) head--;
+            int from = name.Length - tail;
+            if (from < name.Length && char.IsLowSurrogate(name[from])) from++;
+            return name.Substring(0, head).TrimEnd() + "…" + name.Substring(from).TrimStart() + ext;
+        }
+
         // Цвет зверька — им же помечено всё, что про него (раздел настроек, вкладка)
         public static readonly Color PetColor = Color.FromRgb(0xF0, 0x8A, 0x4B);
 
@@ -221,6 +257,86 @@ namespace Kapsula
             var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
             knobX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
             track.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
+        }
+    }
+
+    // Бегущая строка, как в плеерах Apple: если текст не влезает, после паузы он плавно уезжает влево до конца,
+    // стоит, возвращается к началу и стоит снова; у правого края — мягкое затухание вместо обрезанной буквы,
+    // а пока строка сдвинута, тает и левый край. Влезает — стоит на месте. При «Меньше движения» не едет,
+    // остаётся затухание. Таймер идёт, только пока текст длиннее места, блок виден и строку не остановили (Paused).
+    // Использование: var m = new Marquee(textBlock); кладётся m.Root.
+    class Marquee
+    {
+        public readonly Grid Root;
+        public readonly TextBlock Text;
+        public static bool Reduced;   // «Меньше движения»
+        readonly Canvas box = new Canvas { ClipToBounds = true };
+        readonly TranslateTransform tx = new TranslateTransform();
+        readonly System.Windows.Threading.DispatcherTimer timer = new System.Windows.Threading.DispatcherTimer();
+        bool back, paused;
+        double overflow;
+
+        // Остановить эту строку (остров спрятан или стоит поверх игры): она встаёт к началу с затуханием и не едет,
+        // пока её не отпустят, — каждый её шаг перерисовывает окно. Полный текст — в подсказке у того, кто её показывает.
+        public bool Paused
+        {
+            get { return paused; }
+            set { if (paused == value) return; paused = value; Restart(); }
+        }
+
+        // Затухание краёв — в точках самого окошка шириной w, как у текста песни (LyricView), а не в долях: маска в долях
+        // ложилась на всю длинную строку, далеко за обрезом, и буква у края резалась пополам без всякого затухания.
+        // Последние 10% ширины тают справа; left — пока строка сдвинута, тает и левый край (16 точек), чтобы
+        // уезжающая буква не была срезана посередине.
+        static Brush EdgeFade(double w, bool left)
+        {
+            w = Math.Max(1, w);
+            var b = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(0, 0), EndPoint = new Point(w, 0) };
+            b.GradientStops.Add(new GradientStop(left ? Colors.Transparent : Colors.Black, 0));
+            if (left) b.GradientStops.Add(new GradientStop(Colors.Black, Math.Min(0.1, 16 / w)));
+            b.GradientStops.Add(new GradientStop(Colors.Black, 0.9));
+            b.GradientStops.Add(new GradientStop(Colors.Transparent, 1));
+            b.Freeze();
+            return b;
+        }
+
+        public Marquee(TextBlock tb)
+        {
+            Text = tb;
+            tb.TextTrimming = TextTrimming.None; tb.TextWrapping = TextWrapping.NoWrap; tb.RenderTransform = tx;
+            box.Children.Add(tb);
+            Root = new Grid { Children = { box } };
+            tb.SizeChanged += delegate { box.Height = tb.ActualHeight; Restart(); };
+            Root.SizeChanged += delegate { Restart(); };
+            Root.IsVisibleChanged += delegate { Restart(); };
+            timer.Tick += delegate { Step(); };
+        }
+
+        // Заново с начала: сменился текст или ширина, блок показали или спрятали
+        public void Restart()
+        {
+            timer.Stop(); back = false;
+            tx.BeginAnimation(TranslateTransform.XProperty, null); tx.X = 0;
+            overflow = Text.ActualWidth - Root.ActualWidth;
+            box.OpacityMask = overflow > 1 ? EdgeFade(Root.ActualWidth, false) : null;   // ширина сменилась — маска заново по ней
+            if (overflow > 1 && !Reduced && !paused && Root.IsVisible) { timer.Interval = TimeSpan.FromMilliseconds(2500); timer.Start(); }
+        }
+
+        void Step()
+        {
+            timer.Stop();
+            if (Reduced || paused) { Restart(); return; }   // «Меньше движения» включили (или строку остановили) на полпути — встаёт к началу и не едет
+            if (!Root.IsVisible) return;
+            double to = back ? 0 : -(overflow + Root.ActualWidth * 0.1 + 4);   // до конца, чтобы последняя буква вышла из затухания
+            double ms = back ? 600 : Math.Max(900, -to / 32.0 * 1000);         // 32 точки в секунду — читать удобно
+            var anim = new DoubleAnimation(to, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } };
+            // поехала — тает и левый край; вернулась к началу — снова только правый
+            if (!back) box.OpacityMask = EdgeFade(Root.ActualWidth, true);
+            else anim.Completed += delegate { if (overflow > 1) box.OpacityMask = EdgeFade(Root.ActualWidth, false); };
+            tx.BeginAnimation(TranslateTransform.XProperty, anim);
+            timer.Interval = TimeSpan.FromMilliseconds(ms + (back ? 3500 : 1800));
+            back = !back;
+            timer.Start();
         }
     }
 }

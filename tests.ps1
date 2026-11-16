@@ -137,6 +137,13 @@ $r = Call 'Updater' 'PickRelease' @($one, $null, $null, $null, $null)
 T 'релиз: контрольная сумма из digest' $r.Args[3] $h
 $r = Call 'Updater' 'PickRelease' @('[]', $null, $null, $null, $null)
 T 'релиз: пустой список' $r.Result $false
+# почему проверка не удалась — по-русски: английский текст исключений .NET остаётся только в error.log
+$ft = $asm.GetType('Kapsula.Updater').GetMethod('FailText', [Reflection.BindingFlags]'NonPublic,Static')
+function UpdFail($e) { $a = New-Object object[] 1; $a[0] = $e.PSObject.BaseObject; return $ft.Invoke($null, $a) }
+T 'обновление: нет сети — по-русски' (UpdFail (New-Object System.Net.WebException("The remote name could not be resolved: 'api.github.com'"))) 'нет связи с GitHub'
+T 'обновление: файл программы занят — по-русски' (UpdFail (New-Object System.IO.IOException('The process cannot access the file'))) 'не получилось заменить файл программы'
+T 'обновление: свой отказ проверки — как есть' (UpdFail (New-Object System.Exception('контрольная сумма не совпала, обновление отброшено'))) 'контрольная сумма не совпала, обновление отброшено'
+T 'обновление: непонятный ответ — без английского' (UpdFail (New-Object System.ArgumentException('Invalid JSON primitive: x'))) 'непонятный ответ GitHub'
 
 # --- Discord: разбор уведомления от плагина XSOverlay (Vencord)
 $notif = '{"type":1,"timeout":3,"title":"Аня (#общий, Сервер)","content":"привет <color=#7289da>@Макс</color>, идём?","useBase64Icon":false,"icon":"default","sourceApp":"Vencord"}'
@@ -289,6 +296,8 @@ T 'календарь: весь день' $cal.GetMethod('When').Invoke($null, @
 T 'календарь: через минуты' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(10), $nowT)) 'через 10 мин'
 T 'календарь: через часы' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(65), $nowT)) 'через 1 ч 5 мин'
 T 'календарь: уже началось' $cal.GetMethod('In').Invoke($null, @($nowT.AddMinutes(-1), $nowT)) 'сейчас'
+# событие без места (день рождения в проверке KAPSULA_DEMOLONG) — место пустое, а не null: неделя и день не падают
+T 'календарь: место по умолчанию — пустое' ($null -ne $ce.GetField('Location').GetValue([Activator]::CreateInstance($ce))) $true
 
 # --- календарь: дата события по-русски, даже если в Windows английский формат
 $ceT = $asm.GetType('Kapsula.CalEvent'); $ce = [Activator]::CreateInstance($ceT); $ceT.GetField('Subject').SetValue($ce, 'Врач'); $ceT.GetField('Location').SetValue($ce, ''); $ceT.GetField('Start').SetValue($ce, [datetime]'2026-12-15 09:30')
@@ -410,6 +419,12 @@ Remove-Item $exifJpg -ErrorAction SilentlyContinue
 
 # --- батарея ноутбука: сколько осталось и значок заряда
 $iwT = $asm.GetType('Kapsula.IslandWindow')
+T 'уведомления: вчерашнее — с днём' ($iwT.GetMethod('NotifAgo', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @((Get-Date).Date.AddDays(-1).AddHours(14).AddMinutes(5)))) 'вчера, 14:05'
+# раньше — месяц словом и в родительном падеже, как в календаре: не «12 май» и не «12 ноя»
+T 'уведомления: давнее — месяц словом' ($iwT.GetMethod('NotifAgo', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @([datetime]'2025-05-12 14:05'))) '12 мая, 14:05'
+T 'задачи: день недели со строчной' ($iwT.GetMethod('DayShort', [Reflection.BindingFlags]'NonPublic,Static').Invoke($null, @([datetime]'2026-11-16', [Globalization.CultureInfo]::GetCultureInfo('ru-RU')))) 'пн, 16 ноября'
+# сокращение посередине годится и для заголовков окон: «|», «<», «"» не роняют его (Path.GetExtension больше не нужен)
+T 'сокращение: заголовок окна с «|» не падает' ($asm.GetType('Kapsula.Ui').GetMethod('MiddleEllipsis').Invoke($null, @('Kapsula | GitHub — Google Chrome и ещё длинный хвост', 24))) 'Kapsula | GitHub…хвост'
 $lt = $iwT.GetMethod('LeftText', [Reflection.BindingFlags]'NonPublic,Static')
 T 'батарея: осталось минут' ($lt.Invoke($null, @(45))) '45 мин'
 T 'батарея: осталось часов' ($lt.Invoke($null, @(92))) '1 ч 32 мин'
@@ -427,6 +442,8 @@ $rt = $iwT.GetMethod('Rate', [Reflection.BindingFlags]'NonPublic,Static')
 T 'сеть: почти тишина' ($rt.Invoke($null, @([double]100))) '0 КБ/с'
 T 'сеть: килобайты' ($rt.Invoke($null, @([double]51200))) '50 КБ/с'
 T 'сеть: мегабайты' ($rt.Invoke($null, @([double]2516582.4))) '2,4 МБ/с'
+T 'сеть: 999 КБ/с — ещё килобайты' ($rt.Invoke($null, @([double](999 * 1024)))) '999 КБ/с'
+T 'сеть: с 1000 КБ/с — мегабайты' ($rt.Invoke($null, @([double](1000 * 1024)))) '1,0 МБ/с'
 
 # --- «Подключить Discord»: на поддельных папках — Discord без Vencord и Discord с Vencord; ничего настоящего не трогаем
 $di = $asm.GetType('Kapsula.DiscordInstall')
@@ -582,6 +599,15 @@ T 'задачи: на выходных' (TP 'уборка на выходных'
 T 'задачи: 14.30 — время, не дата' (TP 'в 14.30 созвон') '2026-11-11 14:30 Созвон'
 T 'задачи: две задачи через «потом»' (TP 'отчёт, потом в 14:00 созвон') '2026-11-11 - Отчёт | 2026-11-11 14:00 Созвон'
 T 'задачи: завтра в 9' (TP 'завтра в 9 спортзал') '2026-11-12 09:00 Спортзал'
+T 'задачи: запятая перед временем и днём' (TP 'в 14:00 созвон, в пятницу отчёт') '2026-11-11 14:00 Созвон | 2026-11-13 - Отчёт'
+T 'задачи: запятая перед днём недели' (TP 'в чт в 19 кино, в сб спортзал') '2026-11-12 19:00 Кино | 2026-11-14 - Спортзал'
+T 'задачи: обычная запятая — одна задача' (TP 'купить молоко, хлеб') '2026-11-11 - Купить молоко, хлеб'
+T 'задачи: день до запятой — для дела после неё' (TP 'каждый понедельник, в 10 планёрка') '2026-11-16 10:00 Планёрка [w:0]'
+T 'задачи: только время — задачи нет' (TP 'завтра в 10') ''
+T 'задачи: день и время после запятой — к делу перед ней' (TP 'позвонить маме, завтра в 10') '2026-11-12 10:00 Позвонить маме'
+T 'задачи: время после запятой' (TP 'сходить в магазин, в 5 вечера') '2026-11-11 17:00 Сходить в магазин'
+T 'задачи: день недели после запятой' (TP 'стрижка, в пятницу') '2026-11-13 - Стрижка'
+T 'задачи: «через 2 дня» после запятой' (TP 'отчёт, через 2 дня;') '2026-11-13 - Отчёт'
 # время с минутами и «вечера», «ночи», «дня»; день отсчёта «когда-нибудь» — от сегодняшнего дня
 T 'задачи: в 7:30 вечера' (TP 'в 7:30 вечера кино') '2026-11-11 19:30 Кино'
 T 'задачи: в 7.30 вечера' (TP 'в 7.30 вечера кино') '2026-11-11 19:30 Кино'
@@ -663,6 +689,38 @@ T 'не засыпать: кофе 45 мин' (AP 'кофе 45 мин') '45 ми
 T 'не засыпать: caffeinate 2h' (AP 'caffeinate 2h') '120 мин'
 T 'не засыпать: «кофейня» — не команда' (AP 'кофейня') 'нет'
 T 'не засыпать: «кофе с молоком» — не команда' (AP 'кофе с молоком') 'нет'
+
+# --- «Запустить таймер на …», «Не засыпать на …»: словами и в падеже после «на»; число не отрывается от слова
+$nb = [string][char]0xA0
+$spw = $iwT.GetMethod('SpanWords', $sf)
+T 'на сколько: 1 минуту' ($spw.Invoke($null, @([TimeSpan]::FromMinutes(1)))) ('1' + $nb + 'минуту')
+T 'на сколько: 21 минуту' ($spw.Invoke($null, @([TimeSpan]::FromMinutes(21)))) ('21' + $nb + 'минуту')
+T 'на сколько: 2 минуты' ($spw.Invoke($null, @([TimeSpan]::FromMinutes(2)))) ('2' + $nb + 'минуты')
+T 'на сколько: 11 минут' ($spw.Invoke($null, @([TimeSpan]::FromMinutes(11)))) ('11' + $nb + 'минут')
+T 'на сколько: 1 час 30 минут' ($spw.Invoke($null, @([TimeSpan]::FromMinutes(90)))) ('1' + $nb + 'час 30' + $nb + 'минут')
+T 'на сколько: 45 секунд' ($spw.Invoke($null, @([TimeSpan]::FromSeconds(45)))) ('45' + $nb + 'секунд')
+
+# --- число со словом: 1 файл, 2 файла, 5 файлов, 11 файлов, 21 файл, 22 файла, 111 файлов; тысячи — узким неразрывным пробелом
+$pl = $iwT.GetMethod('Plural', $sf)
+foreach ($c in @(@(1, 'файл'), @(2, 'файла'), @(5, 'файлов'), @(11, 'файлов'), @(21, 'файл'), @(22, 'файла'), @(111, 'файлов'))) {
+    T "число: $($c[0]) $($c[1])" ($pl.Invoke($null, @([int]$c[0], 'файл', 'файла', 'файлов'))) ([string]$c[0] + $nb + $c[1])
+}
+T 'число: 1 284 раза' ($pl.Invoke($null, @([int]1284, 'раз', 'раза', 'раз'))) ('1' + [char]0x202F + '284' + $nb + 'раза')
+T 'тысячи: узкий неразрывный пробел' ((Call 'TextTools' 'Thousands' @([long]1284)).Result) ('1' + [char]0x202F + '284')
+
+# --- звонок: название программы в карточке («WhatsApp», «Яндекс»); T сравнивает без учёта регистра, поэтому -ceq
+$pr = $iwT.GetMethod('Pretty', $sf)
+T 'звонок: WhatsApp — с большой A' (($pr.Invoke($null, @('whatsapp'))) -ceq 'WhatsApp') $true
+T 'звонок: Яндекс — по-русски' ($pr.Invoke($null, @('yandex'))) 'Яндекс'
+T 'звонок: Edge, а не Msedge' ($pr.Invoke($null, @('msedge'))) 'Edge'
+T 'звонок: Zoom — с большой буквы' (($pr.Invoke($null, @('zoom'))) -ceq 'Zoom') $true
+
+# --- сокращение текста не режет эмодзи пополам: ни «…» посередине, ни подсказка на 600 знаков
+$emo = [char]::ConvertFromUtf32(0x1F600)
+$me = $asm.GetType('Kapsula.Ui').GetMethod('MiddleEllipsis').Invoke($null, @(($emo * 12), 7))
+T 'сокращение: эмодзи целые' ($me) ($emo + $emo + '…')
+$tt = $iwT.GetMethod('TipText', $sf).Invoke($null, @(('a' * 598) + $emo + ('b' * 10)))
+T 'подсказка: эмодзи на границе 600 знаков не режется' ($tt.Length.ToString() + ' ' + [char]::IsHighSurrogate($tt[$tt.Length - 2])) '599 False'
 
 # --- строка команд: команда — само слово или его начало, а не любое слово с тем же началом («блокнот» не блокирует компьютер)
 $hk = $iwT.GetMethod('HasKey', [Reflection.BindingFlags]'NonPublic,Static')
@@ -790,6 +848,27 @@ $oh = $iwT.GetMethod('OwnedHas', $sf)
 T 'наряды: полученный — в списке' ($oh.Invoke($null, @('band,crown', 'crown'))) $true
 T 'наряды: не полученный — нет' ($oh.Invoke($null, @('band,crown', 'bow'))) $false
 T 'наряды: список пуст' ($oh.Invoke($null, @('', 'band'))) $false
+
+# --- строка команд: ярлыки удаления программ — не программы; одна-две буквы ищутся с начала слова
+$na = $iwT.GetMethod('NotApp')
+T 'программы: «Деинсталлировать …» — не программа' ($na.Invoke($null, @(,'Деинсталлировать Foo'))) $true
+T 'программы: «Uninstall Foo» — не программа' ($na.Invoke($null, @(,'Uninstall Foo'))) $true
+T 'программы: «Удалить Foo» — не программа' ($na.Invoke($null, @(,'Удалить Foo'))) $true
+T 'программы: «Удалённый помощник» — программа' ($na.Invoke($null, @(,'Удалённый помощник Windows'))) $false
+T 'программы: обычная программа' ($na.Invoke($null, @(,'Блокнот'))) $false
+$ws = $iwT.GetMethod('WordStart')
+T 'поиск: «а» — начало второго слова' ($ws.Invoke($null, @('microsoft аудио', 'а'))) $true
+T 'поиск: «а» посреди слова — мимо' ($ws.Invoke($null, @('деинсталлировать', 'а'))) $false
+T 'поиск: после дефиса — начало слова' ($ws.Invoke($null, @('kapsula-демо', 'де'))) $true
+T 'поиск: начало названия' ($ws.Invoke($null, @('блокнот', 'бл'))) $true
+
+# --- «напомни …» в строке команд: когда сработает — словами
+$rw = $iwT.GetMethod('RemindWhen')
+T 'напомни: сегодня' ($rw.Invoke($null, @([DateTime]::Today.AddHours(15).AddMinutes(40), $false))) 'в 15:40'
+T 'напомни: завтра' ($rw.Invoke($null, @([DateTime]::Today.AddDays(1).AddHours(9), $false))) 'завтра в 9:00'
+T 'напомни: каждый день' ($rw.Invoke($null, @([DateTime]::Today.AddHours(23), $true))) 'каждый день в 23:00'
+$far = [DateTime]::Today.AddDays(3).AddHours(9)
+T 'напомни: дальше — с датой' ($rw.Invoke($null, @($far, $false))) ($far.ToString('d MMMM', [Globalization.CultureInfo]::GetCultureInfo('ru-RU')) + ' в 9:00')
 
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

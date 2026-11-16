@@ -290,12 +290,18 @@ namespace Kapsula
             Native.GlobalMemoryStatusEx(ref m);
             string track = "";
             try { track = island.Dispatcher.Invoke(new Func<string>(island.PhoneTrack)) as string ?? ""; } catch { }
-            var files = new StringBuilder();
+            // имена для ссылок — с «…» в середине, чтобы в две строки влезало и расширение; целиком — в подсказку
+            var files = new StringBuilder(); var full = new StringBuilder();
             lock (shared)
-                for (int n = 0; n < shared.Count; n++) files.Append(n > 0 ? "," : "").Append(Json(System.IO.Path.GetFileName(shared[n])));
+                for (int n = 0; n < shared.Count; n++)
+                {
+                    string name = System.IO.Path.GetFileName(shared[n]);
+                    files.Append(n > 0 ? "," : "").Append(Json(Ui.MiddleEllipsis(name, 56)));
+                    full.Append(n > 0 ? "," : "").Append(Json(name));
+                }
             string pet = "";   // что делает зверёк на острове — на пульте он такой же
             try { pet = island.Dispatcher.Invoke(new Func<string>(island.PhonePetMood)) as string ?? ""; } catch { }
-            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"pet\":" + Json(pet) + "}";
+            return "{\"cpu\":" + Math.Round(cpu * 100) + ",\"ram\":" + m.dwMemoryLoad + ",\"track\":" + Json(track) + ",\"files\":[" + files + "],\"full\":[" + full + "],\"pet\":" + Json(pet) + "}";
         }
 
         static string Json(string s)
@@ -317,8 +323,8 @@ namespace Kapsula
 :root{color-scheme:dark}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:#0b0b0d;color:#f2f2f5;font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:14px 16px 40px}
 h1{font-size:20px;margin:6px 0 2px}.sub{color:#8a8a93;font-size:13px;margin-bottom:14px}
-.tabs{display:flex;gap:4px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:4px;margin-bottom:14px;overflow-x:auto}
-.tabs b{flex:1;text-align:center;padding:9px 8px;border-radius:999px;color:#9a9aa3;font-weight:600;font-size:13px;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:4px;margin-bottom:14px}
+.tabs b{min-width:0;text-align:center;padding:9px 6px;border-radius:14px;color:#9a9aa3;font-weight:600;font-size:13px;overflow-wrap:anywhere}
 .tabs b.on{background:linear-gradient(180deg,rgba(255,255,255,.27),rgba(255,255,255,.16));box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);color:#fff}
 .card{background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:14px;margin-bottom:12px}
 .row{display:flex;gap:10px}.row>*{flex:1}
@@ -326,8 +332,9 @@ button{background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,
 button:active{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.12));transform:scale(.97)}button.big{padding:26px 8px;font-size:22px}button.red{background:linear-gradient(180deg,#ff6b5e,#ff453a);color:#fff}
 #pad{height:300px;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);touch-action:none;display:flex;align-items:center;justify-content:center;color:#55555d}
 input{width:100%;padding:14px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;font-size:16px}
-.track{font-weight:600;margin-bottom:10px;min-height:20px}.bar{height:6px;border-radius:3px;background:#26262c;overflow:hidden;margin:6px 0 12px}.bar i{display:block;height:100%;background:#f2f2f5}
-a.file{display:block;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);color:#fff;text-decoration:none;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track{font-weight:600;margin-bottom:10px;min-height:20px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.bar{height:6px;border-radius:3px;background:#26262c;overflow:hidden;margin:6px 0 12px}.bar i{display:block;height:100%;background:#f2f2f5}
+a.file{display:block;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.15),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.14);color:#fff;text-decoration:none;margin-bottom:6px}
+a.file span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .sec{display:none}.sec.on{display:block}.muted{color:#77777f;font-size:13px}
 h1,.sub{padding-right:64px}
 #petbox{position:absolute;top:12px;right:16px;display:none;align-items:flex-start;gap:3px;cursor:pointer;padding:6px}
@@ -365,12 +372,11 @@ pad.addEventListener('touchmove',function(e){var t=e.touches[0],dx=t.clientX-lx,
 acc[0]+=dx*1.8;acc[1]+=dy*1.8;two=e.touches.length>1;if(!q)q=setTimeout(flush,30);e.preventDefault()},{passive:false});
 function flush(){q=null;var x=Math.round(acc[0]),y=Math.round(acc[1]);acc=[0,0];if(!x&&!y)return;if(two)d('scroll','0,'+Math.round(y/3));else d('move',x+','+y)}
 pad.addEventListener('touchend',function(e){if(moved<8&&Date.now()-t0<300)d('click');e.preventDefault()},{passive:false});
-function esc(s){var e=document.createElement('i');e.textContent=s;return e.innerHTML}
 var PS=['.B.......B.','.BB.....BB.','.BBBBBBBBB.','BBBBBBBBBBB','BBBBBBBBBBB','BBBBBBBBBBB','BBBBBBBBBBB','.BBBBBBBBB.','.B.B...B.B.'];
 var EY={n:[[2,4,1,2]],d:[[2,5,1,2]],r:[[2,3,2,3]],h:[[1,5,1,1],[2,4,1,1],[3,5,1,1]],c:[[1,5,3,1]]};
 var EM={dance:'h',happy:'h',love:'h',party:'h',sleep:'c',night:'c',ask:'r',work:'d'};
 var MK={dance:['♪','#ff9f0a'],happy:['✦','#f7c948'],love:['♥','#ff5c8a'],party:['✦','#f7c948'],sleep:['z','#77777f'],night:['z','#77777f'],ask:['!','#ff9f0a'],work:['…','#9a9aa3'],call:['●','#30d158'],rec:['●','#ff453a']};
-var petNow=null,petLove=0;
+var petNow=null,petLove=0,filesSig=null;
 function petSvg(m){var s='<svg width=44 height=48 viewBox=\'0 -3 11 12\' shape-rendering=crispEdges>';
 PS.forEach(function(r,y){for(var x=0;x<11;x++)if(r[x]=='B')s+='<rect x='+x+' y='+y+' width=1.03 height=1.03 fill=#f08a4b />'});
 (EY[EM[m]||'n']).forEach(function(e){s+='<rect x='+e[0]+' y='+e[1]+' width='+e[2]+' height='+e[3]+' fill=#0b0b0d /><rect x='+(11-e[0]-e[2])+' y='+e[1]+' width='+e[2]+' height='+e[3]+' fill=#0b0b0d />'});
@@ -382,11 +388,13 @@ var k=MK[m]||['',''],mk=document.getElementById('petmk');mk.textContent=k[0];mk.
 b.className=(m=='dance'||m=='happy'||m=='party'||m=='love')?'bob':(m=='sleep'||m=='night')?'breathe':''}}
 function petTap(){d('pet');petLove=Date.now()+4000;var b=document.getElementById('petbox');petNow=null;pet('love');b.className='hop';setTimeout(function(){b.className='bob'},520)}
 function poll(){fetch('/stats?k='+K).then(function(r){return r.json()}).then(function(j){
-document.getElementById('track').textContent=j.track||'Ничего не играет';
+var tr=document.getElementById('track');tr.textContent=j.track||'Ничего не играет';tr.title=j.track||'';
 if(j.pet!==undefined)pet(j.pet);
 document.getElementById('cpu').textContent=j.cpu+'%';document.getElementById('cpub').style.width=j.cpu+'%';
 document.getElementById('ram').textContent=j.ram+'%';document.getElementById('ramb').style.width=j.ram+'%';
-document.getElementById('filelist').innerHTML=j.files.length?j.files.map(function(f,i){return ""<a class=file href='/file?k=""+K+""&i=""+i+""'>⬇ ""+esc(f)+""</a>""}).join(''):""<div class=muted>Положите файлы на полку острова и нажмите «На телефон»</div>"";
+var full=j.full||j.files,sig=JSON.stringify(full);if(sig!==filesSig){filesSig=sig;var fl=document.getElementById('filelist');fl.textContent='';
+if(!j.files.length)fl.innerHTML='<div class=muted>Положите файлы на полку острова и нажмите «На телефон»</div>';
+j.files.forEach(function(f,i){var a=document.createElement('a'),s=document.createElement('span');a.className='file';a.href='/file?k='+K+'&i='+i;a.title=full[i]||f;s.textContent='⬇ '+f;a.appendChild(s);fl.appendChild(a)})}
 }).catch(function(){})}
 poll();setInterval(poll,2500);
 </script></body></html>";

@@ -46,8 +46,36 @@ namespace Kapsula
         public volatile string Preferred = "";     // выбранный плеер; пусто — тот, что Windows считает текущим
         volatile GlobalSystemMediaTransportControlsSession chosen;
 
-        // Понятное название плеера из его системного имени: «Spotify.exe» → «Spotify», «…!App» → часть до «!»
+        // Понятное название плеера из его системного имени: «Spotify.exe» → «Spotify», «…!App» → часть до «!».
+        // Не длиннее 22 знаков — это ключ, по которому ищется звук плеера (AppVolume.Matches). Показывать — DisplayName.
         public static string PrettyName(string id)
+        {
+            string s = CleanName(id);
+            return s.Length > 22 ? s.Substring(0, 22) : s;
+        }
+
+        // То же название для глаз — в списке плееров, на кнопке плеера и в надписи «Громкость: …»: длинное
+        // сокращается «…» в середине, а не обрывается на полуслове («YandexMusicDesktopAppl»). 19 знаков —
+        // столько с «Громкость: » влезает в одну строку надписи на капсуле. У известных плееров системное имя —
+        // не название: «MSEdge», «ZuneMusic», «SpotifyMusic» показываем так, как их зовут в Windows. Ключ для
+        // звука (PrettyName) остаётся прежним — по нему ищется процесс плеера.
+        public static string DisplayName(string id)
+        {
+            string n = CleanName(id);
+            switch (n.ToLowerInvariant())
+            {
+                case "msedge": n = "Edge"; break;
+                case "zunemusic": n = "Медиаплеер"; break;          // Microsoft.ZuneMusic — «Медиаплеер» Windows 11 (бывшая «Музыка Groove»)
+                case "zunevideo": n = "Кино и ТВ"; break;           // Microsoft.ZuneVideo
+                case "spotifymusic": n = "Spotify"; break;          // Spotify из Microsoft Store
+                case "applemusicwin": n = "Apple Music"; break;     // AppleInc.AppleMusicWin
+                case "itunes": n = "iTunes"; break;                 // а не «ITunes» с заглавной первой буквой
+                case "yandex": n = "Яндекс"; break;
+            }
+            return Ui.MiddleEllipsis(n, 19);
+        }
+
+        static string CleanName(string id)
         {
             if (string.IsNullOrEmpty(id)) return "Плеер";
             // Firefox записывает плеер под хешем своей папки установки: «308046B0AF4A39CB»
@@ -59,7 +87,7 @@ namespace Kapsula
             int us = s.IndexOf('_'); if (us > 0) s = s.Substring(0, us);                     // «Имя_издатель» у программ из магазина
             int dot = s.LastIndexOf('.'); if (dot >= 0 && dot < s.Length - 1) s = s.Substring(dot + 1);   // «Компания.Программа»
             if (s.Length > 0) s = char.ToUpper(s[0]) + s.Substring(1);
-            return s.Length > 22 ? s.Substring(0, 22) : (s.Length > 0 ? s : "Плеер");
+            return s.Length > 0 ? s : "Плеер";
         }
 
         // Кнопки плеера: команда уходит выбранному плееру. Если плеер не выбран — обычная мультимедийная клавиша.
@@ -448,8 +476,12 @@ namespace Kapsula
                     TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
                     Margin = new Thickness(0, 0, 0, wrap ? 10 : 0)
                 };
-                if (wrap) { tb.LineHeight = fontSize + 4.5; tb.MaxHeight = (fontSize + 4.5) * 3; }
-                else { tb.Height = Root.Height; }
+                // до трёх строк ровно по заданной высоте строки: без BlockLineHeight WPF брал свою, побольше, и третья
+                // строка не влезала — длинная строка песни кончалась «…» уже после второй.
+                // Без ленты (строка на «Главной») — по одной строке песни на окошко: сколько строк по 16 точек в него
+                // влезает (в 32 — две), длинная кончается «…» во второй, а не обрывается в первой
+                if (wrap) { tb.LineHeight = fontSize + 4.5; Ui.Lines(tb, 3); }
+                else { tb.LineHeight = 16; Ui.Lines(tb, Math.Max(1, (int)(Root.Height / 16))); tb.Height = Root.Height; }
                 lines.Add(tb);
                 stack.Children.Add(tb);
             }

@@ -37,7 +37,7 @@ namespace Kapsula
     partial class IslandWindow
     {
         OverlayWindow stripWin, chatWin;
-        TextBlock stripText;
+        TextBlock stripText, chatHead;
         StackPanel chatLines;
         int overlayN;
 
@@ -72,9 +72,14 @@ namespace Kapsula
             bool wantChat = Store.Get("twitchOverlay") == "1" && Store.Get("twitchChannel").Length > 0 && (fs || Store.Get("twitchAlways") == "1");
             if (wantChat && chatWin == null)
             {
-                chatLines = new StackPanel { Width = 300 };
-                chatWin = new OverlayWindow { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0x90, 0, 0, 0)), CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 8, 10, 8), Child = chatLines } };
                 var wa = SystemParameters.WorkArea;
+                // Окно не выше экрана: заголовок наверху, сообщения прижаты к низу. Не влезли — уходят под заголовок
+                // самые старые, а новые внизу видны всегда (раньше окно росло вниз, и новые сообщения уходили за край)
+                chatHead = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(0xBF, 0x94, 0xFF)), FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4), TextTrimming = TextTrimming.CharacterEllipsis };
+                DockPanel.SetDock(chatHead, Dock.Top);
+                chatLines = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
+                var chatDock = new DockPanel { Width = 300, Children = { chatHead, chatLines } };
+                chatWin = new OverlayWindow { Content = new Border { Background = new SolidColorBrush(Color.FromArgb(0x90, 0, 0, 0)), CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 8, 10, 8), MaxHeight = Math.Max(120, wa.Bottom - (wa.Top + 120) - 12), Child = chatDock } };
                 chatWin.Left = wa.Right - 340; chatWin.Top = wa.Top + 120;
                 chatWin.Show();
                 RenderChatOverlay();
@@ -161,7 +166,11 @@ namespace Kapsula
                             if (name.Length == 0) { int ex = line.IndexOf('!'); int col = line.IndexOf(':'); name = ex > col ? line.Substring(col + 1, ex - col - 1) : "?"; }
                             int msgAt = line.IndexOf(" :", pm);
                             string text = msgAt >= 0 ? line.Substring(msgAt + 2) : "";
-                            lock (chatMsgs) { chatMsgs.Add(new string[] { name, text, color }); if (chatMsgs.Count > 12) chatMsgs.RemoveAt(0); }
+                            // «/me машет рукой» приходит как «\u0001ACTION машет рукой\u0001» — показываем само действие.
+                            // Сравнение побуквенное: при обычном служебные знаки вроде \u0001 не считаются вовсе
+                            bool me = text.StartsWith("\u0001ACTION ", StringComparison.Ordinal);
+                            if (me) text = text.Substring(8).TrimEnd('\u0001');
+                            lock (chatMsgs) { chatMsgs.Add(new string[] { name, text, color, me ? "1" : "" }); if (chatMsgs.Count > 12) chatMsgs.RemoveAt(0); }
                             Dispatcher.BeginInvoke(new Action(RenderChatOverlay));
                         }
                     }
@@ -182,17 +191,21 @@ namespace Kapsula
         {
             if (chatLines == null) return;
             chatLines.Children.Clear();
-            chatLines.Children.Add(new TextBlock { Text = "Чат · " + twitchJoined, Foreground = new SolidColorBrush(Color.FromRgb(0xBF, 0x94, 0xFF)), FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
+            if (chatHead != null) chatHead.Text = "Чат · " + twitchJoined;
             List<string[]> copy;
             lock (chatMsgs) copy = new List<string[]>(chatMsgs);
-            if (copy.Count == 0) chatLines.Children.Add(new TextBlock { Text = "Подключаюсь… сообщения появятся здесь", Foreground = new SolidColorBrush(Color.FromArgb(0xA0, 0xFF, 0xFF, 0xFF)), FontSize = 12.5 });
+            if (copy.Count == 0) chatLines.Children.Add(new TextBlock { Text = "Подключаюсь… сообщения появятся здесь", Foreground = new SolidColorBrush(Color.FromArgb(0xA0, 0xFF, 0xFF, 0xFF)), FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
             foreach (string[] m in copy)
             {
-                var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 13, Margin = new Thickness(0, 1, 0, 1) };
+                // не больше трёх строк на сообщение: длинная простыня кончается «…» и не выталкивает остальные
+                var tb = new TextBlock { FontSize = 13, Margin = new Thickness(0, 1, 0, 1) };
+                Ui.Lines(tb, 3);
                 Color c = Color.FromRgb(0x9E, 0xC9, 0xFF);
                 try { if (m[2].Length == 7) c = (Color)ColorConverter.ConvertFromString(m[2]); } catch { }
-                tb.Inlines.Add(new System.Windows.Documents.Run(m[0] + ": ") { Foreground = new SolidColorBrush(c), FontWeight = FontWeights.SemiBold });
-                tb.Inlines.Add(new System.Windows.Documents.Run(m[1]) { Foreground = Brushes.White });
+                var nick = new SolidColorBrush(c);
+                bool me = m.Length > 3 && m[3] == "1";   // «/me»: «ник машет рукой» — курсивом и цветом ника, как в самом Twitch
+                tb.Inlines.Add(new System.Windows.Documents.Run(me ? m[0] + " " : m[0] + ": ") { Foreground = nick, FontWeight = FontWeights.SemiBold });
+                tb.Inlines.Add(new System.Windows.Documents.Run(m[1]) { Foreground = me ? nick : Brushes.White, FontStyle = me ? FontStyles.Italic : FontStyles.Normal });
                 chatLines.Children.Add(tb);
             }
         }

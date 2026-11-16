@@ -34,9 +34,9 @@ namespace Kapsula
             get
             {
                 if (Single >= 0) return Single + "%" + (Charging ? " · заряжаются" : "");
-                var parts = new List<string>();
-                if (Left >= 0) parts.Add("Л " + Left + "%");
-                if (Right >= 0) parts.Add("П " + Right + "%");
+                var parts = new List<string>();   // словами, как и «футляр»: «левый 80% · правый 75% · футляр 50%»
+                if (Left >= 0) parts.Add("левый " + Left + "%");
+                if (Right >= 0) parts.Add("правый " + Right + "%");
                 if (Case >= 0) parts.Add("футляр " + Case + "%");
                 return parts.Count == 0 ? "заряд неизвестен" : string.Join(" · ", parts.ToArray());
             }

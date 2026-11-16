@@ -21,10 +21,38 @@ namespace Kapsula
             if (rider != null && rOut && !rFly) rider.Play(join ? "wave" : "bye", 1600);   // на раскрытом острове машет и попутчик
             // имя — короткой надписью (в большом канале люди ходят часто — там без надписей).
             // Разность — без знака: ноль в начале и давняя метка — «давно» и тогда, когда счётчик Windows ушёл в минус
-            if (name.Length == 0 || count > 8 || state != 0 || unchecked((uint)(now - friendToastAt)) < 2500u) return;
+            if (name.Trim().Length == 0 || count > 8 || state != 0 || unchecked((uint)(now - friendToastAt)) < 2500u) return;
             friendToastAt = now;
-            string who = name.Length > 18 ? name.Substring(0, 17) + "…" : name;
-            Toast("", (join ? "Привет, " : "Пока, ") + who + "!", null, -1, null);   // от лица зверька: он и машет
+            Toast("", (join ? "Привет, " : "Пока, ") + FriendShortName(name) + "!", null, -1, null);   // от лица зверька: он и машет
+        }
+
+        // Длинное имя — первыми словами, сколько влезает (обычно это и есть имя), а не обрубком с «…». Значок или тег
+        // клана впереди («🎮 Геймер…», «[RU] Дима…») пропускаем — имя начинается с первого настоящего слова; на разделителе
+        // («Дима | стример») останавливаемся, чтобы он не повис в конце. Одно очень длинное слово капсула дорежет сама
+        static string FriendShortName(string name)
+        {
+            string who = (name ?? "").Trim();
+            if (who.Length <= 20) return who;
+            string[] words = who.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int first = 0;
+            while (first < words.Length && FriendWordKind(words[first]) != 0) first++;
+            if (first == words.Length) first = 0;   // имя из одних значков — как есть, с начала
+            who = words[first];
+            for (int k = first + 1; k < words.Length && FriendWordKind(words[k]) != 2 && who.Length + 1 + words[k].Length <= 20; k++) who += " " + words[k];
+            return who;
+        }
+
+        // Слово из имени: 0 — часть имени, 1 — значок или тег в скобках («🎮», «★», «[RU]», «(CLAN)»), 2 — разделитель («|», «—», «·», «/»)
+        static int FriendWordKind(string w)
+        {
+            bool letters = false, punct = true;
+            foreach (char c in w)
+            {
+                if (char.IsLetterOrDigit(c)) letters = true;
+                if (!char.IsPunctuation(c) && char.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.MathSymbol) punct = false;
+            }
+            if (!letters) return punct ? 2 : 1;
+            return w.Length > 2 && "[({<【「|".IndexOf(w[0]) >= 0 && "])}>】」|".IndexOf(w[w.Length - 1]) >= 0 ? 1 : 0;
         }
 
         // Последнюю задачу на сегодня отметили — праздник (раз в день и если задач было хотя бы две)

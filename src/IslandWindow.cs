@@ -329,6 +329,7 @@ namespace Kapsula
         Grid cardHost;
         Border cardThumb;
         TextBlock cardGlyph, cardTitle, cardSub;
+        StackPanel cardTexts;   // заголовок и текст карточки: по ним меряется высота, на них — подсказка с полным текстом
         Action cardAction;
         int cardUntil;
 
@@ -391,10 +392,12 @@ namespace Kapsula
         List<string> shelf = new List<string>();
         WrapPanel shelfPanel;
         TextBlock shelfEmpty;
+        Border shelfZipBtn, shelfAllBtn, shelfClearBtn, shelfPhoneBtn;   // на пустой полке первые три прячутся: им нечего делать
         bool selfDrag;
         string dragArmed;
         Point dragFrom;
         TextBox clipSearch;
+        Border clipClearBtn;   // «Очистить» в «Буфере» — только когда есть что стирать (закреплённые она не трогает)
         ClipItem pendingSelf;
         int pendingSelfAt;
         string pendingSelfText;   // текст, который мы сами вернули в буфер кликом из истории
@@ -412,6 +415,8 @@ namespace Kapsula
         ScaleTransform miniScale = new ScaleTransform(1, 1);
         Border nCover;
         TextBlock nTitle, nArtist, nClock, nPos, nRem, nPlayGlyph;
+        Marquee nTitleMarq, nArtistMarq;   // длинные название и исполнитель — бегущей строкой
+        StackPanel miniNames;              // название и исполнитель: на них — подсказка с полным текстом
         Bar nProgress;
 
         // Тексты песен
@@ -442,6 +447,12 @@ namespace Kapsula
         Brush toastBrush;
         int toastUntil;
         bool toastOn;
+        StackPanel cLeftPanel, cRightPanel;   // значки слева и справа: подпись по центру не должна заходить под них
+        TextBlock cMarqText;                  // название, которое не влезло, — бегущей строкой на месте подписи
+        Marquee cMarq, cDlMarq;               // cDlMarq — название игры, которую качает Steam
+        bool cMarqOn;                         // в этой отрисовке подпись идёт бегущей строкой
+        double compactW;                      // ширина капсулы под подпись: по длине надписи, встречи, звонка, строки песни
+        string cTextTip, cRightTip;           // подсказки с полным текстом — к подписи и к значкам справа
 
         // Вкладки
         FrameworkElement[] pages;
@@ -495,7 +506,7 @@ namespace Kapsula
             if (holding) { m.Pos = holdPos; m.PosAt = DateTime.UtcNow; }
         }
         MediaWatcher watcher = new MediaWatcher();
-        byte[] shownCover;
+        byte[] shownCover = new byte[0];   // не null: первый трек без обложки тоже проходит через SwapCover и получает ноту
         ImageBrush coverBrush;
         SolidColorBrush accent = new SolidColorBrush(DefaultAccent);
         DateTime timerEnd = DateTime.MinValue;
@@ -847,15 +858,20 @@ namespace Kapsula
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             nCover = new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(11), Background = Glass.Fill };
             top.Children.Add(nCover);
-            var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            nTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            nArtist = new TextBlock { Foreground = Dim, FontSize = 12, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-            names.Children.Add(nTitle); names.Children.Add(nArtist);
+            var names = miniNames = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            nTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold };
+            nArtist = new TextBlock { Foreground = Dim, FontSize = 12 };
+            // Название и исполнитель, которые не влезли, — бегущей строкой, как в плеерах Apple, а не «Очень длинное назв…»
+            nTitleMarq = new Marquee(nTitle);
+            nArtistMarq = new Marquee(nArtist);
+            nArtistMarq.Root.Margin = new Thickness(0, 2, 0, 0);
+            names.Children.Add(nTitleMarq.Root); names.Children.Add(nArtistMarq.Root);
             Grid.SetColumn(names, 2); top.Children.Add(names);
             nClock = new TextBlock { Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
             Grid.SetColumn(nClock, 3); top.Children.Add(nClock);
             g.Children.Add(top);
 
+            // колонки времени — не уже 38 точек; длинное время («−1:35:12») раздвигает их, а полоса становится короче (FitTimes)
             var pr = new Grid();
             pr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
             pr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -957,12 +973,15 @@ namespace Kapsula
                 var a = cardAction; hoverBlock = true; SetState(0); if (a != null) a();
             };
             g.Children.Add(thumb);
-            var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            cardTitle = new TextBlock { Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            cardSub = new TextBlock { Foreground = Dim, FontSize = 12, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            // Заголовок — до двух строк, текст — до трёх: карточка растёт вниз под них (FitCard), а не режет сообщение на полуслове
+            var texts = cardTexts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            cardTitle = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold };
+            cardSub = new TextBlock { Foreground = Dim, FontSize = 12.5, Margin = new Thickness(0, 3, 0, 0) };
+            Ui.Lines(cardTitle, 2);
+            Ui.Lines(cardSub, 3);
             texts.Children.Add(cardTitle); texts.Children.Add(cardSub);
             Grid.SetColumn(texts, 2); g.Children.Add(texts);
-            var open = new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var open = new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             var openBtn = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Child = open, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
             Glass.Button(openBtn);
             Grid.SetColumn(openBtn, 3); g.Children.Add(openBtn);
@@ -979,7 +998,7 @@ namespace Kapsula
             for (int i = 0; i < 2; i++)
             {
                 int idx = i;
-                var lbl = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 120, TextTrimming = TextTrimming.CharacterEllipsis };
+                var lbl = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = CardLabelMax, TextTrimming = TextTrimming.CharacterEllipsis };
                 var ab = new Border { Height = 36, CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Child = lbl };
                 Glass.Button(ab);
                 ab.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
@@ -1040,7 +1059,9 @@ namespace Kapsula
         // ---- крупная карточка наушников: нарисованные наушники слева, модель, проценты и полоса заряда справа
         const double BudsH = 92, BudsW = 268, BudsBarW = 118;
         bool cardTall;
+        double cardHeight = CardH;   // высота карточки сейчас: растёт под двухстрочный заголовок и длинный текст
         Grid cardGrid, budsPanel;
+        StackPanel budsTexts;
         Canvas budsOver;                         // рисунок: накладные наушники
         ScaleTransform budsScale = new ScaleTransform(1, 1);
         TranslateTransform budsFloat = new TranslateTransform();
@@ -1128,8 +1149,9 @@ namespace Kapsula
             RenderOptions.SetBitmapScalingMode(budsSpin2, BitmapScalingMode.HighQuality);
             stage.Children.Add(budsSpin2);
             budsPanel.Children.Add(stage);
-            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-            budsName = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            var right = budsTexts = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            budsName = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold };
+            Ui.Lines(budsName, 2);   // длинное имя модели («Наушники Sony WH-1000XM5») — второй строкой, а не «Наушники Sony WH-…»
             budsNote = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), Visibility = Visibility.Collapsed, TextTrimming = TextTrimming.CharacterEllipsis };
             budsPct = new TextBlock { Foreground = Fg, FontSize = 21, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 1, 0, 5) };
             budsBarFill = new Border { Height = 5, CornerRadius = new CornerRadius(2.5), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
@@ -1148,8 +1170,6 @@ namespace Kapsula
             cardTall = true;
             cardGrid.Visibility = Visibility.Collapsed;
             budsPanel.Visibility = Visibility.Visible;
-            cardHost.Height = BudsH;
-            cardExtra = BudsW - CardW; cardHost.Width = BudsW;
             // крупная карточка бывает только у накладных наушников (см. BudsAnnounce)
             BitmapSource[] spin = BudsFrames();
             budsSpin.Visibility = spin != null ? Visibility.Visible : Visibility.Collapsed;
@@ -1165,6 +1185,13 @@ namespace Kapsula
             budsBarTrack.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
             budsBarFill.Background = level > 50 ? ClaudeGreen : level > 20 ? (Brush)Amber : RecRed;
             budsBarFill.Width = 0; budsPct.Text = "0%";
+            // Ширина — под имя модели (до 340 точек); что не влезло и так — второй строкой, и карточка становится выше.
+            // Поля панели: 22 + 22 по бокам, 6 + 12 сверху и снизу; колонка рисунка — 74, отступ текста — 12.
+            double budsW = Math.Max(BudsW, Math.Min(340, Math.Ceiling(NaturalWidth(budsName)) + 132));
+            budsTexts.Measure(new Size(budsW - 118, double.PositiveInfinity));
+            cardHeight = Math.Max(BudsH, Math.Ceiling(budsTexts.DesiredSize.Height) + 18);
+            cardHost.Height = cardHeight;
+            cardExtra = budsW - CardW; cardHost.Width = budsW;
             SetTargets();
             cardUntil = Environment.TickCount + 7000;
 
@@ -1276,18 +1303,101 @@ namespace Kapsula
             return e.DesiredSize.Width;
         }
 
-        // Ширина карточки — по содержимому: короткое уведомление не оставляет пустого места, длинное получает больше.
+        // Текст не влез в отведённые ему строки при ширине w (вместе с отступами)? Тогда ему нужна подсказка с полным текстом.
+        // Однострочный — сравниваем ширину, переносимый — высоту без ограничения строк с его наибольшей высотой.
+        static bool TextCut(TextBlock tb, double w)
+        {
+            if (tb == null || tb.Visibility != Visibility.Visible || string.IsNullOrEmpty(tb.Text)) return false;
+            double maxW = tb.MaxWidth, maxH = tb.MaxHeight;
+            Thickness m = tb.Margin;
+            double room = Math.Max(1, Math.Min(w - m.Left - m.Right, maxW));
+            bool wrap = tb.TextWrapping != TextWrapping.NoWrap;
+            tb.MaxWidth = double.PositiveInfinity; tb.MaxHeight = double.PositiveInfinity;
+            tb.Measure(new Size(wrap ? room + m.Left + m.Right : double.PositiveInfinity, double.PositiveInfinity));
+            Size need = tb.DesiredSize;
+            tb.MaxWidth = maxW; tb.MaxHeight = maxH;
+            return wrap ? need.Height - m.Top - m.Bottom > maxH + 0.5 : need.Width - m.Left - m.Right > room + 0.5;
+        }
+
+        // Подсказка с полным текстом; распознанная страница целиком в подсказку не нужна — хватит начала
+        static string TipText(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return null;
+            if (s.Length <= 600) return s;
+            int n = char.IsHighSurrogate(s[598]) ? 598 : 599;   // эмодзи на границе пополам не режем
+            return s.Substring(0, n).TrimEnd() + "…";
+        }
+
+        const double CardLabelMax = 140;   // подпись кнопки на карточке не шире этого; длиннее — с «…» и подсказкой
+        bool cardBtnText;                  // у главной кнопки карточки подпись, а не значок
+        string cardTip;                    // своя подсказка к тексту карточки (полный путь, вся команда), иначе — по месту
+
+        // Своя подсказка к тексту карточки — например, полный путь к файлу, когда в карточке он сокращён
+        void CardTip(string tip)
+        {
+            if (state != 3 || cardTexts == null) return;
+            cardTip = TipText(tip);
+            cardTexts.ToolTip = cardTip;
+        }
+
+        double CardButtonsW() { return NaturalWidth(cardBtn) + NaturalWidth(cardNo) + NaturalWidth(cardAlt[0]) + NaturalWidth(cardAlt[1]); }   // вместе со своими отступами
+
+        // Кнопок с подписями больше, чем помещается: ужимаем подписи поровну, чтобы все кнопки остались на карточке
+        void FitCardLabels(double buttonsMax)
+        {
+            var labels = new List<TextBlock>();
+            if (cardBtnText && cardBtn.Visibility == Visibility.Visible) labels.Add(cardBtnLabel);
+            for (int i = 0; i < 2; i++) if (cardAlt[i].Visibility == Visibility.Visible) labels.Add(cardAltLabel[i]);
+            if (labels.Count == 0) return;
+            double frame = CardButtonsW();
+            foreach (TextBlock l in labels) frame -= NaturalWidth(l);   // всё, кроме самих подписей: поля кнопок, отступы, крестик
+            double each = Math.Max(36, Math.Floor((buttonsMax - frame) / labels.Count));
+            foreach (TextBlock l in labels) l.MaxWidth = Math.Min(CardLabelMax, each);
+        }
+
+        // Влезут ли варианты кнопками на карточку целиком: тексту при этом остаётся не меньше 180 точек.
+        // Не влезут — вопрос лучше задать списком в строке ввода (кнопка «Выбрать»), чем обрезать варианты.
+        bool CardButtonsFit(string[] labels)
+        {
+            double w = 18 + 52 + 14 + 180 + 22 + 44;   // поля, картинка, текст и крестик
+            foreach (string l in labels)
+            {
+                var tb = new TextBlock { Text = l ?? "", FontFamily = FontFamily, FontSize = 12, FontWeight = FontWeights.SemiBold };
+                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (tb.DesiredSize.Width > CardLabelMax) return false;
+                w += tb.DesiredSize.Width + 36;   // поля кнопки 12 + 12, рамка, отступ до соседней
+            }
+            return w <= BaseW - 24;
+        }
+
+        // Размер карточки — по содержимому. Ширина: короткое уведомление не оставляет пустого места, длинное получает больше
+        // (текст — до 330 точек), а кнопкам с подписями не дают отнять у текста всё: при нехватке ужимаются их подписи.
+        // Высота: заголовок до двух строк, текст до трёх — карточка растёт вниз; что не влезло и так — в подсказке.
         void FitCard()
         {
             if (cardHost == null || state != 3) return;
             double text = Math.Max(NaturalWidth(cardTitle), NaturalWidth(cardSub));
             text = Math.Max(70, Math.Min(330, Math.Ceiling(text) + 2));
-            double buttons = NaturalWidth(cardBtn) + NaturalWidth(cardNo) + NaturalWidth(cardAlt[0]) + NaturalWidth(cardAlt[1]);   // вместе со своими отступами
-            if (buttons > 260) text = Math.Min(text, 200);   // много кнопок — тексту меньше места, иначе карточка не поместится
-            double total = 18 + cardThumbBox.Width + 14 + text + buttons + 22;
-            total = Math.Max(220, Math.Min(BaseW - 24, total));
+            double frame = 18 + cardThumbBox.Width + 14 + 22, room = BaseW - 24 - frame;   // место на текст и кнопки
+            double buttons = CardButtonsW();
+            if (buttons > room - 180) { FitCardLabels(room - 180); buttons = CardButtonsW(); }
+            text = Math.Max(Math.Min(text, 160), Math.Min(text, room - buttons));
+            double total = Math.Max(220, Math.Min(BaseW - 24, frame + text + buttons));
             cardExtra = total - CardW;
             cardHost.Width = total;
+            // подпись кнопки, которой не хватило места, — целиком в подсказке
+            if (cardBtnText) cardBtn.ToolTip = TextCut(cardBtnLabel, double.PositiveInfinity) ? cardBtnLabel.Text : null;
+            for (int i = 0; i < 2; i++) cardAlt[i].ToolTip = cardAlt[i].Visibility == Visibility.Visible && TextCut(cardAltLabel[i], double.PositiveInfinity) ? cardAltLabel[i].Text : null;
+            double textW = Math.Max(1, total - 36 - cardThumbBox.Width - 14 - buttons);   // колонка текста: без полей сетки, картинки и кнопок
+            bool cut = TextCut(cardTitle, textW) || TextCut(cardSub, textW);
+            string sub = cardSub.Text ?? "";
+            cardTexts.ToolTip = cardTip ?? (cut ? TipText(cardTitle.Text + (sub.Trim().Length > 0 ? "\n" + sub : "")) : null);
+            if (!cardTall)
+            {
+                cardTexts.Measure(new Size(textW, double.PositiveInfinity));
+                cardHeight = Math.Max(CardH, Math.Ceiling(cardTexts.DesiredSize.Height) + 28);   // + поля сетки сверху и снизу
+                cardHost.Height = cardHeight;
+            }
             SetTargets();
         }
 
@@ -1329,14 +1439,16 @@ namespace Kapsula
             shotDragPath = null; if (cardThumbBox != null) cardThumbBox.ToolTip = null;
             if (cardNo != null) cardNo.Visibility = Visibility.Collapsed;
             RingCardReset();   // после карточки звонка кнопки снова обычные
-            for (int i = 0; i < 2; i++) if (cardAlt[i] != null) { cardAlt[i].Visibility = Visibility.Collapsed; cardAltAction[i] = null; }
+            for (int i = 0; i < 2; i++) if (cardAlt[i] != null) { cardAlt[i].Visibility = Visibility.Collapsed; cardAltAction[i] = null; cardAlt[i].ToolTip = null; cardAltLabel[i].MaxWidth = CardLabelMax; }
             if (cardPet != null) cardPet.Root.Visibility = Visibility.Collapsed;
+            cardTip = null; if (cardTexts != null) cardTexts.ToolTip = null;   // подсказку новой карточке назначит FitCard
             if (budsPanel != null)
             {
-                // обычная карточка: крупная панель наушников спрятана, высота прежняя
+                // обычная карточка: крупная панель наушников спрятана; высота — обычная, под длинный текст её прибавит FitCard
                 cardTall = false;
                 budsPanel.Visibility = Visibility.Collapsed;
                 cardGrid.Visibility = Visibility.Visible;
+                cardHeight = CardH;
                 cardHost.Height = CardH;
             }
             if (cardRingTimer != null) cardRingTimer.Stop();   // анимация крупной карточки наушников обычной карточке не нужна
@@ -1352,6 +1464,9 @@ namespace Kapsula
             cardBtnLabel.FontWeight = btnText != null ? FontWeights.SemiBold : FontWeights.Normal;
             cardBtn.Width = btnText != null ? double.NaN : 36;
             cardBtn.Padding = btnText != null ? new Thickness(12, 0, 12, 1) : new Thickness(0);
+            // подпись главной кнопки — не шире подписей остальных; не влезла — «…», а целиком она в подсказке (FitCard)
+            cardBtnText = btnText != null;
+            cardBtnLabel.MaxWidth = btnText != null ? CardLabelMax : double.PositiveInfinity;
             if (force && (state == 2 || state == 4)) SetState(0);
             if (state == 2 || state == 4) { Toast(glyph ?? "", title, null, -1, accent); return; }
             // Аватар и значок достижения — квадратные, как в Steam: так тексту остаётся больше места. Снимки экрана — широкие.
@@ -1362,7 +1477,11 @@ namespace Kapsula
             cardThumb.Background = img != null ? (Brush)new ImageBrush(img) { Stretch = Stretch.UniformToFill } : Glass.Fill;
             cardGlyph.Text = img != null ? "" : (glyph ?? "");
             cardTitle.Text = title;
-            cardSub.Text = sub;
+            // текста нет (картинка без подписи, пустое уведомление) — строки под заголовком нет вовсе: пустая строка
+            // держала бы место, и имя стояло бы выше середины картинки
+            string subText = string.IsNullOrWhiteSpace(sub) ? "" : sub;
+            cardSub.Text = subText;
+            cardSub.Visibility = subText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             cardAction = act;
             cardUntil = Environment.TickCount + 4200;
             if (state == 3) SetTargets(); else SetState(3);
@@ -1601,9 +1720,13 @@ namespace Kapsula
 
         static string SizeText(double b)
         {
-            if (b >= 1073741824.0) return (b / 1073741824.0).ToString("0.0") + " ГБ";
-            if (b >= 1048576.0) return (b / 1048576.0).ToString("0.0") + " МБ";
-            return Math.Max(1, Math.Round(b / 1024)) + " КБ";
+            var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");   // «1,5 ГБ» с запятой и в английской Windows
+            // единица — по уже округлённому числу, как у скорости (Rate): не «1024 КБ» и не «1024,0 МБ», а «1,0 МБ» и «1,0 ГБ»
+            double kb = Math.Round(b / 1024);
+            if (kb < 1000) return Math.Max(1, kb) + " КБ";
+            double mb = b / 1048576.0;
+            if (Math.Round(mb, 1) < 1000) return mb.ToString("0.0", ru) + " МБ";
+            return (b / 1073741824.0).ToString("0.0", ru) + " ГБ";
         }
 
         // Смотрим только на имена и размеры файлов в папке «Загрузки»: растущий временный файл браузера — это идущая загрузка.
@@ -1646,7 +1769,8 @@ namespace Kapsula
                         if (done != null)
                         {
                             long len = FileLen(done);
-                            ShowCard(null, "", "Загружено", System.IO.Path.GetFileName(done) + (len > 0 ? " · " + SizeText(len) : ""), delegate { RevealFile(done); });
+                            ShowCard(null, "", Ui.MiddleEllipsis(System.IO.Path.GetFileName(done), 60), "Загружено" + (len > 0 ? " · " + SizeText(len) : ""), delegate { RevealFile(done); });
+                            CardTip(done);   // имя — заголовком, сокращённое посередине (видны начало и расширение); полный путь — в подсказке
                         }
                     }
                     else if (unchecked(now - dlSeenAt) > 12000) { dlActive = null; RenderCompact(); SetTargets(); }
@@ -1685,8 +1809,9 @@ namespace Kapsula
             var top = new Grid();
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });   // зверёк — в своей колонке: текст и подсказка под него не заезжают
             top.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 18, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center });
-            var hint = cmdHint = new TextBlock { Text = CmdHintDefault, Foreground = Faint, FontSize = 19, FontWeight = FontWeights.Light, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
+            var hint = cmdHint = new TextBlock { Text = CmdHintDefault, Foreground = Faint, FontSize = 19, FontWeight = FontWeights.Light, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(hint, 1); top.Children.Add(hint);
             cmdGlyph = top.Children[0] as TextBlock;   // лупа; в режиме ответа другу заменяется значком сообщения
             cmdGlyphDefault = cmdGlyph.Text;
@@ -1704,7 +1829,7 @@ namespace Kapsula
             cmdPet = new PetView(1.6, Ink);
             cmdPet.Context = "cmd";
             cmdPet.Root.HorizontalAlignment = HorizontalAlignment.Right;
-            Grid.SetColumn(cmdPet.Root, 1); top.Children.Add(cmdPet.Root);
+            Grid.SetColumn(cmdPet.Root, 2); top.Children.Add(cmdPet.Root);
             g.Children.Add(top);
             cmdList = new StackPanel { Margin = new Thickness(-8, 6, -8, 0) };
             Grid.SetRow(cmdList, 1);
@@ -1725,13 +1850,28 @@ namespace Kapsula
                     foreach (string f in files)
                     {
                         string name = System.IO.Path.GetFileNameWithoutExtension(f);
-                        string low = name.ToLowerInvariant();
-                        if (low.Contains("uninstall") || low.Contains("удал") || low.Contains("readme") || !seen.Add(name)) continue;
+                        if (NotApp(name) || !seen.Add(name)) continue;
                         list.Add(new KeyValuePair<string, string>(name, f));
                     }
                 }
                 Dispatcher.BeginInvoke(new Action(delegate { apps = list; }));
             });
+        }
+
+        // Ярлык в «Пуске» — не программа: удаление программы («Uninstall …», «Удалить …», «Деинсталлировать …» —
+        // так их называют установщики) и «прочти меня». «удал» где угодно не годится: «Удалённый помощник» — программа
+        static readonly System.Text.RegularExpressions.Regex NotAppRx = new System.Text.RegularExpressions.Regex(
+            @"uninstall|readme|деинсталл|(^|\s)удал(ить|ение)(\s|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        public static bool NotApp(string name) { return NotAppRx.IsMatch(name ?? ""); }
+
+        // Набранное — начало какого-нибудь слова названия: «а» находит «Microsoft Access», «paint» — «Paint 3D»,
+        // но не любое название с буквой «а» в середине слова
+        public static bool WordStart(string low, string ql)
+        {
+            for (int i = low.IndexOf(ql, StringComparison.Ordinal); i >= 0; i = low.IndexOf(ql, i + 1, StringComparison.Ordinal))
+                if (i == 0 || !char.IsLetterOrDigit(low[i - 1])) return true;
+            return false;
         }
 
         // Обход папок по одной: служебные ссылки-папки с запретом доступа пропускаются, а не обрывают весь поиск.
@@ -1759,7 +1899,17 @@ namespace Kapsula
         {
             if (state == 4) SetState(0);
             replySteamId = steamid; replyName = name;
-            cmdHint.Text = "Ответ для " + name + " — Enter отправит";
+            // без «для»: имя по падежам не склонить («для Саша»). Длинное имя сокращается «…» в середине — по ширине
+            // в шрифте острова, чтобы «Enter отправит» всегда было видно (на подсказку не наведёшь: она не ловит мышь)
+            string who = (name ?? "").Trim();
+            double room = CmdW - 40 - 36 - 38 - 2;   // поля строки, лупа, зверёк и отступ подсказки
+            for (int max = Math.Max(6, who.Length); ; max--)
+            {
+                cmdHint.Text = who.Length > 0 ? "Ответ · " + Ui.MiddleEllipsis(who, max) + " — Enter отправит" : "Ответ — Enter отправит";
+                var probe = new TextBlock { Text = cmdHint.Text, FontFamily = cmdHint.FontFamily, FontSize = cmdHint.FontSize, FontWeight = cmdHint.FontWeight };
+                probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));   // сама подсказка может быть спрятана — меряем копию
+                if (max <= 6 || Math.Ceiling(probe.DesiredSize.Width) <= room) break;
+            }
             cmdGlyph.Text = ""; cmdGlyph.Foreground = accent;
             ToggleCommand();
         }
@@ -1807,7 +1957,7 @@ namespace Kapsula
             prevFg = Native.GetForegroundWindow();
             if (prevFg == hwnd) prevFg = IntPtr.Zero;
             cmdBox.Text = "";
-            cmdItems.Clear();
+            cmdItems.Clear(); cmdTips.Clear();
             RenderCmd();
             SetState(4);
             SetNoActivate(false);
@@ -1839,6 +1989,9 @@ namespace Kapsula
             cmdItems.Add(new CmdItem { Title = title, Sub = sub, Glyph = glyph, IconPath = iconPath, Run = run });
         }
 
+        // Подсказки к строкам списка, где показано не всё (у найденного файла — полный путь); живут до следующего списка
+        Dictionary<CmdItem, string> cmdTips = new Dictionary<CmdItem, string>();
+
         void CopyResult(string text)
         {
             try { Clipboard.SetText(text); } catch { }
@@ -1849,6 +2002,7 @@ namespace Kapsula
         {
             string q = cmdBox.Text.Trim();
             cmdItems.Clear();
+            cmdTips.Clear();
             if (choice != null)
             {
                 // Режим выбора: варианты ответа на вопрос Claude Code
@@ -1866,7 +2020,7 @@ namespace Kapsula
                 if (q.Length > 0)
                 {
                     string id = replySteamId, text = q;
-                    AddCmd("Отправить: " + (q.Length > 60 ? q.Substring(0, 60) + "…" : q), replyName, "", null, delegate { SendSteamReply(id, text); });
+                    AddCmd("Отправить: " + q, replyName, "", null, delegate { SendSteamReply(id, text); });
                 }
                 RenderCmd();
                 if (state == 4) SetTargets();
@@ -1892,7 +2046,7 @@ namespace Kapsula
                     if (!ci.Pinned || ci.Image != null || string.IsNullOrEmpty(ci.Text) || ci.Text.ToLowerInvariant().IndexOf(pq, StringComparison.Ordinal) < 0) continue;
                     ClipItem pin = ci;
                     string one = pin.Text.Replace("\r", " ").Replace("\n", " ").Trim();
-                    AddCmd("Вставить: " + (one.Length > 54 ? one.Substring(0, 53) + "…" : one), "закреплено в буфере", "", null, delegate { PasteText(pin.Text); });
+                    AddCmd("Вставить: " + one, "закреплено в буфере", "", null, delegate { PasteText(pin.Text); });
                     if (cmdItems.Count >= 3) break;
                 }
                 FillAgentCmd(q, pq);
@@ -1903,7 +2057,7 @@ namespace Kapsula
                     if (pq.StartsWith(askWord) && q.Length > askWord.Length + 1)
                     {
                         string ask = q.Substring(askWord.Length).Trim();
-                        AddCmd("Спросить: " + (ask.Length > 54 ? ask.Substring(0, 53) + "…" : ask), Ai.Duck ? "вопрос вставится в Duck.ai, останется нажать Enter" : "ответит " + Ai.ProviderName + " во вкладке «Чат»", ((char)0xE8BD).ToString(), null, delegate { AskInChat(ask); });
+                        AddCmd("Спросить: " + ask, Ai.Duck ? "вопрос вставится в Duck.ai, останется нажать Enter" : "ответит " + Ai.ProviderName + " во вкладке «Чат»", ((char)0xE8BD).ToString(), null, delegate { AskInChat(ask); });
                         break;
                     }
                 if (pq.StartsWith("помод") || pq.StartsWith("pomod"))
@@ -1933,10 +2087,27 @@ namespace Kapsula
                 }
                 // Надиктованное или набранное после слова «заметка» можно одним нажатием дописать в заметку
                 string noteText = dictating ? q : NoteCommandText(q);
-                if (noteText.Length > 0) { string nt = noteText; AddCmd("Сохранить в заметку", dictating ? "допишется в конец" : nt.Length > 40 ? nt.Substring(0, 40) + "…" : nt, "", null, delegate { AppendNote(nt); }); }
-                if (Calc.TryCalc(q, out r)) { string v = r; AddCmd("= " + v, "Enter — скопировать", "", null, delegate { CopyResult(v); }); }
+                // что именно запишется — в самой строке, целиком (длинное — второй строкой), а не обрезком в подписи
+                if (noteText.Length > 0) { string nt = noteText; AddCmd(dictating ? "Сохранить в заметку" : "В заметку: " + nt, dictating ? "допишется в конец" : "Enter — сохранить", "", null, delegate { AppendNote(nt); }); }
+                // для глаз — «= 18 000», «= −5» (тысячи через пробел, настоящий минус); копируется число как есть: 18000, -5
+                if (Calc.TryCalc(q, out r)) { string v = r; AddCmd("= " + Calc.Grouped(v).Replace('-', '−'), "Enter — скопировать", "", null, delegate { CopyResult(v); }); }
                 if (Calc.TryConvert(q, out r)) { string v = r; AddCmd(v, "Enter — скопировать", "", null, delegate { CopyResult(v); }); }
-                if (Calc.TryTimer(q, out ts)) { TimeSpan t = ts; AddCmd("Запустить таймер на " + Fmt(t), "Таймер", "", null, delegate { AddTimerSpan(t); }); }
+                // словами и в нужном падеже: «на 1 минуту», «на 21 минуту», «на 2 часа»; идёт таймер — AddTimerSpan его продлит, так и пишем
+                if (Calc.TryTimer(q, out ts)) { TimeSpan t = ts; AddCmd((timerEnd > DateTime.Now ? "Добавить к таймеру " : "Запустить таймер на ") + SpanWords(t), "Таймер", "", null, delegate { AddTimerSpan(t); }); }
+                // «напомни через 15 минут позвонить», «напомни завтра в 9 врач» — напоминание, как в поле под таймером на «Заметке»
+                DateTime remAt; string remText; bool remDaily;
+                if (q.StartsWith("напомни", StringComparison.OrdinalIgnoreCase) && Calc.TryReminder(q, DateTime.Now, out remAt, out remText, out remDaily))
+                {
+                    string phrase = q;
+                    AddCmd("Напомнить: " + remText, RemindWhen(remAt, remDaily) + " · Enter — добавить", ((char)0xEA8F).ToString(), null, delegate
+                    {
+                        // «через 15 минут» — от нажатия Enter, а не от набора: время в надписи считаем заново
+                        DateTime at; string tx; bool daily;
+                        if (!Calc.TryReminder(phrase, DateTime.Now, out at, out tx, out daily)) return;
+                        AddReminderPhrase(phrase);
+                        Toast(((char)0xEA8F).ToString(), "Напомню " + RemindWhen(at, daily), null, -1, null);
+                    });
+                }
 
                 string ql = q.ToLowerInvariant();
                 // Набранное — начало названия программы или игры Steam («блок» → «Блокнот»): команды системы встают после них,
@@ -1974,13 +2145,15 @@ namespace Kapsula
                             if (games >= 3) break;
                             string low = sg.Name.ToLowerInvariant();
                             bool starts = low.StartsWith(ql);
-                            if (pass == 0 ? !starts : (starts || !low.Contains(ql))) continue;
+                            if (pass == 0 ? !starts : (starts || !(ql.Length >= 3 ? low.Contains(ql) : WordStart(low, ql)))) continue;
                             string id = sg.Id;
                             AddCmd(sg.Name, sg.Ready ? "Игра Steam" : "Игра Steam · скачивается", "", null, delegate { Steam.Launch(id); });
                             games++;
                         }
                 }
 
+                // сначала названия, которые с набранного начинаются, потом — где с него начинается другое слово;
+                // с трёх букв — и середина слова («note» → «OneNote»). Одна-две буквы посреди слова — случайные совпадения
                 int found = 0;
                 for (int pass = 0; pass < 2 && found < 4; pass++)
                     foreach (var a in apps)
@@ -1988,7 +2161,7 @@ namespace Kapsula
                         if (found >= 4) break;
                         string low = a.Key.ToLowerInvariant();
                         bool starts = low.StartsWith(ql);
-                        if (pass == 0 ? !starts : (starts || !low.Contains(ql))) continue;
+                        if (pass == 0 ? !starts : (starts || !(ql.Length >= 3 ? low.Contains(ql) : WordStart(low, ql)))) continue;
                         string path = a.Value;
                         AddCmd(a.Key, "Программа", null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
                         found++;
@@ -2005,7 +2178,10 @@ namespace Kapsula
                         {
                             if (files >= 3 || cmdItems.Count >= 5) break;
                             string path = f;
-                            AddCmd(System.IO.Path.GetFileName(path), ShortFolder(path), null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
+                            // длинное имя — сокращаем посередине, чтобы расширение осталось; папка справа — коротко, полный путь — в подсказке
+                            int at = cmdItems.Count;
+                            AddCmd(Ui.MiddleEllipsis(System.IO.Path.GetFileName(path), 80), Ui.MiddleEllipsis(ShortFolder(path), 28), null, path, delegate { try { System.Diagnostics.Process.Start(path); } catch { } });
+                            if (cmdItems.Count > at) cmdTips[cmdItems[at]] = path;
                             files++;
                         }
                     }
@@ -2107,11 +2283,36 @@ namespace Kapsula
                 }
                 else row.Children.Add(new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = i == cmdSel ? new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)) : (Brush)Tile.Badge, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                     Child = new TextBlock { Text = it.Glyph ?? "", FontFamily = Icons, FontSize = 14, Foreground = i == cmdSel ? Brushes.White : (Brush)Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
-                var title = new TextBlock { Text = it.Title, Foreground = i == cmdSel ? Brushes.White : (Brush)Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 1) };
-                Grid.SetColumn(title, 1); row.Children.Add(title);
-                var sub = new TextBlock { Text = it.Sub ?? "", Foreground = i == cmdSel ? new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)) : (Brush)Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
-                Grid.SetColumn(sub, 2); row.Children.Add(sub);
-                var b = new Border { Height = 40, CornerRadius = Ui.Row, Margin = new Thickness(0, 0, 0, 4), Background = i == cmdSel ? (Brush)Tile.Accent : Brushes.Transparent, Child = row, Cursor = Cursors.Hand };
+                // Название — до двух строк (сам вопрос Claude Code в списке вариантов — до четырёх), а не «Задача: подготовит…»
+                // шрифт задан сразу: строку меряют до того, как она попадёт в список (а там он унаследовался бы от острова)
+                var title = new TextBlock { Text = it.Title, FontFamily = FontFamily, Foreground = i == cmdSel ? Brushes.White : (Brush)Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 1) };
+                Ui.Lines(title, choice != null && i == 0 ? 4 : 2);
+                var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                texts.Children.Add(title);
+                Grid.SetColumn(texts, 1); row.Children.Add(texts);
+                // Короткая пометка («Программа», «Ctrl+Alt+D») — справа, не шире 200 точек. Длинное пояснение (пояснение к варианту,
+                // «вопрос вставится в Duck.ai…», день задачи) — тусклой второй строкой под названием: справа оно отнимало место у названия.
+                var sub = new TextBlock { Text = it.Sub ?? "", FontFamily = FontFamily, Foreground = i == cmdSel ? new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)) : (Brush)Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+                bool below = sub.Text.Length > 0 && (choice != null || NaturalWidth(sub) - 14 > 200);
+                double side = 0;
+                if (below)
+                {
+                    sub.Margin = new Thickness(0, 1, 10, 1);
+                    Ui.Lines(sub, 2);
+                    texts.Children.Add(sub);
+                }
+                else if (sub.Text.Length > 0)
+                {
+                    sub.MaxWidth = 200; sub.TextTrimming = TextTrimming.CharacterEllipsis;
+                    Grid.SetColumn(sub, 2); row.Children.Add(sub);
+                    side = NaturalWidth(sub);
+                }
+                // что не влезло и так — целиком в подсказке (у найденного файла — полный путь)
+                double textW = CmdW - 40 + 16 - 46 - side;   // строка списка шире поля на 8 с каждой стороны
+                string tip;
+                if (!cmdTips.TryGetValue(it, out tip) && (TextCut(title, textW) || below && TextCut(sub, textW)))
+                    tip = TipText(it.Title + (sub.Text.Length > 0 ? "\n" + sub.Text : ""));
+                var b = new Border { MinHeight = 40, Padding = new Thickness(0, 4, 0, 4), CornerRadius = Ui.Row, Margin = new Thickness(0, 0, 0, 4), Background = i == cmdSel ? (Brush)Tile.Accent : Brushes.Transparent, Child = row, Cursor = Cursors.Hand, ToolTip = tip };
                 row.ColumnDefinitions[0].Width = new GridLength(46);
                 b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; RunCmd(idx); };
                 cmdList.Children.Add(b);
@@ -2172,6 +2373,7 @@ namespace Kapsula
             stageLyrics.SetLines(list);
             miniLyrics.Root.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
             homeLyrics.Root.Visibility = list != null && homeLyricsShown ? Visibility.Visible : Visibility.Collapsed;
+            FitHomeTitle();   // название поднялось над строками песни или опустилось — под кнопкой плеера оно не должно оказаться
             miniLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); homeLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null); stageLyrics.Root.BeginAnimation(UIElement.OpacityProperty, null);
             miniLyrics.Root.Opacity = homeLyrics.Root.Opacity = stageLyrics.Root.Opacity = list != null ? 0 : 1;
             double w = MiniW();
@@ -2229,7 +2431,7 @@ namespace Kapsula
             if (line != currentLyric)
             {
                 currentLyric = line;
-                if (state == 0 && PillMode == 2 && !toastOn) RenderCompact();   // капсула «С текстом» показывает новую строку
+                if (state == 0 && PillMode == 2 && !toastOn) { RenderCompact(); SetTargets(); }   // капсула «С текстом» показывает новую строку — и растёт под неё
             }
             miniLyrics.Tick(idx);
             homeLyrics.Tick(idx);
@@ -2265,6 +2467,7 @@ namespace Kapsula
         LinearGradientBrush playerTintBrush;
         Grid homeTop;
         StackPanel homeNames;
+        Marquee titleRun, artistRun;   // название и исполнитель на «Главной»: не влезли — бегущей строкой, а не «Очень длинное назв…»
 
         Rectangle mirrorImg;
         Border mirrorShade;
@@ -2294,8 +2497,10 @@ namespace Kapsula
             Brush soft = tinted ? (Brush)new SolidColorBrush(Color.FromArgb(0xD0, Fg.Color.R, Fg.Color.G, Fg.Color.B)) : Dim;
             mArtist.Foreground = soft; mPos.Foreground = soft; mDur.Foreground = soft;
 
-            // Крупная обложка: она по центру, название и исполнитель под ней
-            playerBody.RowDefinitions[0].Height = new GridLength(centered ? 110 : 84);
+            // Крупная обложка: она по центру, название и исполнитель под ней. Обычный вид — ряд по содержимому, но не ниже
+            // обложки (84): название, исполнитель и две строки песни крупным шрифтом («Рукописный») выше 84 — им не срезает
+            // ни верх названия, ни низ песни; полоса прогресса под ними ужимается в оставшееся место
+            playerBody.RowDefinitions[0].Height = centered ? new GridLength(110) : GridLength.Auto;
             mCover.Width = mCover.Height = centered ? 66 : 84;
             mCover.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             mCover.VerticalAlignment = centered ? VerticalAlignment.Top : VerticalAlignment.Center;
@@ -2303,20 +2508,43 @@ namespace Kapsula
             Grid.SetColumn(homeNames, centered ? 0 : 2);
             Grid.SetColumnSpan(homeNames, centered ? 3 : 1);
             homeNames.VerticalAlignment = centered ? VerticalAlignment.Bottom : VerticalAlignment.Center;
-            homeNames.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-            mTitle.TextAlignment = mArtist.TextAlignment = centered ? TextAlignment.Center : TextAlignment.Left;
+            // всегда во всю ширину: бегущей строке нужна ширина места, а «по центру» сжало бы её в ноль и название пропало бы
+            homeNames.HorizontalAlignment = HorizontalAlignment.Stretch;
             mTitle.FontSize = centered ? 14.5 : 16;
-            mArtist.Margin = new Thickness(0, centered ? 1 : 3, 0, 0);
+            artistRun.Root.Margin = new Thickness(0, centered ? 1 : 3, 0, 0);
             homeLyricsShown = !centered;
             homeLyrics.Root.Visibility = homeLyricsShown && lyrics != null ? Visibility.Visible : Visibility.Collapsed;
             coverGlow.HorizontalAlignment = centered ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             coverGlow.Margin = centered ? new Thickness(0, -52, 0, 0) : new Thickness(-43, -43, 0, 0);
+            CenterHomeNames();
+            FitHomeTitle();
         }
         bool homeLyricsShown = true;
 
+        // В стилях с крупной обложкой короткие название и исполнитель стоят по центру. Бегущая строка держит текст
+        // на холсте, где выравнивание текста не действует, — сдвигаем сам текст. Длинный стоит у левого края и едет.
+        void CenterHomeNames()
+        {
+            if (titleRun == null) return;
+            bool centered = PlayerStyle == 1 || PlayerStyle == 3;
+            foreach (Marquee m in new Marquee[] { titleRun, artistRun })
+                Canvas.SetLeft(m.Text, centered ? Math.Max(0, Math.Floor((m.Root.ActualWidth - m.Text.ActualWidth) / 2)) : 0);
+        }
+
+        // Кнопка выбора плеера лежит поверх правого верхнего угла карточки. Когда под названием строки песни, оно
+        // поднято к самому верху — тогда бегущая строка кончается левее кнопки, а не уходит под неё.
+        void FitHomeTitle()
+        {
+            if (titleRun == null || srcBtn == null || homeLyrics == null) return;
+            bool centered = PlayerStyle == 1 || PlayerStyle == 3;
+            bool under = !centered && srcBtn.Visibility == Visibility.Visible && homeLyrics.Root.Visibility == Visibility.Visible;
+            double right = under ? srcBtn.ActualWidth : 0;
+            if (titleRun.Root.Margin.Right != right) titleRun.Root.Margin = new Thickness(0, 0, right, 0);
+        }
+
         void BuildCompact()
         {
-            var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(Ear + 12, 0, 0, 0) };
+            var left = cLeftPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(Ear + 12, 0, 0, 0) };
             micDot = new Ellipse { Width = 7, Height = 7, Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A)), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Микрофон используется" };
             cCover = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Glass.Fill, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             cGlyph = new TextBlock { FontFamily = Icons, FontSize = 14, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
@@ -2336,8 +2564,13 @@ namespace Kapsula
             left.Children.Add(unreadBadge);
             cDlIcon =new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(5), Background = Glass.Fill, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(cDlIcon);
-            cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), MaxWidth = 104, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
-            left.Children.Add(cDlName);
+            // Название скачиваемой игры: до 150 точек; длиннее («S.T.A.L.K.E.R. 2: Heart of Chornobyl») — бегущей строкой, загрузка-то долгая
+            cDlName = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold };
+            cDlMarq = new Marquee(cDlName);
+            cDlMarq.Root.VerticalAlignment = VerticalAlignment.Center;
+            cDlMarq.Root.Margin = new Thickness(8, 0, 0, 0);
+            cDlMarq.Root.Visibility = Visibility.Collapsed;
+            left.Children.Add(cDlMarq.Root);
             left.Children.Add(cCover);
             left.Children.Add(cGlyph);
             compactHost.Children.Add(left);
@@ -2347,8 +2580,15 @@ namespace Kapsula
                 if (state == 0 && Recorder.Active && !recBusy) { e.Handled = true; ToggleRecord(false); }
             };
 
-            cText = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            cText = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             compactHost.Children.Add(cText);
+            // Название, которое не влезает между значками (трек, встреча, звонок), — бегущей строкой на месте подписи
+            cMarqText = new TextBlock { Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold };
+            cMarq = new Marquee(cMarqText);
+            cMarq.Root.HorizontalAlignment = HorizontalAlignment.Center;
+            cMarq.Root.VerticalAlignment = VerticalAlignment.Center;
+            cMarq.Root.Visibility = Visibility.Collapsed;
+            compactHost.Children.Add(cMarq.Root);
             cBar = new Bar(130, 5, Fg, 12);
             cBar.Root.HorizontalAlignment = HorizontalAlignment.Center;
             cBar.Root.Visibility = Visibility.Collapsed;
@@ -2358,7 +2598,7 @@ namespace Kapsula
             BuildCourier();
             compactHost.Children.Add(dlLane);
 
-            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, Ear + 13, 0) };
+            var right = cRightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, Ear + 13, 0) };
             cRight = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             right.Children.Add(cRight);
             eq = new StackPanel { Orientation = Orientation.Horizontal, Height = 14, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
@@ -2481,7 +2721,14 @@ namespace Kapsula
         RowDefinition pageRow;
         double chatExtra;
 
-        double PageExtra() { return (page == PChat ? chatExtra : 0) + (EditingBoard() != null ? 56 : 0); }
+        // На «Погоде» строка поиска города (32 + отступ 8) встаёт над прогнозом — панель растёт на неё, а не срезает низ плиток
+        double PageExtra()
+        {
+            bool citySearch = page == PWeather && weatherSearch != null && weatherGrid != null && weatherSearch.Visibility == Visibility.Visible && weatherGrid.Visibility == Visibility.Visible;
+            Board eb = EditingBoard();
+            // полоска правки в два ряда (длинные названия блоков) — остров ниже, а не срезает её нижний ряд
+            return (page == PChat ? chatExtra : 0) + (eb != null ? Math.Max(56, eb.TrayHeight + 14) : 0) + (citySearch ? 40 : 0);
+        }
 
         // ---- Конструктор вкладок (доски): «Погода», «Система»
         readonly Dictionary<int, Board> pageBoards = new Dictionary<int, Board>();
@@ -2716,7 +2963,9 @@ namespace Kapsula
         Border srcBtn;
         TextBlock srcLabel;
 
-        const double OutChipW = 134;   // чтобы помещались и «Наушники», и «Динамики», и названия покороче
+        // Чип «Наушники ⌄» — по длине имени устройства, но не шире 165 точек (имя до 116 точек, длиннее — «…» и полное
+        // имя в подсказке); ползунок громкости берёт всё, что осталось. OutChipW — ширина, пока чип ещё не разложен.
+        const double OutChipW = 134;
         Border outChip;
         TextBlock outLabel;
 
@@ -2725,6 +2974,15 @@ namespace Kapsula
             if (outLabel == null) return;
             foreach (AudioOutDevice d in AudioOut.List()) if (d.Default) { outLabel.Text = AudioOut.Short(d.Name); outChip.ToolTip = "Звук идёт в: " + d.Name; return; }
             outLabel.Text = "Звук";
+            outChip.ToolTip = "Устройство вывода не найдено";   // а не прежнее «Звук идёт в: …» про устройство, которого уже нет
+        }
+
+        // Ползунок громкости — на место между чипом режима и чипом устройства вывода, какой бы ширины тот ни был
+        void FitVolBar()
+        {
+            if (volBar == null || homeBoard == null) return;
+            double chip = outChip != null && outChip.ActualWidth > 0 ? outChip.ActualWidth : OutChipW;
+            volBar.Resize(Math.Max(60, homeBoard.Find("volume").El.Width - 32 - VolChipW - 40 - chip));
         }
 
         void ShowOutMenu()
@@ -2733,11 +2991,11 @@ namespace Kapsula
             foreach (AudioOutDevice dev in AudioOut.List())
             {
                 AudioOutDevice d = dev;
-                var it = new WF.ToolStripMenuItem(d.Name) { Checked = d.Default };
+                var it = new WF.ToolStripMenuItem((d.Name ?? "").Replace("&", "&&")) { Checked = d.Default };   // «&» в меню WinForms — подчёркнутая буква: «Bang & Olufsen» без удвоения потеряло бы его
                 it.Click += delegate
                 {
                     if (!AudioOut.SetDefault(d.Id)) Toast(((char)0xE7F5).ToString(), "Не удалось переключить звук", null, -1, null);
-                    else Toast(((char)0xE7F5).ToString(), "Звук: " + AudioOut.Short(d.Name), null, -1, accent);
+                    else Toast(((char)0xE7F5).ToString(), "Звук: " + AudioOut.ToastName(d.Name), null, -1, accent);
                     UpdateOutLabel();
                 };
                 menu.Items.Add(it);
@@ -2759,18 +3017,26 @@ namespace Kapsula
             foreach (string sid in ids)
             {
                 string id = sid;
-                var it = new WF.ToolStripMenuItem(MediaWatcher.PrettyName(id)) { Checked = id == media.Source };
+                var it = new WF.ToolStripMenuItem(MediaWatcher.DisplayName(id).Replace("&", "&&")) { Checked = id == media.Source };   // «&» — не подчёркнутая буква, а сам знак
                 it.Click += delegate
                 {
                     watcher.Preferred = id;
                     Store.Set("player", id);
-                    srcLabel.Text = MediaWatcher.PrettyName(id);
+                    SetSrcLabel(id);
                 };
                 menu.Items.Add(it);
             }
             DarkMenuRenderer.Apply(menu, 220, true);
             Point at = srcBtn.PointToScreen(new Point(0, srcBtn.ActualHeight + 6));
             menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
+        }
+
+        // Кнопка выбора плеера: на ней — имя плеера («…» в середине, если длинное), в подсказке — что она делает
+        void SetSrcLabel(string id)
+        {
+            string name = MediaWatcher.DisplayName(id);
+            srcLabel.Text = name;
+            SetTip(srcBtn, "Какой плеер показывать · сейчас: " + name);
         }
 
         // ------------------------------------------------------ Главная
@@ -2803,8 +3069,8 @@ namespace Kapsula
             if (homeCallCard != null) homeCallCard.Visibility = showCall ? Visibility.Visible : Visibility.Collapsed;
             homePlayerCard.Visibility = showPlayer ? Visibility.Visible : Visibility.Collapsed;
             homeClipCard.Visibility = showClips ? Visibility.Visible : Visibility.Collapsed;
-            if (mProgress != null) mProgress.Resize(258);
-            if (volBar != null) volBar.Resize(homeBoard.Find("volume").El.Width - 32 - VolChipW - 40 - OutChipW);
+            if (mProgress != null) FitTimes(mPos, mDur, mProgress, 36, 258 + 72);   // полоса 258 точек, а длинное время («1:35:12») берёт своё у неё
+            FitVolBar();
             bool nothing = homeBoard.UsedHeight() <= 0 && !homeBoard.Editing;
             homeEmpty.Visibility = nothing ? Visibility.Visible : Visibility.Collapsed;
             if (showClips && homeBoard.IsShown("main")) RenderHomeClips();
@@ -2848,7 +3114,7 @@ namespace Kapsula
             var clipBody = new Grid();
             // заголовок со стрелкой: клик открывает весь буфер
             var clipHead = new Grid { Margin = new Thickness(16, 12, 12, 0), Height = 20, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent, Cursor = Cursors.Hand };
-            clipHead.Children.Add(new TextBlock { Text = "НЕДАВНО СКОПИРОВАНО", Foreground = Faint, FontSize = 10, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            clipHead.Children.Add(new TextBlock { Text = "НЕДАВНО СКОПИРОВАНО", Foreground = Faint, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             clipHead.Children.Add(new TextBlock { Text = ((char)0xE76C).ToString(), FontFamily = Icons, FontSize = 10, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center });
             clipHead.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ShowPage(PClip); };
             clipBody.Children.Add(clipHead);
@@ -2884,7 +3150,7 @@ namespace Kapsula
             cardGrid.Children.Add(playerEmpty);
 
             playerBody = new Grid();
-            playerBody.RowDefinitions.Add(new RowDefinition { Height = new GridLength(84) });
+            playerBody.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // по обложке (84) или выше — см. ApplyPlayerStyle
             playerBody.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             playerBody.RowDefinitions.Add(new RowDefinition { Height = new GridLength(42) });
 
@@ -2895,14 +3161,23 @@ namespace Kapsula
             mCover = new Border { Width = 84, Height = 84, CornerRadius = new CornerRadius(16), Background = Glass.Fill };
             top.Children.Add(mCover);
             var names = homeNames = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            mTitle = new TextBlock { Foreground = Fg, FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            mArtist = new TextBlock { Foreground = Dim, FontSize = 13, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-            homeLyrics = new LyricView(216, 20, false, 0, accent, 12.5, false);
+            mTitle = new TextBlock { Foreground = Fg, FontSize = 16, FontWeight = FontWeights.SemiBold };
+            mArtist = new TextBlock { Foreground = Dim, FontSize = 13 };
+            // Название и исполнитель, которые не влезли, — бегущей строкой, как в мини-плеере; отступ — у строки, а не у
+            // текста: на её холсте отступ текста срезался бы
+            titleRun = new Marquee(mTitle);
+            artistRun = new Marquee(mArtist);
+            artistRun.Root.Margin = new Thickness(0, 3, 0, 0);
+            SizeChangedEventHandler recenter = delegate { CenterHomeNames(); };
+            mTitle.SizeChanged += recenter; mArtist.SizeChanged += recenter;
+            titleRun.Root.SizeChanged += recenter; artistRun.Root.SizeChanged += recenter;
+            // строка песни — во всю ширину колонки и до двух строк: длинная строка песни не обрывается «…» на середине
+            homeLyrics = new LyricView(232, 32, false, 0, accent, 12.5, false);
             homeLyrics.Root.HorizontalAlignment = HorizontalAlignment.Left;
             homeLyrics.Root.Margin = new Thickness(0, 7, 0, 0);
             homeLyrics.Root.Visibility = Visibility.Collapsed;
-            names.Children.Add(mTitle);
-            names.Children.Add(mArtist);
+            names.Children.Add(titleRun.Root);
+            names.Children.Add(artistRun.Root);
             names.Children.Add(homeLyrics.Root);
             Grid.SetColumn(names, 2);
             top.Children.Add(names);
@@ -2938,6 +3213,8 @@ namespace Kapsula
             srcBtn.Visibility = Visibility.Collapsed;
             srcBtn.ToolTip = "Какой плеер показывать";
             srcLabel = (TextBlock)srcBtn.Child; srcLabel.FontSize = 10.5;
+            srcLabel.MaxWidth = 112; srcLabel.TextTrimming = TextTrimming.CharacterEllipsis;   // имя плеера и так не длиннее 19 знаков
+            srcBtn.SizeChanged += delegate { FitHomeTitle(); };
             cardGrid.Children.Add(srcBtn);
             mirrorImg = new Rectangle { Margin = new Thickness(-40), Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 46, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance }, Opacity = 0.75, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
             mirrorShade = new Border { Background = new LinearGradientBrush(Color.FromArgb(0x40, 0, 0, 0), Color.FromArgb(0xB8, 0, 0, 0), 90), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
@@ -2947,12 +3224,12 @@ namespace Kapsula
             card.SizeChanged += delegate { card.Clip = new RectangleGeometry(new Rect(0, 0, card.ActualWidth, card.ActualHeight), Ui.BlockR, Ui.BlockR); };
 
             // Быстрые действия
-            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Color.FromRgb(0xFF, 0x45, 0x3A), "Запись", "Запись экрана · правый клик — выбрать область");
+            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Color.FromRgb(0xFF, 0x45, 0x3A), "Запись экрана", "Запись экрана · правый клик — выбрать область");   // подписи — полным названием, в две строки
             recTile.Root.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Recorder.Active) ToggleRecord(true); };
             Tile[] ts = {
                 new Tile("", "Область", delegate { StartSnip(false); }).Shortcut(Color.FromRgb(0x0A, 0x84, 0xFF), "Область", "Снимок области экрана"),
-                new Tile("", "Весь экран", delegate { FullShot(); }).Shortcut(Color.FromRgb(0x5E, 0x5C, 0xE6), "Экран", "Снимок всего экрана"),
-                new Tile("", "Текст с экрана", delegate { StartOcr(); }).Shortcut(Color.FromRgb(0x30, 0xB0, 0x5A), "Текст", "Распознать текст с экрана"),
+                new Tile("", "Весь экран", delegate { FullShot(); }).Shortcut(Color.FromRgb(0x5E, 0x5C, 0xE6), "Весь экран", "Снимок всего экрана"),
+                new Tile("", "Текст с экрана", delegate { StartOcr(); }).Shortcut(Color.FromRgb(0x30, 0xB0, 0x5A), "Текст с\u00A0экрана", "Распознать текст с экрана"),   // «Текст» / «с экрана»: предлог не висит в конце строки
                 new Tile("", "QR-код", delegate { ScanQr(); }).Shortcut(Color.FromRgb(0xFF, 0x9F, 0x0A), "QR-код", "Прочитать QR-код с экрана"),
                 new Tile("", "Пипетка", delegate { StartSnip(true); }).Shortcut(Color.FromRgb(0xE0, 0x4E, 0x9A), "Пипетка", "Взять цвет с экрана"),
                 recTile
@@ -2965,7 +3242,7 @@ namespace Kapsula
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(VolChipW) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
-            vol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(OutChipW) });
+            vol.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // чип устройства — по длине имени
             vol.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 15, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center });
             volBar = new Bar(PageW - 12 - 188 - 32 - VolChipW - 40 - OutChipW, 5, Fg, 22).Knob(17);
             volBar.Root.Cursor = Cursors.Hand;
@@ -2977,7 +3254,7 @@ namespace Kapsula
             volText = new TextBlock { Foreground = Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
             Grid.SetColumn(volText, 2); vol.Children.Add(volText);
             // Куда идёт звук: «Динамики ⌄» — клик открывает список устройств
-            outLabel = new TextBlock { Foreground = Fg, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = OutChipW - 40, TextTrimming = TextTrimming.CharacterEllipsis };
+            outLabel = new TextBlock { Foreground = Fg, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 116, TextTrimming = TextTrimming.CharacterEllipsis };   // «Динамики/наушники» целиком
             var outRow = new StackPanel { Orientation = Orientation.Horizontal };
             outRow.Children.Add(new TextBlock { Text = ((char)0xE7F5).ToString(), FontFamily = Icons, FontSize = 12, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
             outRow.Children.Add(outLabel);
@@ -2986,6 +3263,7 @@ namespace Kapsula
             Glass.Button(outChip);
             outChip.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ShowOutMenu(); };
             Fx.Press(outChip, 0.95);
+            outChip.SizeChanged += delegate { FitVolBar(); };   // сменилось устройство — ползунок под новую ширину чипа
             Grid.SetColumn(outChip, 3); vol.Children.Add(outChip);
             UpdateOutLabel();
             volCard.Child = vol;
@@ -3035,15 +3313,24 @@ namespace Kapsula
         {
             var dock = new DockPanel();
             var foot = new Grid { Margin = new Thickness(0, 8, 0, 0), Height = 28 };
-            foot.Children.Add(new TextBlock { Text = "Клик — вставить · Shift+клик — только скопировать · хранится только в памяти", Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
-            var clear = Btn("Очистить", false, 0, 28, delegate { clips.RemoveAll(delegate(ClipItem c) { return !c.Pinned; }); RenderClips(); });
+            // подсказка и «Очистить» — в своих колонках, как счётчик и подсказка «Текста»: широким шрифтом подсказка
+            // кончается «…» перед кнопкой (целиком — во всплывающей подсказке), а не уходит под неё
+            foot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            foot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var footHint = new TextBlock { Text = "Клик — вставить · Shift+клик — только скопировать · хранится только в памяти", Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            footHint.ToolTip = footHint.Text;
+            footHint.ToolTipOpening += delegate(object o, ToolTipEventArgs e) { if (!TextCut(footHint, footHint.ActualWidth + footHint.Margin.Left + footHint.Margin.Right)) e.Handled = true; };   // влезла целиком — подсказка не нужна
+            foot.Children.Add(footHint);
+            var clear = clipClearBtn = Btn("Очистить", false, 0, 26, delegate { clips.RemoveAll(delegate(ClipItem c) { return !c.Pinned; }); RenderClips(); });   // ряд конструктора — 26 точек: кнопка выше срезалась бы снизу
             clear.HorizontalAlignment = HorizontalAlignment.Right;
+            clear.Margin = new Thickness(8, 0, 0, 0);
+            Grid.SetColumn(clear, 1);
             foot.Children.Add(clear);
             DockPanel.SetDock(foot, Dock.Bottom);
             dock.Children.Add(foot);
 
-            // Поиск по истории
-            var search = new Grid { Height = 32, Margin = new Thickness(0, 0, 0, 8) };
+            // Поиск по истории: высота — по ряду конструктора (26 точек), подсказка и текст по центру поля
+            var search = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             search.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             search.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             search.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 13, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center });
@@ -3062,6 +3349,8 @@ namespace Kapsula
 
             clipList = new StackPanel();
             var clipScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = clipList };
+            // записей больше, чем помещается, — край мягко тает: видно, что список листается, и строка не срезана по живому
+            clipScroll.ScrollChanged += delegate { FadeScrollEdges(clipScroll, true, 16); };
             // конструктор: поиск, фильтры, список и нижняя строка — по рядам
             var cb = PageBoard(PClip, "clip", 1, 9, 8);
             cb.Add("search", "Поиск", searchCard, 0, 0, 1, 1, false);
@@ -3086,7 +3375,8 @@ namespace Kapsula
             {
                 ClipItem item = it;
                 if (item.Pinned) continue;   // закреплённые всегда стоят в начале буфера — здесь нужны последние копии, а не они
-                string one = (item.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+                // переносы, табуляции и отступы кода — одним пробелом: две строки записи не уходят на пустоту
+                string one = System.Text.RegularExpressions.Regex.Replace(item.Text ?? "", @"\s+", " ").Trim();
                 if (one.Length == 0) continue;
                 var row = new Grid { Height = 44 };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
@@ -3097,12 +3387,19 @@ namespace Kapsula
                 else icon = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(8), Background = Glass.Fill, Child = new TextBlock { Text = "T", Foreground = Dim, FontSize = 13, FontFamily = new FontFamily("Georgia"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
                 icon.HorizontalAlignment = HorizontalAlignment.Left; icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(4, 0, 0, 0);
                 row.Children.Add(icon);
-                var txt = new TextBlock { Text = one, Foreground = Fg, FontSize = 12.5, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 1) };
+                // до двух строк (строка записи высотой 44 — две строки по 17 влезают); всё целиком — в подсказке
+                var txt = new TextBlock { Text = one.Length > 400 ? one.Substring(0, 400) : one, Foreground = Fg, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 1) };
+                Ui.Lines(txt, 2);
                 Grid.SetColumn(txt, 1); row.Children.Add(txt);
                 string when = item.At == DateTime.MinValue ? "" : ClipMeta(new ClipItem { At = item.At });
                 var tm = new TextBlock { Text = when, Foreground = Faint, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
                 Grid.SetColumn(tm, 2); row.Children.Add(tm);
-                var b = new Border { CornerRadius = new CornerRadius(12), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, ToolTip = "Клик — вставить, Shift+клик — только скопировать" };
+                var tipText = new TextBlock { Text = TipText(one) };
+                Ui.Lines(tipText, 12);
+                var tip = new StackPanel();
+                tip.Children.Add(tipText);
+                tip.Children.Add(new TextBlock { Text = "Клик — вставить · Shift+клик — только скопировать", Opacity = 0.65, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
+                var b = new Border { CornerRadius = new CornerRadius(12), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, ToolTip = tip };
                 b.MouseEnter += delegate { b.Background = Glass.Hover; };
                 b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
                 b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
@@ -3145,12 +3442,11 @@ namespace Kapsula
             catch { return null; }
         }
 
-        // «Браузер · 5 мин назад»
+        // «Браузер · 5 мин назад», «Word · вчера, 21:59» — время теми же словами, что и в «Уведомлениях»
         static string ClipMeta(ClipItem it)
         {
             if (it.At == DateTime.MinValue) return it.Source ?? "";
-            TimeSpan ago = DateTime.Now - it.At;
-            string when = ago.TotalSeconds < 60 ? "сейчас" : ago.TotalMinutes < 60 ? (int)ago.TotalMinutes + " мин назад" : it.At.Date == DateTime.Today ? it.At.ToString("HH:mm") : it.At.ToString("d MMM", new System.Globalization.CultureInfo("ru-RU"));
+            string when = NotifAgo(it.At);
             return string.IsNullOrEmpty(it.Source) ? when : it.Source + " · " + when;
         }
 
@@ -3159,6 +3455,8 @@ namespace Kapsula
             RenderHomeClips();
             RenderClipFilters();
             clipList.Children.Clear();
+            // стирать нечего (пусто или всё закреплено) — кнопки «Очистить» нет, а не кнопка, которая ничего не делает
+            if (clipClearBtn != null) clipClearBtn.Visibility = clips.Exists(delegate(ClipItem c) { return !c.Pinned; }) ? Visibility.Visible : Visibility.Collapsed;
             if (clips.Count == 0)
             {
                 clipList.Children.Add(PetSpot("sleep", 58, 12, "clips"));
@@ -3178,16 +3476,21 @@ namespace Kapsula
                 }
                 if (!ClipPasses(item)) continue;
                 if (item.Image != null) { clipList.Children.Add(ClipImageRow(item)); continue; }
-                string one = item.Text.Replace("\r", " ").Replace("\n", " ").Trim();
-                if (one.Length > 140) one = one.Substring(0, 140);
+                // переносы, табуляции и отступы кода — одним пробелом; 400 знаков хватает на две строки, а «…» ставит сама
+                // надпись там, где текст перестал влезать (обрезка на 140-м знаке обрывала слово без «…»)
+                string one = System.Text.RegularExpressions.Regex.Replace(item.Text, @"\s+", " ").Trim();
+                if (one.Length > 400) one = one.Substring(0, 400);
                 var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
-                // текст записи, а под ним — откуда и когда скопировано
-                var texts = new StackPanel { Margin = new Thickness(14, 0, 6, 1), VerticalAlignment = VerticalAlignment.Center };
-                texts.Children.Add(ClipTitle(item, one));
+                // текст записи (до двух строк), а под ним — откуда и когда скопировано; строка растёт под две строки текста
+                var texts = new StackPanel { Margin = new Thickness(14, 4, 6, 4), VerticalAlignment = VerticalAlignment.Center };
+                TextBlock titleTb;
+                texts.Children.Add(ClipTitle(item, one, out titleTb));
                 string meta = ClipMeta(item);
-                meta = (meta.Length > 0 ? meta + " · " : "") + Plural(item.Text.Length, "символ", "символа", "символов");
+                // знаки — как их видно (по тому же правилу, что и счётчик «Текста»): эмодзи — один знак, а не две половинки,
+                // перенос строки CR+LF — тоже один
+                meta = (meta.Length > 0 ? meta + " · " : "") + Plural(TextTools.Chars(item.Text), "символ", "символа", "символов");
                 if (meta != "") texts.Children.Add(new TextBlock { Text = meta, Foreground = Faint, FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
                 row.Children.Add(texts);
                 var pin = new TextBlock { Text = "", FontFamily = Icons, FontSize = 12, Foreground = item.Pinned ? accent : Faint, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -3195,7 +3498,14 @@ namespace Kapsula
                 pinHit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; item.Pinned = !item.Pinned; SortClips(); RenderClips(); };
                 Grid.SetColumn(pinHit, 1);
                 row.Children.Add(pinHit);
-                var b = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, Height = meta != "" ? 42 : 34, Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand };
+                var b = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, MinHeight = meta != "" ? 42 : 34, Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand };
+                // вся запись (с её переносами строк) — в подсказке, но только когда в строке видно не всё: текст не влез
+                // в две строки или его переносы и отступы сжались в пробелы. «#F08A4B» подсказкой не повторяется
+                var tipText = new TextBlock { Text = TipText(item.Text.Trim()) };
+                Ui.Lines(tipText, 12);
+                b.ToolTip = tipText;
+                bool whole = one == item.Text.Trim();
+                b.ToolTipOpening += delegate(object s, ToolTipEventArgs e) { if (whole && !TextCut(titleTb, titleTb.ActualWidth)) e.Handled = true; };
                 b.MouseEnter += delegate { b.Background = Glass.Hover; };
                 b.MouseLeave += delegate { b.Background = Glass.Fill; };
                 b.MouseLeftButtonDown += delegate
@@ -3343,12 +3653,21 @@ namespace Kapsula
             chatInputRow = input;
 
             // Строка сайтов (режим «без ключа»): Duck.ai, DeepSeek, Gemini и «В окне»
+            // Дорожка сайтов и «В окне» — в своих колонках: своих сайтов бывает много, тогда дорожка листается колёсиком
+            // вбок, а не заезжает под «В окне» и за край острова
             webRow = new Grid { Height = 30, Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
+            webRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            webRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             webChips = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left };
-            webRow.Children.Add(webChips);
+            var chipScroll = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = webChips };
+            chipScroll.ScrollChanged += delegate { FadeScrollEdges(chipScroll, false, 24); };   // не влезает — край тает, а не режет сайт посреди букв
+            chipScroll.PreviewMouseWheel += delegate(object o, MouseWheelEventArgs e) { e.Handled = true; chipScroll.ScrollToHorizontalOffset(chipScroll.HorizontalOffset - e.Delta / 3.0); };
+            webRow.Children.Add(chipScroll);
             var detach = Btn("↗  В окне", false, 0, 28, delegate { OpenWebInWindow(); });
             detach.HorizontalAlignment = HorizontalAlignment.Right;
+            detach.Margin = new Thickness(8, 0, 0, 0);
             detach.ToolTip = "Открыть этот чат отдельным окном";
+            Grid.SetColumn(detach, 1);
             webRow.Children.Add(detach);
             DockPanel.SetDock(webRow, Dock.Top);
             dock.Children.Add(webRow);
@@ -3359,6 +3678,7 @@ namespace Kapsula
             body.Children.Add(chatEmpty);
             chatList = new StackPanel();
             chatScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = chatList };
+            chatScroll.ScrollChanged += delegate { FadeScrollEdges(chatScroll, true, 16); };   // не влезает — край тает, а не режет строку посреди букв
             body.Children.Add(chatScroll);
             dock.Children.Add(body);
             return dock;
@@ -3418,8 +3738,9 @@ namespace Kapsula
             {
                 int idx = i;
                 bool on = i == cur;
-                var chip = new Border { Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(13, 0, 13, 1), Background = on ? (Brush)Glass.Strong : Brushes.Transparent, Cursor = Cursors.Hand,
-                    Child = new TextBlock { Text = WebNames[i], FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
+                // длинное имя своего сайта — не шире 120 точек, с «…»; целиком — в подсказке
+                var chip = new Border { Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(13, 0, 13, 1), Background = on ? (Brush)Glass.Strong : Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = WebNames[i],
+                    Child = new TextBlock { Text = WebNames[i], FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = on ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 120, TextTrimming = TextTrimming.CharacterEllipsis } };
                 Ui.Seg(chip, on);
                 chip.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e)
                 {
@@ -3430,7 +3751,7 @@ namespace Kapsula
                 };
                 if (i >= 3)
                 {
-                    chip.ToolTip = WebUrls[i] + " · правый клик — убрать";
+                    chip.ToolTip = WebNames[i] + " · " + WebUrls[i] + " · правый клик — убрать";
                     chip.MouseRightButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; RemoveWebSite(idx - 3); };
                 }
                 track.Children.Add(chip);
@@ -3614,12 +3935,14 @@ namespace Kapsula
         {
             if (chatBusy) return;
             string key = Ai.Key();
-            if (key == "") { Toast("", "Нужен ключ нейросети — добавьте в настройках", null, -1, null); return; }
+            if (key == "") { TextSay(Ai.Local ? "Qwen ещё не скачан — скачайте модель в настройках" : "Нужен ключ нейросети — добавьте в настройках"); return; }
             string text;
             try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; } catch { return; }
-            if (text.Trim().Length == 0) { Toast("", "В буфере нет текста", null, -1, null); return; }
-            if (text.Length > 60000) { Toast("", "Текст слишком длинный для одного запроса", null, -1, null); return; }
+            if (text.Trim().Length == 0) { TextSay("В буфере нет текста"); return; }
+            if (text.Length > 60000) { TextSay("Текст слишком длинный для одного запроса"); return; }
             chatBusy = true;
+            if (textSayTimer != null) textSayTimer.Stop();   // прежняя подпись не должна через миг сменить «работает…» на текст буфера
+            textPreview.ToolTip = null;
             textPreview.Text = Ai.ProviderName + " работает…";
             textPreview.Foreground = Dim;
             string model = Ai.Model();
@@ -3634,7 +3957,7 @@ namespace Kapsula
                     chatBusy = false;
                     string result;
                     lock (sb) result = sb.ToString().Trim();
-                    if (err != null || result.Length == 0) { Toast("", err ?? "Пустой ответ", null, -1, null); RenderTextPreview(); return; }
+                    if (err != null || result.Length == 0) { TextSay(err ?? "Пустой ответ"); return; }   // ошибка видна в карточке, а не «работает…» молча сменяется старым текстом
                     try { Clipboard.SetText(result); } catch { }
                     RenderTextPreview();
                     Toast("", "Готово — результат в буфере", null, -1, accent);
@@ -3672,8 +3995,12 @@ namespace Kapsula
             var bubble = answer.Parent as Border;
             if (bubble != null)
             {
-                var waitRow = new StackPanel { Orientation = Orientation.Horizontal };
+                // DockPanel, а не StackPanel в строку: тот даёт тексту бесконечную ширину, и ответ не переносился, а
+                // обрезался краем сообщения. Здесь ответ получает оставшуюся ширину и переносится по словам.
+                var waitRow = new DockPanel();
                 bubble.Child = null;
+                DockPanel.SetDock(thinker.Root, Dock.Left);
+                thinker.Root.VerticalAlignment = VerticalAlignment.Top;
                 waitRow.Children.Add(thinker.Root); waitRow.Children.Add(answer);
                 bubble.Child = waitRow;
             }
@@ -3781,22 +4108,27 @@ namespace Kapsula
         FrameworkElement BuildShelfPage()
         {
             var top = new Grid { Height = 30, Margin = new Thickness(0, 0, 0, 10) };
-            shelfHint = new TextBlock { Text = ShelfHintDefault, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 300, 0) };
+            // «Готово: архив в «Загрузках»…» не обрывается на полуслове: мелкая подпись в две строки по 13 точек (26,5) —
+            // по высоте ряда конструктора (26); целиком она и в подсказке (ShelfSay)
+            shelfHint = new TextBlock { Text = ShelfHintDefault, Foreground = Faint, FontSize = 10.5, LineHeight = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 300, 0) };
+            Ui.Lines(shelfHint, 2);
             top.Children.Add(shelfHint);
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var zipAll = Btn("В архив", false, 0, 28, delegate { if (shelf.Count > 0) { string[] all2 = shelf.ToArray(); ShelfJob("Архив в «Загрузках»", delegate { return ZipAll(all2); }); } });
+            // кнопки по 26 точек — по высоте ряда конструктора, иначе низ капсул срезался бы
+            var zipAll = shelfZipBtn = Btn("В архив", false, 0, 26, delegate { if (shelf.Count > 0) { string[] all2 = shelf.ToArray(); ShelfJob("Архив в «Загрузках»", delegate { return ZipAll(all2); }); } });
             zipAll.Margin = new Thickness(0, 0, 6, 0);
             zipAll.ToolTip = "Сложить все файлы полки в один ZIP в папку «Загрузки»";
             btns.Children.Add(zipAll);
-            var all = Btn("Перетащить все", false, 0, 28, delegate { if (shelf.Count > 0) DragOut(shelf.ToArray()); });
+            var all = shelfAllBtn = Btn("Перетащить все", false, 0, 26, delegate { if (shelf.Count > 0) DragOut(shelf.ToArray()); });
             all.Margin = new Thickness(0, 0, 6, 0);
             all.ToolTip = "Зажмите и тяните в нужное окно";
             btns.Children.Add(all);
-            var toPhone = Btn("На телефон", false, 0, 28, delegate { if (shelf.Count > 0) Phone.Share(this, shelf.ToArray()); else Phone.ShowQr(this, null); });
+            var toPhone = shelfPhoneBtn = Btn("На телефон", false, 0, 26, delegate { if (shelf.Count > 0) Phone.Share(this, shelf.ToArray()); else Phone.ShowQr(this, null); });
             toPhone.Margin = new Thickness(0, 0, 6, 0);
-            toPhone.ToolTip = "Открыть файлы с полки на телефоне по QR-коду (та же сеть Wi-Fi)";
+            toPhone.ToolTip = "Открыть файлы с полки на телефоне по QR-коду (та же сеть Wi-Fi)";   // на пустой полке — про пульт (RenderShelf)
             btns.Children.Add(toPhone);
-            btns.Children.Add(Btn("Очистить", false, 0, 28, delegate { shelf.Clear(); SaveShelf(); RenderShelf(); }));
+            shelfClearBtn = Btn("Очистить", false, 0, 26, delegate { shelf.Clear(); SaveShelf(); RenderShelf(); });
+            btns.Children.Add(shelfClearBtn);
             top.Children.Add(btns);
             btns.SizeChanged += delegate { shelfHint.Margin = new Thickness(4, 0, btns.ActualWidth + 8, 0); };   // подпись не заезжает под кнопки
 
@@ -3811,7 +4143,9 @@ namespace Kapsula
             body.Children.Add(shelfEmpty);
             body.Children.Add(shelfPet);
             shelfPanel = new WrapPanel { Margin = new Thickness(10, 10, 2, 2) };
-            body.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = shelfPanel });
+            var shelfScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = shelfPanel };
+            shelfScroll.ScrollChanged += delegate { FadeScrollEdges(shelfScroll, true, 16); };   // не влезает — край тает, а не режет плитку посреди букв
+            body.Children.Add(shelfScroll);
             var shb = PageBoard(PShelf, "shelf", 1, 9, 8);
             shb.Add("top", "Кнопки полки", top, 0, 0, 1, 1, false);
             shb.Add("files", "Файлы", body, 0, 1, 1, 8, false);
@@ -3845,6 +4179,17 @@ namespace Kapsula
             // удалённые и перенесённые файлы с полки убираем и сразу запоминаем это; число на вкладке — по тому, что осталось
             if (shelf.RemoveAll(delegate(string p) { return !System.IO.File.Exists(p) && !System.IO.Directory.Exists(p); }) > 0) SaveShelf(); else UpdateShelfBadge();
             shelfEmpty.Visibility = shelf.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            // на пустой полке «В архив», «Перетащить все» и «Очистить» ничего бы не сделали — их нет, и подсказки
+            // про действия с файлами тоже; «На телефон» остаётся: открывает пульт по QR-коду
+            bool any = shelf.Count > 0;
+            var v = any ? Visibility.Visible : Visibility.Collapsed;
+            if (shelfZipBtn != null) { shelfZipBtn.Visibility = v; shelfAllBtn.Visibility = v; shelfClearBtn.Visibility = v; }
+            if (shelfPhoneBtn != null)
+            {
+                shelfPhoneBtn.ToolTip = any ? "Открыть файлы с полки на телефоне по QR-коду (та же сеть Wi-Fi)" : "Открыть пульт на телефоне по QR-коду (та же сеть Wi-Fi)";
+                shelfPhoneBtn.Margin = new Thickness(0, 0, any ? 6 : 0, 0);   // оставшись одна, кнопка стоит вровень с правым краем, как «Очистить»
+            }
+            if (shelfHint != null && (shelfHintTimer == null || !shelfHintTimer.IsEnabled)) shelfHint.Text = any ? ShelfHintDefault : "";
             foreach (string sp in shelf)
             {
                 string path = sp;
@@ -3857,14 +4202,22 @@ namespace Kapsula
                     col.Children.Add(img);
                 }
                 else col.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 28, Foreground = Amber, HorizontalAlignment = HorizontalAlignment.Center });
-                col.Children.Add(new TextBlock { Text = System.IO.Path.GetFileName(path), Foreground = Fg, FontSize = 11.5, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxHeight = 30, Margin = new Thickness(6, 6, 6, 0) });
+                // Имя — в две строки; длинное сокращается «…» в середине: остаются начало и расширение («Очень длинно…» /
+                // «нная).pdf»). Невидимый пробел за «…» даёт перенос прямо там — хвост с расширением уходит во вторую
+                // строку целиком, а не по буквам. У корня диска («D:\») имени нет — показываем сам путь.
+                string fname = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar, '/'));
+                if (fname.Length == 0) fname = path;
+                var nameTb = new TextBlock { Text = Ui.MiddleEllipsis(fname, 22).Replace("…", "…" + (char)0x200B), Foreground = Fg, FontSize = 11.5, TextAlignment = TextAlignment.Center, Margin = new Thickness(4, 6, 4, 0) };
+                Ui.Lines(nameTb, 2);
+                col.Children.Add(nameTb);
                 var cell = new Grid();
                 cell.Children.Add(col);
                 var x = new TextBlock { Text = "", FontFamily = Icons, FontSize = 9, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 var xHit = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = Brushes.Transparent, Child = x, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 3, 3, 0), ToolTip = "Убрать с полки" };
                 xHit.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; shelf.Remove(path); SaveShelf(); RenderShelf(); };
                 cell.Children.Add(xHit);
-                var b = new Border { Width = 98, Height = 96, CornerRadius = Ui.Row, Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 8, 8), Child = cell, Cursor = Cursors.Hand, ToolTip = path + "\nПравый щелчок — сжать, переконвертировать, распознать текст" };
+                var b = new Border { Width = 98, Height = 96, CornerRadius = Ui.Row, Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 8, 8), Child = cell, Cursor = Cursors.Hand,
+                    ToolTip = path + "\n" + (ShelfIsImage(path) && !System.IO.Directory.Exists(path) ? "Правый клик — сжать в ZIP, сохранить как JPG или PNG, уменьшить, распознать текст" : "Правый клик — открыть, показать в папке, сжать в ZIP") };   // «клик», как в подписи над полкой
                 b.MouseRightButtonUp += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; ShelfMenu(path); };
                 b.MouseEnter += delegate { b.Background = Glass.Hover; };
                 b.MouseLeave += delegate { b.Background = Glass.Fill; };
@@ -3959,13 +4312,20 @@ namespace Kapsula
         // ------------------------------------------------------ Текст
         FrameworkElement BuildTextPage()
         {
-            textPreview = new TextBlock { Foreground = Fg, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxHeight = 34, LineHeight = 17 };
-            var textCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 8), Height = 52, Child = textPreview, ToolTip = "Текст из буфера обмена" };
-            // счётчик под текстом и подсказка, что делают кнопки, — одной строкой
+            // две строки и «…»; весь текст из буфера — в подсказке карточки (RenderTextPreview)
+            textPreview = new TextBlock { Foreground = Fg, FontSize = 12.5, LineHeight = 17 };
+            Ui.Lines(textPreview, 2);
+            textCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 8), Height = 52, Child = textPreview };
+            // счётчик под текстом и подсказка, что делают кнопки, — одной строкой, в своих колонках: длинный счётчик
+            // («12 345 символов · …») не заезжает на подсказку, а сокращается с «…» (целиком — в подсказке, RenderTextPreview)
             var info = new Grid { Margin = new Thickness(4, 5, 4, 7) };
-            textStats = new TextBlock { Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Left };
+            info.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            info.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            textStats = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             info.Children.Add(textStats);
-            info.Children.Add(new TextBlock { Text = "Кнопка преобразует и кладёт обратно в буфер", Foreground = Faint, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right });
+            var infoHint = new TextBlock { Text = "Кнопка преобразует и кладёт обратно в буфер", Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            Grid.SetColumn(infoHint, 1);
+            info.Children.Add(infoHint);
             var wrap = new WrapPanel();
             AddTool(wrap, "Раскладка RU⇄EN", TextTools.FixLayout);
             AddTool(wrap, "ВЕРХНИЙ", delegate(string s) { return s.ToUpper(); });
@@ -3978,10 +4338,11 @@ namespace Kapsula
             AddTool(wrap, "Лишние пробелы", TextTools.Spaces);
             AddTool(wrap, "JSON с отступами", delegate(string s) { return TextTools.Json(s, true); });
             AddTool(wrap, "JSON в строку", delegate(string s) { return TextTools.Json(s, false); });
-            AddTool(wrap, "Base64 →", TextTools.B64Enc);
-            AddTool(wrap, "Base64 ←", TextTools.B64Dec);
-            AddTool(wrap, "URL →", Uri.EscapeDataString);
-            AddTool(wrap, "URL ←", Uri.UnescapeDataString);
+            // по одной стрелке не понять, что кодирует, а что раскодирует, — подсказка говорит это словами
+            AddTool(wrap, "Base64 →", TextTools.B64Enc, "Закодировать в Base64");
+            AddTool(wrap, "Base64 ←", TextTools.B64Dec, "Раскодировать из Base64");
+            AddTool(wrap, "URL →", Uri.EscapeDataString, "Закодировать для адреса (URL)");
+            AddTool(wrap, "URL ←", Uri.UnescapeDataString, "Раскодировать из адреса (URL)");
             // Действия ИИ: работают, когда задан ключ Claude API
             AddAi(wrap, "Перевести", "переведи текст: если он на русском — на английский, иначе на русский");
             AddAi(wrap, "Исправить", "исправь орфографию, пунктуацию и опечатки, не меняя смысл и стиль");
@@ -4003,28 +4364,31 @@ namespace Kapsula
             wrap.Children.Add(b);
         }
 
-        void AddTool(WrapPanel wrap, string name, Func<string, string> f)
+        void AddTool(WrapPanel wrap, string name, Func<string, string> f) { AddTool(wrap, name, f, null); }
+
+        void AddTool(WrapPanel wrap, string name, Func<string, string> f, string tip)
         {
             var b = Btn(name, false, 0, 28, delegate
             {
                 try
                 {
-                    if (!Clipboard.ContainsText()) { Toast("", "В буфере нет текста", null, -1, null); return; }
+                    if (!Clipboard.ContainsText()) { TextSay("В буфере нет текста"); return; }
                     string r = f(Clipboard.GetText());
                     Clipboard.SetText(r);
                     RenderTextPreview();
                 }
-                catch { Toast("", "Не получилось преобразовать", null, -1, null); }
+                catch { TextSay("Не получилось преобразовать"); }
             });
             b.Margin = new Thickness(0, 0, 5, 5);
+            if (tip != null) b.ToolTip = tip;
             wrap.Children.Add(b);
         }
 
         TextBlock textStats;
         TextBlock wSummary, wCredit;
-        Border wSummaryBox;
 
-        // «Сутки без осадков, ночью до 4°» или «Дождь около 15:00, ночью до 4°»
+        // «Сутки без осадков» или «Дождь около 15:00». Ночную температуру не повторяем — она строкой выше («Днём … · ночью …»),
+        // и сводка помещается в одну строку
         static string WeatherSummary(WeatherData w)
         {
             string wet = null;
@@ -4035,15 +4399,16 @@ namespace Kapsula
                 string kind = h[1] == "☂" ? "Дождь" : h[1] == "❄" ? "Снег" : h[1] == "⚡" ? "Гроза" : null;
                 if (kind != null) { wet = i == 0 ? "Сейчас " + kind.ToLower() : kind + " около " + h[0]; break; }
             }
-            return (wet ?? "Сутки без осадков") + ", ночью до " + Weather.Temp(w.Min);
+            return wet ?? "Сутки без осадков";
         }
 
         // Таймер дошёл до нуля: карточка «Ещё раз» / закрыть. Пока её не закрыли, капсула продолжает «ощетиниваться».
         void TimerDoneCard()
         {
             TimeSpan total = timerTotal;
-            int mins = (int)Math.Round(total.TotalMinutes);
-            string sub = mins >= 1 ? "Таймер · " + mins + " мин" : "Таймер · " + (int)Math.Round(total.TotalSeconds) + " с";
+            // «Таймер · 2 ч», «… 1 ч 30 мин», «… 5 мин»; не целые минуты — «1:30», а не округлённые «2 мин» вместо полутора
+            int secs = (int)Math.Round(total.TotalSeconds);
+            string sub = "Таймер · " + (secs < 60 ? secs + " с" : secs % 60 == 0 ? LeftText(secs / 60) : Fmt(TimeSpan.FromSeconds(secs)));
             ShowCardChoice(null, ((char)0xE916).ToString(), "Время вышло", sub, "Ещё раз",
                 delegate { timerRinging = false; timerTotal = total; timerEnd = DateTime.Now + total; RenderCompact(); SetTargets(); },
                 delegate { timerRinging = false; RenderCompact(); SetTargets(); });
@@ -4057,13 +4422,39 @@ namespace Kapsula
             try
             {
                 string full = Demo ? DemoText : Clipboard.ContainsText() ? Clipboard.GetText() : "";   // в демо — выдуманный текст, буфер не читаем
-                string t = full;
-                if (t.Length > 400) t = t.Substring(0, 400);
-                if (textStats != null) textStats.Text = t == "" ? "" : TextTools.Stats(full);
-                textPreview.Text = t == "" ? "Пусто — скопируйте текст" : t;
-                textPreview.Foreground = t == "" ? Dim : Fg;
+                // в буфере одни пробелы и переводы строк (пустая ячейка Excel, пустая строка из редактора) — это тоже «пусто»;
+                // пустые строки в начале не съедают две строки карточки. Счётчик и подсказка — по полному тексту
+                string t = full.Trim();
+                if (t.Length > 400) t = t.Substring(0, char.IsHighSurrogate(t[399]) ? 399 : 400);
+                bool blank = t.Length == 0;
+                if (textStats != null) textStats.Text = blank ? "" : TextTools.Stats(full);
+                if (textStats != null) textStats.ToolTip = textStats.Text.Length > 0 ? textStats.Text : null;   // сократился с «…» — целиком здесь
+                textPreview.Text = blank ? "Пусто — скопируйте текст" : t;
+                textPreview.Foreground = blank ? Dim : Fg;
+                textPreview.ToolTip = null;   // подпись TextSay ушла — снова подсказка карточки
+                if (textCard != null) SetTip(textCard, blank ? null : full);   // в карточке две строки, а весь текст — здесь
             }
             catch { }
+        }
+
+        Border textCard;
+        DispatcherTimer textSayTimer;
+
+        // Ответ кнопок «Текста» («нет текста», «нет ключа», ошибка нейросети) — прямо в карточке текста: надпись на
+        // капсуле под открытой панелью не видна. Через 4 секунды карточка снова показывает буфер. Длинная ошибка —
+        // двумя строками с «…», целиком в подсказке. Панель уже закрыта (ответ нейросети пришёл позже) — надпись на капсуле.
+        void TextSay(string msg)
+        {
+            if (state != 2 || page != PText || textPreview == null) { Toast(((char)0xE783).ToString(), msg, null, -1, null); return; }
+            textPreview.Text = msg;
+            textPreview.Foreground = Dim;
+            textPreview.ToolTip = msg;
+            if (textSayTimer == null)
+            {
+                textSayTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+                textSayTimer.Tick += delegate { textSayTimer.Stop(); RenderTextPreview(); };
+            }
+            textSayTimer.Stop(); textSayTimer.Start();
         }
 
         // ------------------------------------------------------ Заметка
@@ -4085,9 +4476,12 @@ namespace Kapsula
         FrameworkElement BuildNotePage()
         {
             // ---- слева: папки, редактор, панель форматирования
-            noteFolderRow = new StackPanel { Orientation = Orientation.Horizontal, Height = 28 };
+            // ряд вкладок — в одной клетке доски (около 26 точек): вкладки высотой 26, иначе их низ с кромкой срезан
+            noteFolderRow = new StackPanel { Orientation = Orientation.Horizontal, Height = 26 };
             var folders = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = noteFolderRow, Margin = new Thickness(0, 0, 0, 8) };
             folders.PreviewMouseWheel += delegate(object o, MouseWheelEventArgs e) { e.Handled = true; folders.ScrollToHorizontalOffset(folders.HorizontalOffset - e.Delta / 3.0); };
+            // вкладки не влезли — край ряда тает, а не режет вкладку посреди буквы: видно, что ряд листается колесом
+            folders.ScrollChanged += delegate { FadeScrollEdges(folders, false, 24); };
             RenderFolders();
 
             noteRich = new RichTextBox
@@ -4189,16 +4583,25 @@ namespace Kapsula
             start.Margin = new Thickness(0, 8, 0, 0);
             DockPanel.SetDock(start, Dock.Top); col.Children.Add(start);
 
-            var remGrid = new Grid();            var remHint = new TextBlock { Text = "Напомнить: «10 мин чай»", ToolTip = "Например: «через 10 мин чай», «в 18:30 позвонить»", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1) };
+            var remGrid = new Grid();
+            // Подсказка — колокольчик и пример, который понимает Calc.TryReminder («через …»): «10 мин чай» без «через» он не берёт
+            var remHint = new TextBlock { ToolTip = "Например: «через 10 мин чай», «в 18:30 позвонить»", Foreground = Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis };
+            remHint.Inlines.Add(new System.Windows.Documents.Run(((char)0xEA8F).ToString()) { FontFamily = Icons, FontSize = 10.5 });
+            remHint.Inlines.Add(new System.Windows.Documents.Run("  через 10 мин чай"));
             remBox = MakeTextBox(false);
             remBox.FontSize = 12;
             remBox.TextChanged += delegate { remHint.Visibility = remBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
             remBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { AddReminderPhrase(remBox.Text); e.Handled = true; } };
-            remGrid.Children.Add(remHint); remGrid.Children.Add(remBox);            var remCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(12, 0, 12, 0), Height = 30, Margin = new Thickness(0, 8, 0, 0), Child = remGrid, ToolTip = "Примеры: «через 10 мин чай», «в 18:30 созвон», «завтра в 9 позвонить», «каждый день в 23:00 таблетки»" };
+            remGrid.Children.Add(remHint); remGrid.Children.Add(remBox);
+            var remCard = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(15), Padding = new Thickness(12, 0, 12, 0), Height = 30, Margin = new Thickness(0, 8, 0, 0), Child = remGrid, ToolTip = "Примеры: «через 10 мин чай», «в 18:30 созвон», «завтра в 9 позвонить», «каждый день в 23:00 таблетки»" };
             remCard.Background = Ink;   // поле внутри карточки — чуть темнее неё
             DockPanel.SetDock(remCard, Dock.Top); col.Children.Add(remCard);
             remList = new StackPanel();
-            col.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList, Margin = new Thickness(0, 4, 0, 0) });            // конструктор: папки, заметка и таймер
+            var remScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = remList, Margin = new Thickness(0, 4, 0, 0) };
+            // напоминаний больше, чем помещается под полем, — нижний край мягко тает: видно, что список листается
+            remScroll.ScrollChanged += delegate { FadeScrollEdges(remScroll, true, 16); };
+            col.Children.Add(remScroll);
+            // конструктор: папки, заметка и таймер
             var nb = PageBoard(PNote, "note", 11, 9, 8);
             nb.Add("folders", "Папки", folders, 0, 0, 7, 1, false);
             nb.Add("note", "Заметка", noteCard, 0, 1, 7, 8, false);
@@ -4250,7 +4653,8 @@ namespace Kapsula
         {
             try
             {
-                var p = new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run(DateTime.Now.ToString("d MMM, HH:mm", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + text.Trim()));
+                // «16 ноября, 14:05 — …»: месяц словом, как в уведомлениях и календаре (короткий .NET — «16 ноя», «16 май»)
+                var p = new System.Windows.Documents.Paragraph(new System.Windows.Documents.Run(DateTime.Now.ToString("d MMMM, H:mm", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + text.Trim()));
                 p.Margin = new Thickness(0, 0, 0, 4);
                 noteRich.Document.Blocks.Add(p);
                 SaveNote();
@@ -4285,6 +4689,26 @@ namespace Kapsula
 
         int FolderId(int idx) { List<NoteFolder> l = NoteFolders(); return idx >= 0 && idx < l.Count ? l[idx].Id : 0; }
 
+        // Ряд или список без полосы прокрутки: с той стороны, где есть ещё, край мягко тает на len точек (как у бегущей
+        // строки) — видно, что дальше что-то есть, и вкладка или строка не срезана посреди буквы. Звать из ScrollChanged:
+        // он приходит и при прокрутке, и когда меняется содержимое или размер.
+        static void FadeScrollEdges(ScrollViewer sv, bool vertical, double len)
+        {
+            double off = vertical ? sv.VerticalOffset : sv.HorizontalOffset;
+            double max = vertical ? sv.ScrollableHeight : sv.ScrollableWidth;
+            double size = vertical ? sv.ViewportHeight : sv.ViewportWidth;
+            bool before = off > 0.5, after = off < max - 0.5;
+            if (size < 1 || (!before && !after)) { sv.OpacityMask = null; return; }
+            double f = Math.Min(0.4, len / size);
+            var b = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = vertical ? new Point(0, 1) : new Point(1, 0) };
+            b.GradientStops.Add(new GradientStop(before ? Colors.Transparent : Colors.Black, 0));
+            b.GradientStops.Add(new GradientStop(Colors.Black, before ? f : 0));
+            b.GradientStops.Add(new GradientStop(Colors.Black, after ? 1 - f : 1));
+            b.GradientStops.Add(new GradientStop(after ? Colors.Transparent : Colors.Black, 1));
+            b.Freeze();
+            sv.OpacityMask = b;
+        }
+
         void RenderFolders()
         {
             List<NoteFolder> list = NoteFolders();
@@ -4293,16 +4717,18 @@ namespace Kapsula
             for (int i = 0; i < list.Count; i++)
             {
                 int idx = i;
-                var chip = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(13, 0, 13, 1), Margin = new Thickness(0, 0, 4, 0), Cursor = Cursors.Hand, Background = i == noteFolder ? (Brush)Glass.Strong : Brushes.Transparent,
-                    Child = new TextBlock { Text = list[i].Name, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = i == noteFolder ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center } };
+                // длинное имя (до 24 знаков) не растягивает вкладку на весь ряд и не выталкивает «+»: не шире 140, дальше «…»,
+                // целиком — в подсказке
+                var chip = new Border { Height = 26, CornerRadius = new CornerRadius(13), Padding = new Thickness(13, 0, 13, 1), Margin = new Thickness(0, 0, 4, 0), Cursor = Cursors.Hand, Background = i == noteFolder ? (Brush)Glass.Strong : Brushes.Transparent,
+                    Child = new TextBlock { Text = list[i].Name, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = i == noteFolder ? Fg : Dim, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 140, TextTrimming = TextTrimming.CharacterEllipsis } };
                 Ui.Seg(chip, i == noteFolder);
                 chip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (e.ClickCount == 2) RenameFolder(idx); else SelectFolder(idx); };
                 chip.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; FolderMenu(idx, chip); };
-                chip.ToolTip = "Двойной клик — переименовать, правый клик — меню";
+                chip.ToolTip = list[i].Name + "\nДвойной клик — переименовать, правый клик — меню";
                 folderChips[i] = chip;
                 noteFolderRow.Children.Add(chip);
             }
-            var add = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(14), Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Новая вкладка заметок",
+            var add = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Новая вкладка заметок",
                 Child = new TextBlock { Text = ((char)0xE710).ToString(), FontFamily = Icons, FontSize = 11, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             add.MouseEnter += delegate { add.Background = Glass.Hover; };
             add.MouseLeave += delegate { add.Background = Brushes.Transparent; };
@@ -4342,7 +4768,8 @@ namespace Kapsula
             box.KeyDown += delegate(object o, KeyEventArgs e) { if (e.Key == Key.Enter || e.Key == Key.Escape) { e.Handled = true; if (e.Key == Key.Escape) box.Text = ""; commit(); } };
             box.LostKeyboardFocus += delegate { commit(); };
             SetNoActivate(false); Activate();
-            Dispatcher.BeginInvoke(new Action(delegate { box.Focus(); box.SelectAll(); }), DispatcherPriority.Input);
+            // новая вкладка встаёт в конец ряда, часто за краем — ряд доезжает до поля ввода
+            Dispatcher.BeginInvoke(new Action(delegate { box.Focus(); box.SelectAll(); box.BringIntoView(); }), DispatcherPriority.Input);
         }
 
         void FolderMenu(int idx, Border chip)
@@ -4437,6 +4864,7 @@ namespace Kapsula
             if (ringPet != null) ringPet.Mood(timerRinging ? "alarm" : running ? (pomoPhase == 2 ? "tea" : "run") : "idle");
             double frac = running && timerTotal.TotalSeconds > 0 ? Math.Max(0, Math.Min(1, (timerEnd - DateTime.Now).TotalSeconds / timerTotal.TotalSeconds)) : 1;
             ringText.Text = running ? Fmt(timerEnd - DateTime.Now) : timerPreset + ":00";
+            ringText.FontSize = ringText.Text.Length > 5 ? 14 : 18;   // с часа «1:59:59» и «10:00:00» мельче: в отверстии кольца (около 66) не ложатся на дугу
             startLabel.Text = running ? "Стоп" : "Старт";
             ringArc.Opacity = running ? 1 : 0.35;
             // дуга лежит ровно на серой дорожке: центр круга и её радиус (отступ 3 + половина толщины 3)
@@ -4471,6 +4899,18 @@ namespace Kapsula
             Store.Set("reminders", string.Join("¦", parts.ToArray()));
         }
 
+        // Когда сработает напоминание — для строки команд и надписи «Напомню …»: «в 3:40», «завтра в 9:00»,
+        // «18 ноября в 9:00», «каждый день в 23:00»
+        public static string RemindWhen(DateTime at, bool daily)
+        {
+            var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
+            string clock = at.ToString("H:mm", ru);
+            if (daily) return "каждый день в " + clock;
+            if (at.Date == DateTime.Today) return "в " + clock;
+            if (at.Date == DateTime.Today.AddDays(1)) return "завтра в " + clock;
+            return at.ToString("d MMMM", ru) + " в " + clock;
+        }
+
         void AddReminderPhrase(string phrase)
         {
             DateTime at; string text; bool daily;
@@ -4489,21 +4929,32 @@ namespace Kapsula
         void RenderReminders()
         {
             remList.Children.Clear();
+            var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
             foreach (Reminder rr in reminders)
             {
                 Reminder r = rr;
-                var row = new Grid { Height = 30 };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                // Время и текст — одним абзацем до двух строк: в узкой карточке отдельная колонка времени забирала
+                // половину ширины, и текст обрывался через десяток букв. Строка растёт под вторую строку текста.
+                var row = new Grid { MinHeight = 30 };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-                string when = r.Daily ? "ежедн. " + r.At.ToString("HH:mm") : (r.At.Date == DateTime.Today ? r.At.ToString("HH:mm") : r.At.ToString("dd.MM HH:mm"));
-                row.Children.Add(new TextBlock { Text = when, Foreground = accent, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0) });
-                var t = new TextBlock { Text = r.Text, Foreground = Fg, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-                Grid.SetColumn(t, 1); row.Children.Add(t);
+                // время как на всём острове: «9:00», «завтра, 9:00», «16 ноября, 9:00»; ежедневное — значок повтора и время
+                string clock = r.At.ToString("H:mm", ru);
+                bool today = r.At.Date == DateTime.Today, tomorrow = r.At.Date == DateTime.Today.AddDays(1);
+                string when = r.Daily || today ? clock : tomorrow ? "завтра, " + clock : r.At.ToString("d MMMM, H:mm", ru);
+                string whenFull = r.Daily ? "Каждый день в " + clock : today ? "Сегодня в " + clock : tomorrow ? "Завтра в " + clock : r.At.ToString("d MMMM", ru) + " в " + clock;
+                var t = new TextBlock { Foreground = Fg, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 6, 0, 6) };
+                if (r.Daily) t.Inlines.Add(new System.Windows.Documents.Run(((char)0xE8EE).ToString()) { FontFamily = Icons, FontSize = 9.5, Foreground = accent });
+                // неразрывные пробелы: дата и время не расходятся по разным строкам
+                string nbsp = ((char)0xA0).ToString();
+                t.Inlines.Add(new System.Windows.Documents.Run((r.Daily ? nbsp : "") + when.Replace(" ", nbsp)) { Foreground = accent, FontWeight = FontWeights.SemiBold });
+                t.Inlines.Add(new System.Windows.Documents.Run(" " + r.Text));
+                Ui.Lines(t, 2);
+                row.Children.Add(t);
                 var x = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = "Удалить", Child = new TextBlock { Text = "", FontFamily = Icons, FontSize = 8.5, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
                 x.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; reminders.Remove(r); SaveReminders(); RenderReminders(); };
-                Grid.SetColumn(x, 2); row.Children.Add(x);
-                remList.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, Margin = new Thickness(0, 0, 0, 4), Child = row, ToolTip = r.Text });
+                Grid.SetColumn(x, 1); row.Children.Add(x);
+                remList.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, Margin = new Thickness(0, 0, 0, 4), Child = row, ToolTip = whenFull + " — " + r.Text });
             }
         }
 
@@ -4519,8 +4970,10 @@ namespace Kapsula
             List<Reminder> dueList = reminders.FindAll(delegate(Reminder r) { return r.At <= now; });
             if (dueList.Count == 0) return;
             var texts = new List<string>();
+            DateTime firstAt = now;
             foreach (Reminder due in dueList)
             {
+                if (texts.Count == 0) firstAt = due.At;   // на какое время было назначено (до переноса ежедневного на завтра)
                 if (due.Daily) { while (due.At <= now) due.At = due.At.AddDays(1); }
                 else reminders.Remove(due);
                 texts.Add(due.Text);
@@ -4530,7 +4983,13 @@ namespace Kapsula
             RenderReminders();
             System.Media.SystemSounds.Exclamation.Play();
             cardCarryNext = "bell";   // напоминание зверёк приносит с колокольчиком и звонит в него
-            ShowCardEx(null, "", texts.Count == 1 ? "Напоминание" : "Напоминания (" + texts.Count + ")", string.Join(" · ", texts.ToArray()), delegate { }, "+10 мин", delegate
+            // Само напоминание — заголовком (до двух строк), а не тусклой подписью под общим «Напоминание»;
+            // несколько — каждое своей строкой, что не влезло — в подсказке. Без текста («через 10 мин») заголовок
+            // и так «Напоминание» — под ним только время, а не «Напоминание · 14:05» второй раз
+            string remOne = texts.Count == 1 && !string.IsNullOrWhiteSpace(texts[0]) ? texts[0] : "Напоминание";
+            string remAt = firstAt.ToString("H:mm", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"));
+            ShowCardEx(null, "", texts.Count == 1 ? remOne : "Напоминания: " + texts.Count,
+                texts.Count == 1 ? (remOne == "Напоминание" ? remAt : "Напоминание · " + remAt) : string.Join("\n", texts.ToArray()), delegate { }, "+10 мин", delegate
             {
                 foreach (string tx in texts) reminders.Add(new Reminder { At = DateTime.Now.AddMinutes(10), Text = tx });
                 reminders.Sort(delegate(Reminder a, Reminder b) { return a.At.CompareTo(b.At); });
@@ -4573,13 +5032,26 @@ namespace Kapsula
             skyB = new GradientStop(Color.FromRgb(0x6C, 0xC4, 0xF2), 1);
             var skyBrush = new LinearGradientBrush { StartPoint = new Point(0.2, 0), EndPoint = new Point(0.8, 1) };
             skyBrush.GradientStops.Add(skyA); skyBrush.GradientStops.Add(skyB);
+            // Две строки: сверху город, значок, температура и описание, снизу — сводка и источник. Низ — в своей строке
+            // и не ложится на текст, даже когда город или описание переносятся на вторую строку.
             var sky = new Grid { Margin = new Thickness(16, 14, 14, 12) };
+            sky.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            sky.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var skyTop = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
-            wCity = new TextBlock { Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 100, VerticalAlignment = VerticalAlignment.Center };
-            var cityRow = new StackPanel { Orientation = Orientation.Horizontal, Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Сменить город", HorizontalAlignment = HorizontalAlignment.Left };
-            cityRow.Children.Add(new TextBlock { Text = ((char)0xE81D).ToString(), FontFamily = Icons, FontSize = 11, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 5, 0) });
-            cityRow.Children.Add(wCity);
-            cityRow.Children.Add(new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Brushes.White, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 2, 0, 0) });
+            // Город — до двух строк («Петропавловск-» / «Камчатский»), а не «Санкт-Петерб…»; булавка и стрелка стоят
+            // у первой строки, полное название — в подсказке (FillWeather)
+            wCity = new TextBlock { Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold };
+            Ui.Lines(wCity, 2);
+            var cityRow = new Grid { Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "Сменить город", HorizontalAlignment = HorizontalAlignment.Left };
+            cityRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            cityRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            cityRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            cityRow.Children.Add(new Border { Height = wCity.LineHeight, VerticalAlignment = VerticalAlignment.Top,
+                Child = new TextBlock { Text = ((char)0xE81D).ToString(), FontFamily = Icons, FontSize = 11, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 5, 0) } });
+            Grid.SetColumn(wCity, 1); cityRow.Children.Add(wCity);
+            var cityChevron = new Border { Height = wCity.LineHeight, VerticalAlignment = VerticalAlignment.Top,
+                Child = new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Brushes.White, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 2, 0, 0) } };
+            Grid.SetColumn(cityChevron, 2); cityRow.Children.Add(cityChevron);
             cityRow.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e)
             {
                 e.Handled = true;
@@ -4588,22 +5060,31 @@ namespace Kapsula
                 if (weatherSearchOpen) { SetNoActivate(false); Activate(); Dispatcher.BeginInvoke(new Action(delegate { cityBox.Focus(); cityBox.SelectAll(); }), DispatcherPriority.Input); }
             };
             skyTop.Children.Add(cityRow);
-            wIconHost = new Border { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-4, 10, 0, 0), Height = 48 };
-            skyTop.Children.Add(wIconHost);
-            wTemp = new TextBlock { Foreground = Brushes.White, FontSize = 52, FontWeight = FontWeights.Light, Margin = new Thickness(-3, -2, 0, -6) };
-            wDesc = new TextBlock { Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, LineHeight = 17, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };   // «Переменная облачность» — в две строки, а не обрезком
+            // крупный значок погоды, справа от него — зверёк (на строке города он заслонял бы название)
+            var iconRow = new Grid { Margin = new Thickness(0, 6, 0, 0), Height = 48 };
+            wIconHost = new Border { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-4, 0, 0, 0), Height = 48 };
+            iconRow.Children.Add(wIconHost);
+            skyTop.Children.Add(iconRow);
+            // строка высотой 60 вместо 69 у шрифта 52: цифры те же, а под город и описание в две строки остаётся место
+            wTemp = new TextBlock { Foreground = Brushes.White, FontSize = 52, FontWeight = FontWeights.Light, Margin = new Thickness(-3, -2, 0, -6), LineStackingStrategy = LineStackingStrategy.BlockLineHeight, LineHeight = 60 };
+            wDesc = new TextBlock { Foreground = Brushes.White, FontSize = 14, FontWeight = FontWeights.SemiBold, LineHeight = 17 };
+            Ui.Lines(wDesc, 2);   // «Переменная облачность» — в две строки, а не обрезком
             wFeels = new TextBlock { Foreground = Brushes.White, Opacity = 0.85, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) };
             wHiLo = new TextBlock { Foreground = Brushes.White, Opacity = 0.85, FontSize = 11.5 };
+            Ui.Lines(wFeels, 2); Ui.Lines(wHiLo, 2);   // «Днём −12° · ночью −21°» широким шрифтом — второй строкой, а не за край карточки (если есть место — см. fitSky)
             skyTop.Children.Add(wTemp); skyTop.Children.Add(wDesc); skyTop.Children.Add(wFeels); skyTop.Children.Add(wHiLo);
             sky.Children.Add(skyTop);
             wPet = new PetView(2.2, new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1E)));
             wPet.Context = "weather";
-            wPet.Root.HorizontalAlignment = HorizontalAlignment.Right; wPet.Root.VerticalAlignment = VerticalAlignment.Top;
+            wPet.Root.HorizontalAlignment = HorizontalAlignment.Right; wPet.Root.VerticalAlignment = VerticalAlignment.Center;
             wPet.Root.Margin = new Thickness(0, 0, -2, 0);
-            sky.Children.Add(wPet.Root);
-            var skyBottom = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
-            wSummary = new TextBlock { Foreground = Brushes.White, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, LineHeight = 15 };
-            skyBottom.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0x2E, 0, 0, 0)), CornerRadius = new CornerRadius(11), Padding = new Thickness(10, 7, 10, 8), Child = wSummary });
+            iconRow.Children.Add(wPet.Root);
+            var skyBottom = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 6, 0, 0) };
+            Grid.SetRow(skyBottom, 1);
+            wSummary = new TextBlock { Foreground = Brushes.White, FontSize = 11.5, LineHeight = 15 };
+            Ui.Lines(wSummary, 2);
+            // поля по бокам 7: «Сутки без осадков» и «Дождь около 15:00» и моноширинным, и рукописным шрифтом — одной строкой
+            skyBottom.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0x2E, 0, 0, 0)), CornerRadius = new CornerRadius(11), Padding = new Thickness(7, 6, 7, 6), Child = wSummary });
             // внизу: источник данных и круглая кнопка «обновить» (крутится, пока погода загружается)
             var foot = new Grid { Margin = new Thickness(0, 6, 0, 0) };
             wCredit = new TextBlock { Text = "Данные Open-Meteo", Foreground = Brushes.White, Opacity = 0.55, FontSize = 9.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) };
@@ -4625,6 +5106,41 @@ namespace Kapsula
             foot.Children.Add(refresh);
             skyBottom.Children.Add(foot);
             sky.Children.Add(skyBottom);
+            // Небо — блок постоянной высоты (шесть клеток сетки). «Ощущается», «днём · ночью» и сводка переносятся на вторую
+            // строку, пока всё помещается; широкий шрифт или длинный город — и вторые строки по одной уходят (сначала у сводки,
+            // потом у «днём · ночью», потом у «ощущается»): такая строка кончается «…», целиком она в подсказке. Все три
+            // в одну строку помещаются при любом шрифте (высота строк задана), поэтому посреди букв ничего не срезается.
+            TextBlock[] skyFit = { wSummary, wHiLo, wFeels };
+            SizeChangedEventHandler fitSky = delegate
+            {
+                if (sky.ActualHeight < 1) return;
+                // oneLine — сколько первых строк из skyFit ужато в одну; 0 — все до двух
+                for (int oneLine = 0; oneLine <= skyFit.Length; oneLine++)
+                {
+                    for (int k = 0; k < skyFit.Length; k++)
+                    {
+                        Ui.Lines(skyFit[k], k < oneLine ? 1 : 2);
+                        // мерить заново всю цепочку от строки до неба: иначе Measure с тем же местом вернул бы прежний размер
+                        for (DependencyObject d = skyFit[k]; d != null && d != sky; d = VisualTreeHelper.GetParent(d))
+                        {
+                            UIElement u = d as UIElement;
+                            if (u != null) u.InvalidateMeasure();
+                        }
+                    }
+                    if (oneLine == skyFit.Length) break;   // все три в одну строку помещаются всегда
+                    skyTop.Measure(new Size(sky.ActualWidth, double.PositiveInfinity));
+                    skyBottom.Measure(new Size(sky.ActualWidth, double.PositiveInfinity));
+                    if (skyTop.DesiredSize.Height + skyBottom.DesiredSize.Height <= sky.ActualHeight + 0.5) break;
+                }
+            };
+            // сменились текст, шрифт острова или размер — строки подбираются заново
+            sky.SizeChanged += fitSky; skyTop.SizeChanged += fitSky; skyBottom.SizeChanged += fitSky;
+            foreach (TextBlock tipSrc in skyFit)
+            {
+                TextBlock tipTb = tipSrc;
+                // подсказка с полным текстом — только у строки, которая не влезла
+                tipTb.ToolTipOpening += delegate(object o, ToolTipEventArgs e) { if (!TextCut(tipTb, tipTb.ActualWidth + tipTb.Margin.Left + tipTb.Margin.Right)) e.Handled = true; };
+            }
             var skyCard = new Border { Background = skyBrush, CornerRadius = new CornerRadius(22), Child = sky };
 
             // ---- справа: прогноз и приборы
@@ -4773,7 +5289,11 @@ namespace Kapsula
             g.Children.Add(new TextBlock { Text = label.ToUpper(), Foreground = Faint, FontSize = 9.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Top });
             var bottom = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom };
             value = new TextBlock { Foreground = Fg, FontSize = 17, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-            sub = new TextBlock { Foreground = Dim, FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            sub = new TextBlock { Foreground = Dim, FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0) };
+            // подстрочка — до двух строк («опасный · завтра 11» целиком, а не «…завтра 1…»): стопка растёт вверх и
+            // помещается в плитку; подсказка повторяет текст, даже когда он меняется
+            Ui.Lines(sub, 2);
+            sub.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding("Text") { RelativeSource = System.Windows.Data.RelativeSource.Self });
             bottom.Children.Add(value); bottom.Children.Add(sub);
             g.Children.Add(bottom);
             var vb = new Viewbox { Height = 34, Child = gauge, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 6, 0, 0) };
@@ -4786,6 +5306,7 @@ namespace Kapsula
             Color[] sky = Weather.Sky(weather.Code, weather.IsDay);
             skyA.Color = sky[0]; skyB.Color = sky[1];
             wCity.Text = weather.City;
+            wCity.ToolTip = weather.City + "\nКлик — сменить город";   // длинное название — целиком
             if (wIconHost != null) wIconHost.Child = WeatherArt.Icon(weather.Code, weather.IsDay, 48);
             wDesc.Text = Weather.Describe(weather.Code);
             if (wSummary != null) wSummary.Text = WeatherSummary(weather);
@@ -4797,17 +5318,28 @@ namespace Kapsula
             }
             wFeels.Text = "Ощущается как " + Weather.Temp(weather.Feels);
             wHiLo.Text = "Днём " + Weather.Temp(weather.Max) + " · ночью " + Weather.Temp(weather.Min);
-            // солнце: ближайшее событие крупно, оба времени в подстрочке
+            // в тесной карточке эти строки бывают сокращены «…» — целиком в подсказке (показывается, только если сокращены)
+            wFeels.ToolTip = wFeels.Text; wHiLo.ToolTip = wHiLo.Text;
+            if (wSummary != null) wSummary.ToolTip = wSummary.Text;
+            // солнце: ближайшее событие крупно, оба времени в подстрочке. Запасной прогноз (MET Norway) восхода
+            // и заката не знает — тогда прочерк и «нет данных», а не пустая плитка с «восход завтра»
             TimeSpan sr, ss;
+            bool hasSun = !string.IsNullOrEmpty(weather.Sunrise) && !string.IsNullOrEmpty(weather.Sunset);
             bool beforeSet = TimeSpan.TryParse(weather.Sunset, out ss) && DateTime.Now.TimeOfDay < ss;
             bool beforeRise = TimeSpan.TryParse(weather.Sunrise, out sr) && DateTime.Now.TimeOfDay < sr;
-            wSun.Text = beforeRise ? weather.Sunrise : beforeSet ? weather.Sunset : weather.Sunrise;
-            wSunSub.Text = beforeRise ? "восход" : beforeSet ? "закат" : "восход завтра";
-            wHumSub.Text = "Точка росы " + Weather.Temp(Math.Round(weather.DewPoint));
+            wSun.Text = hasSun ? (beforeRise ? weather.Sunrise : beforeSet ? weather.Sunset : weather.Sunrise) : "—";
+            wSunSub.Text = hasSun ? (beforeRise ? "восход" : beforeSet ? "закат" : "восход завтра") : "нет данных";
+            wHumSub.Text = "точка росы " + Weather.Temp(Math.Round(weather.DewPoint));
             wPresSub.Text = weather.PressureTrend > 0.4 ? "↑ растёт" : weather.PressureTrend < -0.4 ? "↓ падает" : "→ стабильно";
-            wRainSub.Text = weather.RainMm > 0.05 ? weather.RainMm.ToString("0.#") + " мм за сутки" : "без осадков";
+            // осадки — за сегодняшний день («сутки» в сводке неба — это 24 часа вперёд, и вместе они спорили бы);
+            // десятичная запятая — и при английском формате чисел в Windows
+            var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
+            wRainSub.Text = weather.RainMm > 0.05 ? weather.RainMm.ToString("0.#", ru) + " мм сегодня" : weather.RainProb > 0 ? "0 мм сегодня" : "сегодня без осадков";
             wUvSub.Text = (weather.Uv < 3 ? "низкий" : weather.Uv < 6 ? "средний" : weather.Uv < 8 ? "высокий" : "опасный") + (weather.UvTomorrow >= 0 ? " · завтра " + Math.Round(weather.UvTomorrow) : "");
-            wWindSub.Text = Weather.WindName(weather.WindDir);
+            // штиль (меньше 0,3 м/с): у ветра нет направления — ни буквы стороны света, ни стрелки на компасе
+            bool calm = weather.Wind < 0.3;
+            wWindSub.Text = calm ? "штиль" : Weather.WindName(weather.WindDir);
+            if (gCompass != null) foreach (UIElement part in gCompass.Children) if (part.RenderTransform == gNeedle) part.Visibility = calm ? Visibility.Hidden : Visibility.Visible;
             RenderForecast();
             weatherAnimAt = Environment.TickCount | 1;
             AnimateWeather();
@@ -4820,11 +5352,12 @@ namespace Kapsula
             double t = weatherAnimAt == 0 ? 1 : Math.Min(1, unchecked(Environment.TickCount - weatherAnimAt) / 750.0);
             double e = 1 - Math.Pow(1 - t, 3);
             wTemp.Text = Weather.Temp(Math.Round(weather.Temp * e) + 0.0);
-            wWind.Text = (weather.Wind * e).ToString("0.0") + " м/с";
+            var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");   // «4,2 м/с» с запятой и в английской Windows
+            wWind.Text = weather.Wind < 0.3 ? "0 м/с" : (weather.Wind * e).ToString("0.0", ru) + " м/с";   // штиль — «0», а не «0,0»
             wHum.Text = Math.Round(weather.Humidity * e) + "%";
             wPres.Text = Math.Round(weather.Pressure * e) + " мм";
-            wUv.Text = (weather.Uv * e).ToString("0.#");
-            wRain.Text = Math.Round(weather.RainProb * e) + "%";
+            wUv.Text = (weather.Uv * e).ToString("0.#", ru);
+            wRain.Text = weather.RainProb < 0 ? "—" : Math.Round(weather.RainProb * e) + "%";   // −1 — вероятность неизвестна (MET Norway её не даёт)
             if (gHum != null)
             {
                 // Приборы оживают вместе с цифрами
@@ -4944,26 +5477,27 @@ namespace Kapsula
             icon.Margin = new Thickness(0, 3, 0, 3);
             icon.HorizontalAlignment = HorizontalAlignment.Center;
             sp.Children.Add(icon);
-            var t = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
-            t.Inlines.Add(new System.Windows.Documents.Run(temp) { Foreground = Fg });
-            if (low != null) t.Inlines.Add(new System.Windows.Documents.Run(" " + low) { Foreground = Dim, FontWeight = FontWeights.Normal, FontSize = 11 });
-            sp.Children.Add(t);
+            sp.Children.Add(new TextBlock { Text = temp, Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            // ночная — своей строкой под дневной: «−15° −22°» в одну строку не влезает в колонку недели (около 49 точек)
+            if (low != null) sp.Children.Add(new TextBlock { Text = low, Foreground = Dim, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -1, 0, 0) });
             return now ? (FrameworkElement)new Border { Background = Glass.Fill, CornerRadius = new CornerRadius(12), Margin = new Thickness(1, 0, 1, 0), Child = sp } : sp;
         }
 
         void RenderWeather()
         {
             bool ok = weather != null && weather.Error == null;
-            if (wCredit != null) wCredit.Text = "Данные " + (ok ? weather.Source : "Open-Meteo");
+            if (wCredit != null) wCredit.Text = !ok ? "Данные Open-Meteo" : weather.Source == "демо" ? "Демо-данные" : "Данные " + weather.Source;
             if (weatherSearch != null) weatherSearch.Visibility = !ok || weatherSearchOpen ? Visibility.Visible : Visibility.Collapsed;
             weatherGrid.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
+            if (pages != null) ApplyPageExtra();   // поиск города открыли или закрыли — панель растёт или возвращается (PageExtra); вкладки ещё строятся — pages пуст
             weatherBody.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
             weatherBody.Children.Clear();
             if (weather == null || weather.Error != null)
             {
                 string msg = weather != null ? weather.Error : "Введите город и нажмите «Показать».\nТолько после этого приложение обратится в сеть — к open-meteo.com (если он недоступен — к OpenStreetMap и MET Norway).";
-                weatherBody.Children.Add(PetSpot(weather != null ? "sad" : "idle", 18, 10, "weather"));   // пустая погода — тоже со зверьком, как остальные пустые списки
-                weatherBody.Children.Add(new TextBlock { Text = msg, Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, Margin = new Thickness(0, 60, 0, 0), LineHeight = 20 });
+                // пустая погода — тоже со зверьком, как остальные пустые списки: подпись в 12 точках под ним, а не далеко внизу
+                weatherBody.Children.Add(PetSpot(weather != null ? "sad" : "idle", 60, 12, "weather"));
+                weatherBody.Children.Add(new TextBlock { Text = msg, Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 440, LineHeight = 20 });
                 return;
             }
             FillWeather();
@@ -5017,18 +5551,27 @@ namespace Kapsula
             for (int i = 0; i < sysTiles.Length; i++)
             {
                 Tile tl = sysTiles[i];
-                tl.Compact(); tl.Label.FontSize = 11.5; tl.Label.MaxWidth = 110;
+                // Подпись — сколько её помещается справа от значка (плитка 131: кромка 2, поля 10, значок 24, отступ 7),
+                // до двух строк по 15 («Микрофон» / «выключен»), а не обрезок по букве у края плитки.
+                // Подсказка плитки повторяет подпись, даже когда та меняется (RenderControl, RenderSystem, Arm)
+                tl.Compact(); tl.Label.FontSize = 11.5; tl.Label.MaxWidth = sb.CellW - 43; tl.Label.LineHeight = 15;
+                Ui.Lines(tl.Label, 2);
+                tl.Root.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding("Text") { Source = tl.Label });
                 sb.Add(sysIds[i], tl.Label.Text, tl.Root, i % 4, i / 4, 1, 1, false);
             }
 
             var stats = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(16, 8, 16, 8) };
             // процессор и память — в одну строку, чтобы над ними поместились яркость и питание
             var rows = new UniformGrid { Rows = 1, Columns = 2 };
-            double statW = (PageW - 32 - 24) / 2 - 96 - 48 + 4 - (BatteryPresent() ? 38 : 0) - 19;   // у ноутбука справа — заряд батареи, за ним чашка «Не засыпать»
+            // полоса: половина ширины минус подпись 76, отступ «Памяти» 20 и проценты 48; у ноутбука справа — заряд батареи, за ним чашка «Не засыпать»
+            double statW = (PageW - 32 - 24) / 2 - 76 - 20 - 48 + 4 - (BatteryPresent() ? 38 : 0) - 19;
             cpuBar = new Bar(statW, 5, accent, 22);
             ramBar = new Bar(statW, 5, new SolidColorBrush(Color.FromRgb(0x5A, 0xA9, 0xFF)), 22);
             rows.Children.Add(StatRow("Процессор", cpuBar, out cpuText));
-            rows.Children.Add(StatRow("Память", ramBar, out ramText));
+            // «Память» отодвинута от процентов процессора: «25%» читается как его, а не как подпись к памяти
+            var ramRow = StatRow("Память", ramBar, out ramText);
+            ramRow.Margin = new Thickness(20, 0, 0, 0);
+            rows.Children.Add(ramRow);
             var statsRow = new Grid();
             statsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             statsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -5076,7 +5619,9 @@ namespace Kapsula
             DockPanel.SetDock(btFoot, Dock.Bottom);
             btPanel.Children.Add(btFoot);
             btList = new StackPanel();
-            btPanel.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = btList });
+            var btScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = btList };
+            btScroll.ScrollChanged += delegate { FadeScrollEdges(btScroll, true, 16); };   // длинный список — край тает, а не режет строку
+            btPanel.Children.Add(btScroll);
             page.Children.Add(btPanel);
 
             // Панель Wi-Fi: список сетей, подключение с паролем, не открывая параметры Windows
@@ -5114,7 +5659,9 @@ namespace Kapsula
             DockPanel.SetDock(wfoot, Dock.Bottom);
             wifiPanel.Children.Add(wfoot);
             wifiList = new StackPanel();
-            wifiPanel.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = wifiList });
+            var wifiScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = wifiList };
+            wifiScroll.ScrollChanged += delegate { FadeScrollEdges(wifiScroll, true, 16); };   // сетей в доме много — край тает, а не режет строку
+            wifiPanel.Children.Add(wifiScroll);
             page.Children.Add(wifiPanel);
             return page;
         }
@@ -5177,8 +5724,21 @@ namespace Kapsula
                 char sig = (char)(net.Signal >= 80 ? 0xE701 : net.Signal >= 55 ? 0xE874 : net.Signal >= 30 ? 0xE873 : 0xE872);
                 row.Children.Add(new TextBlock { Text = sig.ToString(), FontFamily = Icons, FontSize = 17, Foreground = net.Connected ? accent : Fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
                 var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                texts.Children.Add(new TextBlock { Text = net.Ssid + (net.Secure ? "  " + ((char)0xE72E) : ""), FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI, Segoe MDL2 Assets"), Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-                texts.Children.Add(new TextBlock { Text = net.Connected ? "Подключено" : net.Known ? "Сохранённая сеть" : net.Secure ? "Защищённая" : "Открытая", Foreground = Faint, FontSize = 11 });
+                // Имя сети — до двух строк шрифтом острова; замок — своей колонкой сразу за именем, «…» его не съедает
+                var nameRow = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+                nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var ssid = new TextBlock { Text = net.Ssid, Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, ToolTip = net.Ssid };
+                Ui.Lines(ssid, 2);
+                nameRow.Children.Add(ssid);
+                if (net.Secure)
+                {
+                    var lockGlyph = new TextBlock { Text = ((char)0xE72E).ToString(), FontFamily = Icons, FontSize = 11, Foreground = Dim, Margin = new Thickness(6, 3, 0, 0), VerticalAlignment = VerticalAlignment.Top, ToolTip = "Сеть с паролем" };
+                    Grid.SetColumn(lockGlyph, 1); nameRow.Children.Add(lockGlyph);
+                }
+                texts.Children.Add(nameRow);
+                // одним складом: «Подключено» · «Сохранено» · «Защищено» · «Без пароля»
+                texts.Children.Add(new TextBlock { Text = net.Connected ? "Подключено" : net.Known ? "Сохранено" : net.Secure ? "Защищено" : "Без пароля", Foreground = Faint, FontSize = 11 });
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
                 var act = Btn(net.Connected ? "Отключить" : "Подключить", false, 0, 28, delegate
                 {
@@ -5190,7 +5750,7 @@ namespace Kapsula
                 act.Margin = new Thickness(10, 0, 12, 0); act.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(act, 2); row.Children.Add(act);
                 var box = new StackPanel();
-                box.Children.Add(new Border { Height = 50, Child = row });
+                box.Children.Add(new Border { MinHeight = 50, Padding = new Thickness(0, 5, 0, 5), Child = row });   // имя в две строки — строка растёт
                 if (wifiAsk == net.Ssid)
                 {
                     // поле пароля прямо под сетью
@@ -5199,7 +5759,7 @@ namespace Kapsula
                     pwRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     pwRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     pwRow.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 0, 10, 0), Child = pw, ToolTip = "Пароль сети" });
-                    var go = Btn("Войти", false, 0, 34, delegate { ConnectWifi(net, pw.Password); });
+                    var go = Btn("Подключиться", false, 0, 34, delegate { ConnectWifi(net, pw.Password); });
                     go.Margin = new Thickness(8, 0, 0, 0);
                     Grid.SetColumn(go, 1); pwRow.Children.Add(go);
                     pw.KeyDown += delegate(object o, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; ConnectWifi(net, pw.Password); } };
@@ -5269,12 +5829,14 @@ namespace Kapsula
 
         void RenderControl()
         {
-            netTile.Label.Text = control.HasWifi ? (control.WifiOn == true ? (control.NetUp && control.NetName == "Wi-Fi" ? "Wi-Fi" : "Wi-Fi вкл") : "Wi-Fi выкл") : (control.NetUp ? control.NetName : "Нет сети");
+            // словами целиком, без «вкл/выкл»: подпись плитки переносится на вторую строку («Wi-Fi не» / «подключён»)
+            netTile.Label.Text = control.HasWifi ? (control.WifiOn == true ? (control.NetUp && control.NetName == "Wi-Fi" ? "Wi-Fi" : "Wi-Fi не подключён") : "Wi-Fi выключен") : (control.NetUp ? control.NetName : "Нет сети");
             netTile.Glyph.Text = control.HasWifi ? "" : "";
             netTile.SetActive(control.HasWifi ? control.WifiOn == true : control.NetUp);
             btTile.SetActive(control.BtOn == true);
             int connected = control.Bt.FindAll(delegate(BtDevice b) { return b.Connected; }).Count;
-            btTile.Label.Text = control.BtOn == null ? "Bluetooth нет" : (connected > 0 ? "Bluetooth · " + connected : "Bluetooth");
+            // «Bluetooth · 1 устройство», а не загадочное «Bluetooth · 1» (Plural не отрывает число от слова при переносе)
+            btTile.Label.Text = control.BtOn == null ? "Нет Bluetooth" : (connected > 0 ? "Bluetooth · " + Plural(connected, "устройство", "устройства", "устройств") : "Bluetooth");
             vpnTile.SetActive(control.VpnOn == true);
             vpnTile.Label.Text = control.VpnOn == null ? "VPN не найден" : (control.VpnOn == true ? "VPN включён" : "VPN");
             if (btPanel.Visibility == Visibility.Visible) RenderBt();
@@ -5293,11 +5855,14 @@ namespace Kapsula
 
         void RenderBt()
         {
-            btSwitchLabel.Text = control.BtOn == null ? "Нет модуля" : (control.BtOn == true ? "Включён" : "Выключен");
+            // Bluetooth в компьютере нет вовсе (Radios.Get вернул null): переключать нечего — переключателя нет,
+            // а в списке так и сказано, а не «выключен»
+            btSwitch.Visibility = control.BtOn == null ? Visibility.Collapsed : Visibility.Visible;
+            btSwitchLabel.Text = control.BtOn == true ? "Включён" : "Выключен";
             btList.Children.Clear();
             if (control.Bt.Count == 0)
             {
-                btList.Children.Add(new TextBlock { Text = control.BtOn == true ? "Связанных наушников и колонок не найдено" : "Bluetooth выключен", Foreground = Dim, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 70, 0, 0) });
+                btList.Children.Add(new TextBlock { Text = control.BtOn == null ? "На этом компьютере нет Bluetooth" : control.BtOn == true ? "Связанных наушников и колонок не найдено" : "Bluetooth выключен", Foreground = Dim, FontSize = 13, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(20, 70, 20, 0) });
                 return;
             }
             foreach (BtDevice bd in control.Bt)
@@ -5308,12 +5873,21 @@ namespace Kapsula
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 17, Foreground = dev.Connected ? accent : Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-                var name = new TextBlock { Text = dev.Name, Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                // переименованные устройства бывают длинными — имя до двух строк, целиком в подсказке
+                var name = new TextBlock { Text = dev.Name, Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, ToolTip = dev.Name };
+                Ui.Lines(name, 2);
                 Grid.SetColumn(name, 1); row.Children.Add(name);
                 int bat = control.BtBattery != null && control.BtBattery.ContainsKey(dev.Name) ? control.BtBattery[dev.Name] : -1;
-                var status = new TextBlock { Text = dev.Connected ? (bat >= 0 ? "Подключено · " + bat + "%" : "Подключено") : "Подключить", Foreground = dev.Connected ? accent : Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 16, 0) };
+                var status = new TextBlock { Text = dev.Connected ? (bat >= 0 ? "Подключено · " : "Подключено") : "Подключить", Foreground = dev.Connected ? accent : Dim, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 16, 0) };
+                if (dev.Connected && bat >= 0)
+                {
+                    // заряд — как у батареи компьютера: 20% и меньше — красным, «5%» цветом «всё хорошо» не пишем
+                    var pct = new System.Windows.Documents.Run(bat + "%");
+                    if (bat <= 20) pct.Foreground = RecRed;
+                    status.Inlines.Add(pct);
+                }
                 Grid.SetColumn(status, 2); row.Children.Add(status);
-                var b = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, Height = 48, Margin = new Thickness(0, 0, 0, 6), Child = row, Cursor = Cursors.Hand };
+                var b = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = Ui.Row, MinHeight = 48, Padding = new Thickness(0, 5, 0, 5), Margin = new Thickness(0, 0, 0, 6), Child = row, Cursor = Cursors.Hand };
                 b.MouseEnter += delegate { b.Background = Glass.Hover; };
                 b.MouseLeave += delegate { b.Background = Glass.Fill; };
                 b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
@@ -5327,7 +5901,7 @@ namespace Kapsula
                         Thread.Sleep(3500);
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
-                            if (!ok) Toast("", "Не удалось: " + dev.Name, null, -1, null);
+                            if (!ok) Toast("", (connect ? "Не удалось подключить " : "Не удалось отключить ") + Ui.MiddleEllipsis(dev.Name, 28), null, -1, null);
                             RefreshControl();
                         }));
                     });
@@ -5339,7 +5913,8 @@ namespace Kapsula
         FrameworkElement StatRow(string label, Bar bar, out TextBlock value)
         {
             var r = new StackPanel { Orientation = Orientation.Horizontal, Height = 24 };
-            r.Children.Add(new TextBlock { Text = label, Foreground = Dim, FontSize = 12.5, Width = 96, VerticalAlignment = VerticalAlignment.Center });
+            // 76 — «Процессор» с запасом; шире — и проценты процессора прилипали к подписи «Память» соседней колонки
+            r.Children.Add(new TextBlock { Text = label, Foreground = Dim, FontSize = 12.5, Width = 76, VerticalAlignment = VerticalAlignment.Center });
             r.Children.Add(bar.Root);
             value = new TextBlock { Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Width = 48, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             r.Children.Add(value);
@@ -5418,14 +5993,14 @@ namespace Kapsula
         {
             const uint CA = 0x1 | 0x2; // Alt + Ctrl
             Hots.Clear();
-            Hots.Add(new Hot { Id = 4, Key = "cmd", Name = "Командная строка", DefMods = 0x1, DefVk = 0x20, Run = ToggleCommand });
+            Hots.Add(new Hot { Id = 4, Key = "cmd", Name = "Строка команд", DefMods = 0x1, DefVk = 0x20, Run = ToggleCommand });
             Hots.Add(new Hot { Id = 1, Key = "area", Name = "Снимок области с разметкой", DefMods = CA, DefVk = 0x53, Run = delegate { StartSnip(false); } });
             Hots.Add(new Hot { Id = 2, Key = "full", Name = "Снимок всего экрана", DefMods = CA | 0x4, DefVk = 0x53, Run = FullShot });
             Hots.Add(new Hot { Id = 3, Key = "color", Name = "Пипетка", DefMods = CA, DefVk = 0x43, Run = delegate { StartSnip(true); } });
             Hots.Add(new Hot { Id = 11, Key = "ocr", Name = "Текст с экрана", DefMods = CA, DefVk = 0x4F, Run = StartOcr });
             Hots.Add(new Hot { Id = 7, Key = "qr", Name = "QR-код с экрана", DefMods = CA, DefVk = 0x51, Run = ScanQr });
             Hots.Add(new Hot { Id = 8, Key = "rec", Name = "Запись экрана", DefMods = CA, DefVk = 0x52, Run = delegate { ToggleRecord(false); } });
-            Hots.Add(new Hot { Id = 10, Key = "chat", Name = "Чат с Claude", DefMods = CA, DefVk = 0x41, Run = OpenChat });
+            Hots.Add(new Hot { Id = 10, Key = "chat", Name = "Чат с нейросетью", DefMods = CA, DefVk = 0x41, Run = OpenChat });   // отвечает выбранная нейросеть (без ключа — Duck.ai), не обязательно Claude
             Hots.Add(new Hot { Id = 9, Key = "dictate", Name = "Диктовка", DefMods = CA, DefVk = 0x44, Run = Dictate });
             Hots.Add(new Hot { Id = 6, Key = "theme", Name = "Светлая / тёмная тема", DefMods = CA, DefVk = 0x54, Run = ToggleLightDark });
             Hots.Add(new Hot { Id = 12, Key = "game", Name = "Игровой режим", DefMods = CA, DefVk = 0x47, Run = ToggleGamerMode });
@@ -5485,13 +6060,48 @@ namespace Kapsula
             if ((mods & 0x1) != 0) sb.Append("Alt+");
             if ((mods & 0x4) != 0) sb.Append("Shift+");
             if ((mods & 0x8) != 0) sb.Append("Win+");
-            Key k = KeyInterop.KeyFromVirtualKey((int)vk);
-            string name = k.ToString();
-            if (k >= Key.D0 && k <= Key.D9) name = ((int)(k - Key.D0)).ToString();
-            else if (k == Key.Space) name = "Space";
-            else if (k == Key.OemTilde) name = "`";
-            sb.Append(name);
+            sb.Append(KeyName(KeyInterop.KeyFromVirtualKey((int)vk)));
             return sb.ToString();
+        }
+
+        // Клавиша так, как она подписана на клавиатуре: «-», «/», «PageDown», «Num 1», а не внутренние имена WPF
+        // («OemMinus», «OemQuestion», «Next», «NumPad1»)
+        static string KeyName(Key k)
+        {
+            if (k >= Key.D0 && k <= Key.D9) return ((int)(k - Key.D0)).ToString();
+            if (k >= Key.NumPad0 && k <= Key.NumPad9) return "Num " + (int)(k - Key.NumPad0);
+            switch (k)
+            {
+                case Key.Space: return "Space";
+                case Key.OemTilde: return "`";
+                case Key.OemMinus: return "-";
+                case Key.OemPlus: return "=";
+                case Key.OemComma: return ",";
+                case Key.OemPeriod: return ".";
+                case Key.OemQuestion: return "/";
+                case Key.OemSemicolon: return ";";
+                case Key.OemQuotes: return "'";
+                case Key.OemOpenBrackets: return "[";
+                case Key.OemCloseBrackets: return "]";
+                case Key.OemPipe: case Key.OemBackslash: return "\\";
+                case Key.Prior: return "PageUp";
+                case Key.Next: return "PageDown";
+                case Key.Return: return "Enter";
+                case Key.Back: return "Backspace";
+                case Key.Snapshot: return "PrintScreen";
+                case Key.Capital: return "CapsLock";
+                case Key.Scroll: return "ScrollLock";
+                case Key.Left: return "←";
+                case Key.Right: return "→";
+                case Key.Up: return "↑";
+                case Key.Down: return "↓";
+                case Key.Multiply: return "Num *";
+                case Key.Add: return "Num +";
+                case Key.Subtract: return "Num −";
+                case Key.Divide: return "Num /";
+                case Key.Decimal: return "Num .";
+            }
+            return k.ToString();
         }
 
         // ------------------------------------------------ уведомления Windows
@@ -5549,7 +6159,11 @@ namespace Kapsula
                                     }
                                 }
                                 catch { }
-                                string a = app, text = (title + (body.Length > 0 ? " — " + body : "")).Trim();
+                                // Первая строка уведомления — его заголовок. Совпал с названием программы («Telegram» от Telegram) —
+                                // оно и так в заголовке карточки, второй раз не пишем; пустой — без висячего «— » в начале
+                                string a = app ?? "", head = (title ?? "").Trim(), tail = (body ?? "").Trim();
+                                if (a.Length > 0 && string.Equals(head, a, StringComparison.OrdinalIgnoreCase)) head = "";
+                                string text = head.Length > 0 && tail.Length > 0 ? head + " — " + tail : head + tail;
                                 if (text.Length == 0) continue;
                                 // Discord уже присылает свои сообщения напрямую (с аватаром) — второй раз то же самое не показываем.
                                 if (DiscordBridge.Clients > 0 && a.IndexOf("discord", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -5622,7 +6236,11 @@ namespace Kapsula
         // Сообщение или звонок из Discord (приходит от плагина XSOverlay в Vencord)
         public void DiscordNotify(string title, string text, byte[] icon)
         {
-            if (DiscordLive && title == "Incoming call") return;   // звонок показывает своя карточка — с кнопками «Принять» и «Отклонить»
+            // звонок показывает своя карточка — с кнопками «Принять» и «Отклонить». DiscordBridge.Parse уже сделал из
+            // XSOverlay-звонка заголовок с именем (или «Discord») и текст «Входящий звонок»
+            if (DiscordLive && text == "Входящий звонок") return;
+            // пересланное сообщение, опрос, одни свои эмодзи Discord — текста нет; как у Steam, пишем «Сообщение» (и в истории тоже)
+            if (string.IsNullOrWhiteSpace(text)) text = "Сообщение";
             if (TestDemoCard == null && Quiet("Discord", title, text)) { UnreadAdd(true); return; }
             if (TestDemoCard == null && ClaudeCardUp()) { UnreadAdd(true); return; }   // не закрываем вопрос Claude Code; сообщение уже в истории
             Action open = delegate { try { System.Diagnostics.Process.Start("discord://-/channels/@me"); } catch { } };
@@ -5664,10 +6282,42 @@ namespace Kapsula
         }
 
         // Открыто несколько сессий — в заголовке карточки видно, какая именно спрашивает.
+        // Имя папки приходит целиком (до 80 знаков): длинное сокращается посередине — видны начало и конец («-v2»)
         string ClaudeTitle(ClaudeBridge.Pending p, string what)
         {
             bool many = ClaudeBridge.Sessions().Count > 1;
-            return (many && p.Project.Length > 0 ? "Claude · " + p.Project : "Claude Code") + (what.Length > 0 ? " · " + what : "");
+            return (many && p.Project.Length > 0 ? "Claude · " + Ui.MiddleEllipsis(p.Project, 28) : "Claude Code") + (what.Length > 0 ? " · " + what : "");
+        }
+
+        // Инструмент MCP «mcp__сервер__инструмент» — по-человечески: «инструмент · сервер» (главное — что он сделает — первым)
+        static string ToolName(string tool)
+        {
+            if (string.IsNullOrEmpty(tool) || !tool.StartsWith("mcp__")) return tool ?? "";
+            string[] parts = tool.Substring(5).Split(new string[] { "__" }, 2, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length == 2 ? parts[1] + " · " + parts[0] : tool.Substring(5);
+        }
+
+        // Инструменты Claude Code, которым передают путь к файлу или папке
+        static bool FileTool(string tool)
+        {
+            foreach (string t in new string[] { "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "NotebookRead", "Glob", "Grep", "LS" })
+                if (tool == t) return true;
+            return false;
+        }
+
+        // Путь к файлу — сначала имя файла, потом папка, сокращённая посередине: так видно, о каком файле речь
+        // («Отчёт.docx — C:\Users\…\Документы»), а не только начало пути «C:\Users\имя\AppData\Loc…»
+        static string PathFirst(string s, int dirMax)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(s) || !System.IO.Path.IsPathRooted(s)) return s;
+                string p = s.TrimEnd('\\', '/');
+                string name = System.IO.Path.GetFileName(p), dir = System.IO.Path.GetDirectoryName(p);
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(dir)) return s;
+                return name + " — " + Ui.MiddleEllipsis(dir, dirMax);
+            }
+            catch { return s; }   // в «пути» оказались недопустимые знаки — показываем как есть
         }
 
         // ---- очередь: запросы от разных сессий показываются по одному, следующий — когда ответили на предыдущий
@@ -5708,12 +6358,15 @@ namespace Kapsula
         {
             ClaudeEnqueue(ask, delegate
             {
-                string sub = ask.Detail.Length > 0 ? ask.Detail : "Просит разрешение";
+                // Что именно разрешаем — до трёх строк; у пути к файлу сначала имя файла, потом папка (иначе видно лишь «C:\Users\…»)
+                string sub = ask.Detail.Length > 0 ? (FileTool(ask.Tool) ? PathFirst(ask.Detail, 60) : ask.Detail) : "Просит разрешение";
                 // «В терминале» — ответить самому в окне Claude Code: остров отдаёт вопрос обратно и переключает на терминал
                 Action toTerm = delegate { ask.Pass(); FocusTerminal(ask.Project); };
                 string[] labels = ask.CanAlways ? new string[] { "Разрешить", "Всегда", "В терминале" } : new string[] { "Разрешить", "В терминале" };
                 Action[] acts = ask.CanAlways ? new Action[] { delegate { ask.Allow(); }, delegate { ask.AllowAlways(); }, toTerm } : new Action[] { delegate { ask.Allow(); }, toTerm };
-                ShowCardOptions(ClaudeGlyph, ClaudeTitle(ask, ask.Tool), sub, labels, acts, delegate { ask.Deny(); }, ClaudeBridge.WaitMs - 1500);
+                string title = ClaudeTitle(ask, ToolName(ask.Tool));
+                ShowCardOptions(ClaudeGlyph, title, sub, labels, acts, delegate { ask.Deny(); }, ClaudeBridge.WaitMs - 1500);
+                if (ask.Detail.Length > 0) CardTip(title + "\n" + ask.Detail);   // разрешают то, что видят: вся команда или полный путь — в подсказке
                 CardPet("ask");
                 if (TestClaude == "allow") ClaudeAfter(2500, delegate { ask.Allow(); });
                 else if (TestClaude == "always") ClaudeAfter(2500, delegate { ask.AllowAlways(); });
@@ -5729,7 +6382,8 @@ namespace Kapsula
             {
                 ClaudeBridge.QItem first = q.Items[0];
                 string title = ClaudeTitle(q, first.Header.Length > 0 ? first.Header : "вопрос");
-                if (q.Items.Length == 1 && !first.Multi && first.Options.Length <= 3)
+                // кнопками — только если все варианты помещаются целиком; длинные варианты — списком по кнопке «Выбрать»
+                if (q.Items.Length == 1 && !first.Multi && first.Options.Length <= 3 && CardButtonsFit(first.Options))
                 {
                     var acts = new Action[first.Options.Length];
                     for (int i = 0; i < acts.Length; i++)
@@ -5737,12 +6391,12 @@ namespace Kapsula
                         string label = first.Options[i];
                         acts[i] = delegate { var a = new Dictionary<string, string>(); a[first.Text] = label; q.Answer(a); };
                     }
-                    ShowCardOptions(ClaudeGlyph, title, ClaudeBridge.Clean(first.Text, 160), first.Options, acts, delegate { q.Pass(); }, ClaudeBridge.WaitMs - 1500);
+                    ShowCardOptions(ClaudeGlyph, title, ClaudeBridge.Clean(first.Text, 400), first.Options, acts, delegate { q.Pass(); }, ClaudeBridge.WaitMs - 1500);   // вопрос — до трёх строк, целиком — в подсказке
                     CardPet("ask");
                     if (TestClaude == "answer") ClaudeAfter(2500, acts[1]);
                     return;
                 }
-                string sub = q.Items.Length > 1 ? "Вопросов: " + q.Items.Length + ". " + ClaudeBridge.Clean(first.Text, 120) : ClaudeBridge.Clean(first.Text, 160);
+                string sub = q.Items.Length > 1 ? "Вопросов: " + q.Items.Length + ". " + ClaudeBridge.Clean(first.Text, 400) : ClaudeBridge.Clean(first.Text, 400);
                 Action choose = delegate { q.Extend(ClaudeBridge.TypingWaitMs); ClaudeChoose(q, 0, new Dictionary<string, string>()); };
                 ShowCardOptions(ClaudeGlyph, title, sub, new string[] { "Выбрать", "В терминале" }, new Action[] { choose, delegate { q.Pass(); FocusTerminal(q.Project); } }, delegate { q.Pass(); }, ClaudeBridge.WaitMs - 1500);
                 CardPet("ask");
@@ -5757,7 +6411,7 @@ namespace Kapsula
             claudeBusy = true;
             StartChoice(new Choice
             {
-                Title = (q.Items.Length > 1 ? (n + 1) + " из " + q.Items.Length + ". " : "") + ClaudeBridge.Clean(it.Text, 90),
+                Title = (q.Items.Length > 1 ? (n + 1) + " из " + q.Items.Length + ". " : "") + ClaudeBridge.Clean(it.Text, 400),   // вопрос целиком: в списке он до четырёх строк
                 Labels = it.Options, Notes = it.Notes, Multi = it.Multi,
                 Done = delegate(string answer)
                 {
@@ -5790,7 +6444,8 @@ namespace Kapsula
         {
             if (state == 4) SetState(0);
             choice = c;
-            cmdHint.Text = c.Multi ? "Отметьте нужное и нажмите «Готово» — или впишите свой ответ" : "Выберите вариант или впишите свой ответ";
+            // короче ширины строки ввода, чтобы подсказка не обрывалась; «Готово» появляется в списке, как только что-то отмечено
+            cmdHint.Text = c.Multi ? "Отметьте нужное или впишите свой ответ" : "Выберите вариант или впишите свой ответ";
             ToggleCommand();
             UpdateCmd();
         }
@@ -5807,18 +6462,21 @@ namespace Kapsula
                 string label = c.Labels[i];
                 if (c.Multi)
                 {
-                    AddCmd((c.Picked.Contains(idx) ? "✓  " : "      ") + label, c.Notes[i], "", null, delegate { if (!c.Picked.Remove(idx)) c.Picked.Add(idx); });
+                    // отметка — галочкой в квадратике слева, а не «✓» перед текстом: подпись не сдвигается, когда её отмечают
+                    AddCmd(label, c.Notes[i], c.Picked.Contains(idx) ? ((char)0xE73E).ToString() : "", null, delegate { if (!c.Picked.Remove(idx)) c.Picked.Add(idx); });
                     cmdItems[cmdItems.Count - 1].Stay = true;
                 }
                 else AddCmd(label, c.Notes[i], "", null, delegate { c.Finished = true; c.Done(label); });
             }
-            if (typed.Length > 0) AddCmd("Свой ответ: " + (typed.Length > 50 ? typed.Substring(0, 50) + "…" : typed), "", "", null, delegate { c.Finished = true; c.Done(typed); });
+            // у действий — свои значки (карандаш, «отправить»): пустой квадратик у вариантов значит «не отмечено»,
+            // и «Готово» с пустым квадратиком выглядело бы ещё одним неотмеченным вариантом
+            if (typed.Length > 0) AddCmd("Свой ответ: " + typed, "", ((char)0xE70F).ToString(), null, delegate { c.Finished = true; c.Done(typed); });
             else if (c.Multi && c.Picked.Count > 0)
             {
                 var chosen = new List<string>();
                 for (int i = 0; i < c.Labels.Length; i++) if (c.Picked.Contains(i)) chosen.Add(c.Labels[i]);
                 string joined = string.Join(", ", chosen.ToArray());
-                AddCmd("Готово", "выбрано: " + c.Picked.Count, "", null, delegate { c.Finished = true; c.Done(joined); });
+                AddCmd("Готово", "выбрано: " + c.Picked.Count, ((char)0xE724).ToString(), null, delegate { c.Finished = true; c.Done(joined); });
             }
             if (cmdSel == 0 && cmdItems.Count > 1) cmdSel = 1;   // первая строка — сам вопрос, выбирать её незачем
         }
@@ -5842,8 +6500,10 @@ namespace Kapsula
                         delegate { claudeBusy = false; f.Pass(); });
                 };
                 ClaudeBridge.Session fs = ClaudeBridge.Sessions().Find(delegate(ClaudeBridge.Session x) { return x.Id == f.SessionId; });
-                string stat = fs != null && fs.Steps > 0 ? Plural(fs.Steps, "шаг", "шага", "шагов") + (fs.StartedAt != 0 ? " · " + Math.Max(1, unchecked(Environment.TickCount - fs.StartedAt) / 60000) + " мин" : "") + " · " : "";
-                ShowCardEx(null, ClaudeGlyph, ClaudeTitle(f, "закончил"), stat + (f.Text.Length > 0 ? f.Text : "Можно ответить прямо отсюда"), delegate { f.Pass(); }, "Ответить", reply, false);
+                // «12 шагов · 3 мин» — в заголовке: все три строки текста — самому ответу (целиком он в подсказке);
+                // с часа — «1 ч 15 мин», а не «75 мин»
+                string stat = fs != null && fs.Steps > 0 ? " · " + Plural(fs.Steps, "шаг", "шага", "шагов") + (fs.StartedAt != 0 ? " · " + LeftText(Math.Max(1, unchecked(Environment.TickCount - fs.StartedAt) / 60000)) : "") : "";
+                ShowCardEx(null, ClaudeGlyph, ClaudeTitle(f, "закончил" + stat), f.Text.Length > 0 ? f.Text : "Можно ответить прямо отсюда", delegate { f.Pass(); }, "Ответить", reply, false);
                 if (state != 3) return;
                 if (fs != null && fs.Cwd.Length > 0 && Store.Get("vscodeButton") == "1")
                 {
@@ -5865,9 +6525,10 @@ namespace Kapsula
             int now = Environment.TickCount;
             if (claudeToastAt != 0 && unchecked(now - claudeToastAt) < 6000) return;
             claudeToastAt = now | 1;
-            if (detail.Length > 44) detail = detail.Substring(0, 43) + "…";
+            // без обрезки по числу букв: надпись сама растёт под текст; у пути к файлу имя файла — первым
+            if (FileTool(tool)) detail = PathFirst(detail, 40);
             bool many = ClaudeBridge.Sessions().Count > 1;
-            Toast(ClaudeGlyph, (many && project.Length > 0 ? project : "Claude") + " · " + tool + (detail.Length > 0 ? ": " + detail : ""), null, -1, accent);
+            Toast(ClaudeGlyph, (many && project.Length > 0 ? Ui.MiddleEllipsis(project, 28) : "Claude") + " · " + ToolName(tool) + (detail.Length > 0 ? ": " + detail : ""), null, -1, accent);
         }
 
         int claudeDoneShownAt;
@@ -5878,14 +6539,14 @@ namespace Kapsula
             if (!ClaudeAway() || state != 0) return;
             if (claudeDoneShownAt != 0 && unchecked(Environment.TickCount - claudeDoneShownAt) < 5 * 60000) return;
             bool many = ClaudeBridge.Sessions().Count > 1;
-            Toast(ClaudeGlyph, (many && project.Length > 0 ? "Claude · " + project : "Claude Code") + " ждёт ответа", null, -1, accent);
+            Toast(ClaudeGlyph, (many && project.Length > 0 ? "Claude · " + Ui.MiddleEllipsis(project, 28) : "Claude Code") + " ждёт ответа", null, -1, accent);
         }
 
         // sessionId = null — остановить все сессии, которые сейчас работают
         public void ClaudeStop(string sessionId, string name)
         {
             ClaudeBridge.RequestStop(sessionId);
-            Toast(ClaudeGlyph, (name != null ? "Claude · " + name : "Claude Code") + " остановится перед следующим действием", null, -1, accent);
+            Toast(ClaudeGlyph, (name != null ? "Claude · " + Ui.MiddleEllipsis(name, 28) : "Claude Code") + " остановится перед следующим действием", null, -1, accent);
         }
 
         // ---- вкладка «Claude»: открытые сессии, что делает каждая, и расход за сегодня
@@ -5899,6 +6560,7 @@ namespace Kapsula
         Border[] claudeTiles;                   // три плитки статистики: на всех — подсказка с подробностями
         string claudePageSig, claudeBarsSig;    // что сейчас нарисовано: без изменений список и столбики не пересобираем
         TextBlock claudeProjLabel, claudeTaskHint;
+        Border claudeProjChip;   // чип папки внизу: в подсказке — полный путь
         TextBox claudeTaskBox;
         string claudeTaskDir;
 
@@ -5917,19 +6579,25 @@ namespace Kapsula
         FrameworkElement BuildClaudePage()
         {
             // ---- статистика
+            // что считается — в подписи плитки, а в числе только оно само: «48,2 тыс.», а не «48,2 тыс. ток.»
             var t1 = StatTile("ШАГОВ СЕГОДНЯ", out claudeStepsVal, null);
-            var t2 = StatTile("НАПИСАЛ СЕГОДНЯ", out claudeOutVal, null);
+            var t2 = StatTile("ТОКЕНОВ СЕГОДНЯ", out claudeOutVal, null);   // написанных за сегодня; подробности — в подсказке
             claudeWeekBars = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Height = 30 };
-            var t3 = StatTile("ЗА 7 ДНЕЙ", out claudeWeekVal, claudeWeekBars);
+            var t3 = StatTile("ТОКЕНОВ ЗА 7 ДНЕЙ", out claudeWeekVal, claudeWeekBars);
             claudeTiles = new Border[] { t1, t2, t3 };   // подсказка с подробностями — на всех трёх плитках
 
             // ---- новая задача внизу: проект и что сделать
-            claudeProjLabel = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis };
-            var projRow = new StackPanel { Orientation = Orientation.Horizontal };
+            // папка | имя (сколько влезет, дальше «…») | ⌄ — значок папки и стрелка всегда на месте; полный путь — в подсказке
+            claudeProjLabel = new TextBlock { Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            var projRow = new Grid();
+            projRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            projRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            projRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             projRow.Children.Add(new TextBlock { Text = ((char)0xE8B7).ToString(), FontFamily = Icons, FontSize = 12, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-            projRow.Children.Add(claudeProjLabel);
-            projRow.Children.Add(new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) });
-            var proj = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 0), Child = projRow, Cursor = Cursors.Hand, ToolTip = "В какой папке работать" };
+            Grid.SetColumn(claudeProjLabel, 1); projRow.Children.Add(claudeProjLabel);
+            var projArrow = new TextBlock { Text = ((char)0xE70D).ToString(), FontFamily = Icons, FontSize = 8, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) };
+            Grid.SetColumn(projArrow, 2); projRow.Children.Add(projArrow);
+            var proj = claudeProjChip = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(12, 0, 12, 0), Child = projRow, Cursor = Cursors.Hand, ToolTip = "В какой папке работать" };
             proj.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; ClaudeProjectMenu(proj); };
             var field = new Grid();
             claudeTaskHint = new TextBlock { Text = "Попросить Claude Code… (Enter — запустить в терминале)", Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -5949,13 +6617,14 @@ namespace Kapsula
             // ---- сессии
             claudeList = new StackPanel();
             var claudeScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = claudeList };
+            claudeScroll.ScrollChanged += delegate { FadeScrollEdges(claudeScroll, true, 16); };   // сессий много — край тает, а не режет строку посреди букв
             claudeStopAll = Btn("Остановить все", false, 0, 26, delegate { ClaudeStop(null, null); });
             ClaudeUsage.Updated += delegate { Dispatcher.BeginInvoke(new Action(delegate { if (expanded && page == PClaude) RenderClaudeUsage(); })); };
             // конструктор: три плитки статистики, сессии, папка и строка новой задачи
             var clb = PageBoard(PClaude, "claude", 12, 8, 8);
             clb.Add("steps", "Шагов сегодня", t1, 0, 0, 4, 2, false);
-            clb.Add("written", "Написал сегодня", t2, 4, 0, 4, 2, false);
-            clb.Add("week", "За 7 дней", t3, 8, 0, 4, 2, false);
+            clb.Add("written", "Токенов сегодня", t2, 4, 0, 4, 2, false);
+            clb.Add("week", "Токенов за 7 дней", t3, 8, 0, 4, 2, false);
             clb.Add("sessions", "Сессии", claudeScroll, 0, 2, 12, 5, false);
             clb.Add("project", "Папка", proj, 0, 7, 3, 1, false);
             clb.Add("task", "Новая задача", fieldCard, 3, 7, 9, 1, false);
@@ -5993,12 +6662,24 @@ namespace Kapsula
 
         void ClaudeProjectMenu(FrameworkElement anchor)
         {
-            var menu = new WF.ContextMenuStrip();
+            var menu = new WF.ContextMenuStrip { ShowItemToolTips = true };   // без этого подсказка с полным путём не появлялась
             string cur = ClaudeTaskDir();
-            foreach (string d in ClaudeProjects())
+            List<string> dirs = ClaudeProjects();
+            foreach (string d in dirs)
             {
                 string dir = d;
-                var it = new WF.ToolStripMenuItem(ProjectName(dir)) { Checked = string.Equals(dir, cur, StringComparison.OrdinalIgnoreCase), ToolTipText = dir };
+                // длинное имя — «…» в середине; две папки с одним именем различаются папкой выше: «app — work», «app — old»
+                string name = ProjectName(dir), label = Ui.MiddleEllipsis(name, 32);
+                int same = 0;
+                foreach (string o in dirs) if (string.Equals(ProjectName(o), name, StringComparison.OrdinalIgnoreCase)) same++;
+                if (same > 1)
+                {
+                    string parent = "";
+                    try { parent = ProjectName(System.IO.Path.GetDirectoryName(dir.TrimEnd('\\', '/')) ?? ""); } catch { }
+                    if (parent.Length > 0) label += " — " + Ui.MiddleEllipsis(parent, 20);
+                }
+                // «&» удвоен: иначе WinForms делает из него подчёркнутую букву, и папка «R&D» в меню — «RD»; в подсказке путь как есть
+                var it = new WF.ToolStripMenuItem(label.Replace("&", "&&")) { Checked = string.Equals(dir, cur, StringComparison.OrdinalIgnoreCase), ToolTipText = dir };
                 it.Click += delegate { claudeTaskDir = dir; RenderClaudePage(); };
                 menu.Items.Add(it);
             }
@@ -6020,8 +6701,8 @@ namespace Kapsula
             string tip = ClaudeUsageTip();
             foreach (Border tile in claudeTiles) if ((tile.ToolTip as string) != tip) tile.ToolTip = tip;
             if (!ClaudeUsage.Ready) { claudeStepsVal.Text = "…"; claudeOutVal.Text = "…"; claudeWeekVal.Text = "…"; return; }
-            claudeStepsVal.Text = ClaudeUsage.Replies.ToString("N0");
-            claudeOutVal.Text = ClaudeUsage.Short(ClaudeUsage.Out) + " ток.";
+            claudeStepsVal.Text = TextTools.Thousands(ClaudeUsage.Replies);   // «1 284», как везде, а не «1,284» в английской Windows
+            claudeOutVal.Text = ClaudeUsage.Short(ClaudeUsage.Out);
             claudeWeekVal.Text = ClaudeUsage.Short(ClaudeUsage.Week);
             // мини-график по дням: сегодня — ярче
             Dictionary<DateTime, long> byDay;
@@ -6040,12 +6721,15 @@ namespace Kapsula
                 long v; byDay.TryGetValue(d, out v);
                 double h = Math.Max(2, 26.0 * v / max);
                 claudeWeekBars.Children.Add(new Border { Width = 5, Height = h, CornerRadius = new CornerRadius(2), Margin = new Thickness(1.5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom,
-                    Background = i == 0 ? (Brush)accent : Faint, ToolTip = d.ToString("ddd d MMM", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + ClaudeUsage.Short(v) + " токенов" });
+                    Background = i == 0 ? (Brush)accent : Faint,
+                    // «Пн, 16 ноября — 152 токена», «21 токен», но «48,2 тыс. токенов»; месяц словом, а не «16 ноя»
+                    ToolTip = d.ToString("ddd, d MMMM", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " — " + (v < 1000 ? Plural((int)v, "токен", "токена", "токенов") : ClaudeUsage.Short(v) + " токенов") });
             }
         }
         static string ClaudeUsageTip()
         {
-            return "Токены за сегодня по журналам Claude Code на этом компьютере.\nНаписал (выход): " + ClaudeUsage.Out.ToString("N0") + "\nНовый ввод: " + ClaudeUsage.In.ToString("N0") + "\nЗаписано в кэш: " + ClaudeUsage.CacheWrite.ToString("N0") + "\nПрочитано из кэша: " + ClaudeUsage.CacheRead.ToString("N0");
+            // тысячи — как везде (узкий неразрывный пробел), при любом формате чисел в Windows
+            return "Токены за сегодня по журналам Claude Code на этом компьютере.\nНаписал (выход): " + TextTools.Thousands(ClaudeUsage.Out) + "\nНовый ввод: " + TextTools.Thousands(ClaudeUsage.In) + "\nЗаписано в кэш: " + TextTools.Thousands(ClaudeUsage.CacheWrite) + "\nПрочитано из кэша: " + TextTools.Thousands(ClaudeUsage.CacheRead);
         }
 
         void RenderClaudePage()
@@ -6070,6 +6754,7 @@ namespace Kapsula
             if (projects.Count == 0 && !string.IsNullOrEmpty(ClaudeBridge.LastProject)) { RememberClaudeProject(ClaudeBridge.LastProject); projects = ClaudeProjects(); }
             string dir = ClaudeTaskDir(projects);
             claudeProjLabel.Text = string.IsNullOrEmpty(dir) ? "Папка…" : ProjectName(dir);
+            SetTip(claudeProjChip, string.IsNullOrEmpty(dir) ? "В какой папке работать" : "Папка: " + dir);
             claudeList.Children.Clear();
 
             if (!ClaudeBridge.Enabled)
@@ -6088,7 +6773,7 @@ namespace Kapsula
             // заголовок списка: сколько работает и «Остановить все»
             int busyN = 0;
             foreach (ClaudeBridge.Session s1 in list) if (s1.State == "работает" && unchecked(Environment.TickCount - s1.At) < 60000) busyN++;
-            var head = new Grid { Height = 24, Margin = new Thickness(2, 0, 0, 4) };
+            var head = new Grid { Height = 28, Margin = new Thickness(2, 0, 0, 4) };   // «Остановить все» высотой 26 — целиком, без срезанного низа
             head.Children.Add(new TextBlock { Text = list.Count == 0 ? "СЕССИИ" : "СЕССИИ · " + list.Count + (busyN > 0 ? " · работает " + busyN : ""), Foreground = Faint, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             if (busyN > 0) { claudeStopAll.HorizontalAlignment = HorizontalAlignment.Right; if (claudeStopAll.Parent != null) ((Panel)claudeStopAll.Parent).Children.Remove(claudeStopAll); head.Children.Add(claudeStopAll); }
             claudeList.Children.Add(head);
@@ -6113,19 +6798,34 @@ namespace Kapsula
                 bool working = ses.State == "работает" && unchecked(Environment.TickCount - ses.At) < 60000;
                 bool needs = ses.State == "ждёт разрешения" || ses.State == "спрашивает" || ses.State == "ждёт ответа";
                 string state = needs ? "ждёт вас" : working ? "работает" : ses.State == "закончил" ? "закончил" : ses.State == "остановлен" ? "остановлен" : "без дела";
-                string sub = working && ses.Detail.Length > 0 ? ses.Detail : ses.Last.Length > 0 ? ses.Last : ses.Detail.Length > 0 ? ses.Detail : Ago(ses.At);
+                // Ни действия, ни ответа — под именем состояние словами («ждёт вашего ответа», «остановлен с острова»), а не время:
+                // «5 мин назад» уже стоит справа; сказать нечего — второй строки нет
+                string sub = working && ses.Detail.Length > 0 ? ses.Detail : ses.Last.Length > 0 ? ses.Last : ses.Detail.Length > 0 ? ses.Detail
+                    : ses.State == "ждёт разрешения" ? "ждёт вашего разрешения" : needs ? "ждёт вашего ответа" : ses.State == "остановлен" ? "остановлен с острова" : "";
                 var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = needs ? ClaudeOrange : working ? (Brush)accent : ses.State == "закончил" ? ClaudeGreen : Faint, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(2, 6, 0, 0) });
                 var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                var headL = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-                headL.Inlines.Add(new System.Windows.Documents.Run(ses.Name) { Foreground = Fg });
-                string extra = (ses.Steps > 0 ? " · " + Plural(ses.Steps, "шаг", "шага", "шагов") : "") + (working && ses.StartedAt != 0 ? " · " + Math.Max(1, unchecked(Environment.TickCount - ses.StartedAt) / 60000) + " мин" : "");
-                headL.Inlines.Add(new System.Windows.Documents.Run("  " + state + extra) { Foreground = needs ? ClaudeOrange : working ? (Brush)accent : Dim, FontWeight = FontWeights.Normal, FontSize = 11.5 });
+                // Имя папки и состояние — в разных колонках: не влезает — сокращается имя («…» в середине, конец вроде
+                // «-v2» остаётся; полный путь — в подсказке), а «ждёт вас · 12 шагов» видно всегда
+                var headL = new Grid();
+                headL.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                headL.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                string sesName = ses.Cwd.Length > 0 ? ProjectName(ses.Cwd) : ses.Name;
+                headL.Children.Add(new TextBlock { Text = Ui.MiddleEllipsis(sesName, 34), Foreground = Fg, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = ses.Cwd.Length > 0 ? ses.Cwd : sesName });
+                string extra = (ses.Steps > 0 ? " · " + Plural(ses.Steps, "шаг", "шага", "шагов") : "") + (working && ses.StartedAt != 0 ? " · " + LeftText(Math.Max(1, unchecked(Environment.TickCount - ses.StartedAt) / 60000)) : "");   // с часа — «1 ч 15 мин»
+                var stateTb = new TextBlock { Text = state + extra, Foreground = needs ? ClaudeOrange : working ? (Brush)accent : Dim, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(8, 0, 0, 0) };
+                Grid.SetColumn(stateTb, 1); headL.Children.Add(stateTb);
                 texts.Children.Add(headL);
-                texts.Children.Add(new TextBlock { Text = sub, Foreground = Dim, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                // что делает сейчас (до двух строк) или последний ответ (до трёх); целиком — в подсказке
+                if (sub.Length > 0)
+                {
+                    var subTb = new TextBlock { Text = sub, Foreground = Dim, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0), ToolTip = TipText(sub) };
+                    Ui.Lines(subTb, working ? 2 : 3);
+                    texts.Children.Add(subTb);
+                }
                 FrameworkElement ctxBar = ContextBar(ses);
                 if (ctxBar != null) texts.Children.Add(ctxBar);
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
@@ -6995,7 +7695,7 @@ namespace Kapsula
         public void SetQuiet(int minutes)
         {
             quietUntil = minutes > 0 ? DateTime.Now.AddMinutes(minutes) : DateTime.MinValue;
-            Toast("", minutes > 0 ? "Не беспокоить: " + (minutes >= 60 ? (minutes / 60) + " ч" : minutes + " мин") : "Уведомления снова показываются", null, -1, minutes > 0 ? (Brush)accent : null);
+            Toast("", minutes > 0 ? "Не беспокоить: " + LeftText(minutes) : "Уведомления снова показываются", null, -1, minutes > 0 ? (Brush)accent : null);   // «1 ч», «20 мин», а 90 — «1 ч 30 мин», не «1 ч»
         }
 
         void FillQuiet()
@@ -7003,7 +7703,7 @@ namespace Kapsula
             if (QuietNow)
             {
                 int left = (int)Math.Ceiling((quietUntil - DateTime.Now).TotalMinutes);
-                AddCmd("Выключить «Не беспокоить»", "осталось " + left + " мин", "", null, delegate { SetQuiet(0); });
+                AddCmd("Выключить «Не беспокоить»", "осталось " + LeftText(left), "", null, delegate { SetQuiet(0); });   // «осталось 2 ч 59 мин», а не «179 мин»
                 return;
             }
             AddCmd("Не беспокоить 1 час", "карточки не появляются, всё попадает в историю", "", null, delegate { SetQuiet(60); });
@@ -7017,8 +7717,9 @@ namespace Kapsula
             for (int i = seenNotes.Count - 1; i >= 0 && cmdItems.Count < 6; i--)
             {
                 Seen s = seenNotes[i];
-                string line = s.Title + (s.Text.Length > 0 ? " — " + s.Text : "");
-                AddCmd(line.Length > 70 ? line.Substring(0, 69) + "…" : line, s.Source + " · " + s.At.ToString("H:mm"), "", null, delegate { CopyResult(s.Title + (s.Text.Length > 0 ? " — " + s.Text : "")); });
+                string line = s.Title + (s.Text.Length > 0 ? " — " + s.Text : "");   // целиком: строка списка переносится на две
+                // время — как в истории уведомлений: «5 мин назад», «вчера, 14:05»; история живёт сутками, одно «14:05» выдавало бы вчерашнее за сегодняшнее
+                AddCmd(line, (string.IsNullOrEmpty(s.Source) ? "" : s.Source + " · ") + NotifAgo(s.At), "", null, delegate { CopyResult(s.Title + (s.Text.Length > 0 ? " — " + s.Text : "")); });
             }
         }
 
@@ -7236,7 +7937,9 @@ namespace Kapsula
                 if (min > 10 || min < -1) continue;
                 string key = e.Subject + "|" + e.Start.Ticks;
                 if (!calAnnounced.Add(key)) continue;
-                ShowCardEx(null, ((char)0xE787).ToString(), e.Subject, Calendar.In(e.Start, now) + (e.Location.Length > 0 ? " · " + e.Location : ""), delegate { }, null, null, false);
+                // место бывает пробелом или адресом в несколько строк (вставлен в Outlook) — одной строкой, без висячего «·»
+                string loc = System.Text.RegularExpressions.Regex.Replace(e.Location ?? "", "\\s+", " ").Trim();
+                ShowCardEx(null, ((char)0xE787).ToString(), e.Subject, Calendar.In(e.Start, now) + (loc.Length > 0 ? " · " + loc : ""), delegate { }, null, null, false);
                 HideCardButton();
                 cardUntil = Environment.TickCount + 12000;
                 return;
@@ -7339,7 +8042,7 @@ namespace Kapsula
         static string Ago(int at)
         {
             int sec = Math.Max(0, unchecked(Environment.TickCount - at) / 1000);
-            return sec < 60 ? "только что" : (sec / 60) + " мин назад";
+            return sec < 60 ? "только что" : sec < 3600 ? (sec / 60) + " мин назад" : (sec / 3600) + " ч назад";   // с часа — «2 ч назад», а не «125 мин назад»
         }
 
         // «claude» в строке ввода: все открытые сессии и что каждая делает; Enter на работающей — остановить её.
@@ -7351,8 +8054,8 @@ namespace Kapsula
             {
                 ClaudeBridge.Session ses = s;
                 bool working = ses.State == "работает" && unchecked(Environment.TickCount - ses.At) < 60000;
-                string detail = ses.Detail.Length > 46 ? ses.Detail.Substring(0, 45) + "…" : ses.Detail;
-                AddCmd(ses.Name + " — " + ses.State + (detail.Length > 0 ? " · " + detail : ""), working ? "Enter — остановить" : Ago(ses.At), ClaudeGlyph, null,
+                string detail = ses.Detail;   // целиком: строка списка переносится на две, остальное — в подсказке
+                AddCmd(Ui.MiddleEllipsis(ses.Name, 28) + " — " + ses.State + (detail.Length > 0 ? " · " + detail : ""), working ? "Enter — остановить" : Ago(ses.At), ClaudeGlyph, null,
                     working ? (Action)delegate { ClaudeStop(ses.Id, ses.Name); } : null);
             }
         }
@@ -7960,7 +8663,7 @@ namespace Kapsula
                 if (steamRunId != 0 && run == 0)
                 {
                     TimeSpan played = DateTime.Now - steamRunAt;
-                    if (played.TotalMinutes >= 1) Toast("", SteamName(steamRunId) + " · " + (played.TotalHours >= 1 ? (int)played.TotalHours + " ч " + played.Minutes + " мин" : played.Minutes + " мин"), null, -1, accent);
+                    if (played.TotalMinutes >= 1) Toast("", SteamName(steamRunId), LeftText((int)played.TotalMinutes), -1, accent);   // сколько играли — справа, целиком: длинное название его не выталкивает; «2 ч» без «0 мин», «1 ч 05 мин» — как у батареи
                 }
                 else if (run != 0 && !steamFirst) Toast("", SteamName(run), null, -1, accent);
                 if (run != 0) steamRunAt = DateTime.Now;
@@ -8101,7 +8804,7 @@ namespace Kapsula
                     else if (TestDemoCard == "invite") SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", "");
                     else if (TestDemoCard == "discord") DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8)));
                     else if (TestDemoCard == "achievement") { steamCupNext = true; SteamNotify("Первые шаги", "Достижение · Пиксельный поход", DemoAvatar("★", Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0xE0, 0x8A, 0x1E)), delegate { }, null); }
-                    else if (TestCard) ShowCard(null,"", "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null);
+                    else if (TestCard) ShowCard(null,"", "Отчёт за квартал.pdf", "Загружено · 2,4 МБ", null);   // как настоящая карточка загрузки: имя файла — заголовком
                     else { ToggleCommand(); cmdBox.Text = TestCmd; }
                 };
                 t.Start();
@@ -8254,7 +8957,8 @@ namespace Kapsula
             menu.Items.Add(lyr);
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
-            menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
+            // новая версия уже скачана — пункт перезапускает Kapsula, и «Проверяю обновления…» тогда не к месту
+            menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { if (!Updater.Ready) Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
             var quiet = new WF.ToolStripMenuItem("Не беспокоить 1 час");
             quiet.Click += delegate { SetQuiet(QuietNow ? 0 : 60); };
             menu.Items.Add(quiet);
@@ -8285,6 +8989,8 @@ namespace Kapsula
                 Func<string, WF.ToolStripItem> find = delegate(string start) { foreach (WF.ToolStripItem it in all) if (it.Text != null && it.Text.StartsWith(start)) return it; return null; };
                 WF.ToolStripItem upd = find("Проверить обновления");
                 if (upd != null) upd.Text = "Проверить обновления";
+                // подпись — по делу, как кнопка в настройках; подписан до Apply: меню меряет строки при открытии, уже по новой подписи
+                menu.Opening += delegate { if (upd != null) upd.Text = Updater.Ready ? "Перезапустить и обновить" : "Проверить обновления"; };
                 WF.ToolStripItem[] order =
                 {
                     find("Настройки"), upd, new WF.ToolStripSeparator(),
@@ -8316,20 +9022,22 @@ namespace Kapsula
             RenderCompact();
         }
 
-        double CompactWidth() { return CompactWidthBase() + pillExtraW; }
+        double CompactWidth() { return Math.Min(BaseW - 24, CompactWidthBase() + pillExtraW); }   // шире окна капсула не бывает
 
+        // Ширина капсулы без своей прибавки pillExtraW. Где подпись бывает длинной (надпись, встреча, звонок, строка песни),
+        // капсула растёт под неё — это посчитала RenderCompact (compactW); здесь — наименьшая ширина состояния.
         double CompactWidthBase()
         {
-            if (toastOn) return 300;
+            if (toastOn) return Math.Max(300, compactW);   // надпись — до 520
             if (timerRinging) return 230;
             if (Recorder.Active) return 270;
-            if (steamDlApp != null) return 360 + steamDlNameW;
+            if (steamDlApp != null) return Math.Max(360 + steamDlNameW, compactW);   // название слева не заходит под полосу по центру
             if (dlActive != null) return 340;
             bool w = weather != null && weather.Error == null;
             double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() && !PetDancing() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
-            if (CallVisible()) return 330;
-            if (soonNow != null && timerEnd <= DateTime.Now) return 330;   // «Созвон · через 12 мин»
-            if (media.Has && media.Playing) return PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270) + sec;
+            if (CallVisible()) return Math.Max(330, compactW);   // имя или канал — до 440
+            if (soonNow != null && timerEnd <= DateTime.Now) return Math.Max(330, compactW);   // «Созвон с командой … 12 мин» — до 460
+            if (media.Has && media.Playing) return Math.Max((PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270)) + sec, compactW);   // строка песни — до 440
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
         }
@@ -8356,10 +9064,17 @@ namespace Kapsula
 
         double StateH()
         {
-            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return cardTall ? BudsH : CardH; case 4: return CmdH(); default: return pillH; }
+            switch (state) { case 1: return MH; case 2: return ExpandedH(); case 3: return cardHeight; case 4: return CmdH(); default: return pillH; }   // высота карточки — по её тексту (FitCard, ShowBudsCard)
         }
 
-        double CmdH() { return 66 + (cmdItems.Count > 0 ? cmdItems.Count * 44 + 10 : 0); }
+        // Высота строки ввода со списком: строки бывают в две-четыре строки текста — меряем сам список.
+        // 60 — поле ввода с отступом сверху, 10 — поле снизу; в высоте списка уже его отступ сверху (6) и промежутки (4).
+        double CmdH()
+        {
+            if (cmdItems.Count == 0 || cmdList == null) return 66;
+            cmdList.Measure(new Size(CmdW - 40, double.PositiveInfinity));
+            return 70 + cmdList.DesiredSize.Height;
+        }
 
         double[] specBands;
         bool spikes;   // край рисуется иглами, а не каплями
@@ -8861,7 +9576,7 @@ namespace Kapsula
                 bool inside = !GamerMode && !hiddenFs && !autoHidden && Math.Abs(x - cx) <= sw.X / 2 + 2 && y >= -1 && y <= sh.X + 1;
                 if (Recorder.Active) { enterAt = 0; return; }   // во время записи капсула — кнопка «Стоп», а не вход в панель
                 // Только что нажали кнопку на карточке — курсор ещё над островом, но раскрывать панель не нужно.
-                if (hoverBlock) { if (!inside && Math.Abs(x - cx) > (CardW + cardExtra) / 2 + 12 || y > CardH + 16) hoverBlock = false; enterAt = 0; return; }
+                if (hoverBlock) { if (!inside && Math.Abs(x - cx) > (CardW + cardExtra) / 2 + 12 || y > cardHeight + 16) hoverBlock = false; enterAt = 0; return; }
                 if (!inside) { enterAt = 0; return; }
                 if (enterAt == 0) enterAt = now;
                 else if (unchecked(now - enterAt) >= 60) { enterAt = 0; SetState(media.Has && media.Playing && HoverMini ? 1 : 2); }
@@ -8870,7 +9585,7 @@ namespace Kapsula
             else if (state == 3)
             {
                 // Карточка события держится, пока на ней курсор, и уходит сама по истечении времени.
-                bool inside = Math.Abs(x - cx) <= (CardW + cardExtra) / 2 + 12 && y <= (cardTall ? BudsH : CardH) + 16;
+                bool inside = Math.Abs(x - cx) <= (CardW + cardExtra) / 2 + 12 && y <= cardHeight + 16;
                 if (inside) { if (unchecked(cardUntil - now) < 1200) cardUntil = now + 1200; }
                 else if (unchecked(now - cardUntil) >= 0) SetState(0);
             }
@@ -8893,13 +9608,84 @@ namespace Kapsula
             toastBright = false; toastCharge = 0; toastLive = false;   // надписи про яркость, зарядку и демку отмечают себя сами, сразу после этого вызова
             toastGlyph = glyph; toastText = text; toastRight = right; toastValue = value; toastBrush = glyphBrush;
             if (glyphBrush == accent && value < 0) Happy(3300);   // удачное действие — персонаж радуется, когда надпись уйдёт
-            toastUntil = Environment.TickCount + 1800;
+            // длинную надпись держим дольше — её надо успеть прочитать: от 1,8 до 5 секунд
+            toastUntil = Environment.TickCount + Math.Min(5000, 1800 + 45 * Math.Max(0, (text ?? "").Length - 28));
             toastOn = true;
             RenderCompact();
             SetTargets();
         }
 
+        // Сколько места подписи по центру капсулы: значки слева и справа берём по большей стороне (подпись стоит ровно
+        // по центру и не должна заходить ни под одну). Ширина панелей — вместе с их отступами от краёв.
+        double CompactSide() { return Math.Max(NaturalWidth(cLeftPanel), NaturalWidth(cRightPanel)); }
+
+        // Подпись — снова одной строкой обычного размера; двумя строками помельче её делает только длинная надпись
+        void CompactOneLine()
+        {
+            cText.FontSize = 13;
+            cText.TextWrapping = TextWrapping.NoWrap;
+            cText.TextTrimming = TextTrimming.CharacterEllipsis;
+            cText.MaxHeight = double.PositiveInfinity;
+            cText.ClearValue(TextBlock.LineHeightProperty);
+            cText.ClearValue(TextBlock.LineStackingStrategyProperty);
+        }
+
+        // Длинная надпись — двумя строками помельче: две строки по 15 точек помещаются в капсулу высотой 34
+        void CompactTwoLines()
+        {
+            cText.FontSize = 11.5;
+            cText.LineHeight = 15;
+            Ui.Lines(cText, 2);
+        }
+
+        // Название по центру капсулы не шире avail: влезает — стоит как есть, нет — бегущей строкой той же ширины,
+        // как в плеерах Apple (за круг видно всё название), а не «Очень длинное назв…». Полное — в подсказке.
+        void CompactTitle(string text, string tip, double avail)
+        {
+            avail = Math.Max(40, Math.Floor(avail));
+            cText.Text = text ?? "";
+            cTextTip = tip;
+            if (NaturalWidth(cText) <= avail + 0.5) { cText.MaxWidth = avail; return; }
+            cMarqOn = true;
+            cText.Visibility = Visibility.Collapsed;
+            // Место чуть выросло (зверёк сменил значок, отсчёт стал короче) — строку той же ширины не трогаем: новая ширина
+            // начинала бы её сначала, и длинное название так и не доезжало бы до конца. Сузиться — всегда: иначе заедет под значки.
+            double cur = cMarq.Root.Width;
+            bool same = cMarq.Root.Visibility == Visibility.Visible && cMarqText.Text == (text ?? "") && !double.IsNaN(cur);
+            cMarqText.Text = text ?? "";
+            if (!(same && cur <= avail && avail - cur < 12)) cMarq.Root.Width = avail;
+        }
+
+        // То же, но и капсула растёт под название — не шире max (без прибавки pillExtraW); наименьшую ширину даёт CompactWidthBase
+        void CompactFitTitle(string text, string tip, double max)
+        {
+            double side = CompactSide();
+            cText.Text = text ?? "";
+            compactW = Math.Min(max, Math.Ceiling(NaturalWidth(cText) + 2 * side + 12) - pillExtraW);
+            CompactTitle(text, tip, CompactWidth() - 2 * side - 12);
+        }
+
+        // Подсказку меняем, только если она другая: переставленная заново, она закрывалась бы на каждом тике
+        static void SetTip(FrameworkElement e, string tip)
+        {
+            tip = TipText(tip);
+            if ((e.ToolTip as string) != tip) e.ToolTip = tip;
+        }
+
         void RenderCompact()
+        {
+            cMarqOn = false; compactW = 0; cTextTip = null; cRightTip = null;
+            RenderCompactCore();
+            // Бегущую строку показываем или прячем один раз за отрисовку: каждое переключение начинало бы её сначала
+            cMarq.Root.Visibility = cMarqOn ? Visibility.Visible : Visibility.Collapsed;
+            SetTip(cText, cTextTip); SetTip(cMarq.Root, cTextTip); SetTip(cRight, cRightTip);
+            // Остров уехал за край экрана (программа на весь экран, спрятался сам) или стоит поверх игры — бегущие строки
+            // капсулы стоят у начала: каждый их шаг — перерисовка окна, а над игрой — отнятые у неё кадры (см. OnTick)
+            bool still = gameLite || state == 0 && (autoHidden || hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0);
+            cMarq.Paused = still; cDlMarq.Paused = still;
+        }
+
+        void RenderCompactCore()
         {
             bool playing = media.Has && media.Playing;
             bool timing = timerEnd > DateTime.Now;
@@ -8907,8 +9693,8 @@ namespace Kapsula
             cBar.Root.Margin = new Thickness(0); if (dlLane != null) dlLane.Visibility = Visibility.Collapsed;   // курьер сам остановится на следующем кадре
             cText.Visibility = Visibility.Visible;
             cText.MaxWidth = 1000;
+            CompactOneLine();
             cDlIcon.Visibility = Visibility.Collapsed;
-            cDlName.Visibility = Visibility.Collapsed;
             // Точка Claude Code: цветная — работает, оранжевая — ждёт вас, зелёная — только что закончил
             bool plain = !toastOn && !Recorder.Active && steamDlApp == null && dlActive == null;
             PlacePet();
@@ -8927,6 +9713,9 @@ namespace Kapsula
             claudeDot.ToolTip = claudeState == 2 ? "Claude Code ждёт вас" : claudeState == 3 ? "Claude Code закончил" : claudeState == 4 ? "Claude Code отдыхает" : "Claude Code работает";
             // Steam перестал сообщать о загрузке (закрыт или плагин выгружен) — убираем полосу
             if (steamDlApp != null && unchecked(Environment.TickCount - steamDlAt) > 20000) steamDlApp = null;
+            // название скачиваемой игры — бегущей строкой: показываем или прячем один раз за отрисовку, иначе она начиналась бы заново
+            bool dlName = !toastOn && !Recorder.Active && steamDlApp != null && !timerRinging && steamDlName != "";
+            cDlMarq.Root.Visibility = dlName ? Visibility.Visible : Visibility.Collapsed;
 
             if (toastOn)
             {
@@ -8934,10 +9723,18 @@ namespace Kapsula
                 cGlyph.Visibility = string.IsNullOrEmpty(toastGlyph) ? Visibility.Collapsed : Visibility.Visible;
                 cGlyph.Text = toastGlyph ?? "";
                 cGlyph.Foreground = toastBrush ?? Fg;
-                if (toastValue >= 0) { cText.Visibility = Visibility.Collapsed; cBar.Root.Visibility = Visibility.Visible; cBar.Set(toastValue); }
-                else { cText.Text = toastText ?? ""; cText.MaxWidth = 210; }
                 cRight.Visibility = string.IsNullOrEmpty(toastRight) ? Visibility.Collapsed : Visibility.Visible;
                 cRight.Text = toastRight ?? ""; cRight.Foreground = toastLive ? RecRed : Fg;
+                if (toastValue >= 0) { cText.Visibility = Visibility.Collapsed; cBar.Root.Visibility = Visibility.Visible; cBar.Set(toastValue); return; }
+                // Надпись — целиком: капсула растёт под неё (до 520), а что и так не влезает — двумя строками помельче.
+                // Место — между значками слева и справа (они бывают и во время надписи: камера, чашка, зверёк, «LIVE»).
+                cText.Text = (toastText ?? "").Replace("\r", " ").Replace("\n", " ");   // переводы строк растянули бы капсулу вниз
+                cTextTip = toastText;
+                double side = CompactSide(), nat = NaturalWidth(cText);
+                compactW = Math.Min(520, Math.Ceiling(nat + 2 * side + 12) - pillExtraW);
+                double avail = CompactWidth() - 2 * side - 12;
+                if (nat > avail + 0.5) CompactTwoLines();
+                cText.MaxWidth = Math.Max(40, avail);
                 return;
             }
 
@@ -8947,7 +9744,7 @@ namespace Kapsula
                 micDot.Visibility = Visibility.Collapsed; cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
                 cGlyph.Visibility = PetProps() ? Visibility.Collapsed : Visibility.Visible; cGlyph.Text = ""; cGlyph.Foreground = RecRed;
                 TimeSpan el = DateTime.Now - Recorder.Started;
-                cText.Text = "Запись · " + (int)el.TotalMinutes + ":" + el.Seconds.ToString("00");
+                cText.Text = "Запись · " + CallClock(el);   // с часа — «1:15:03», как у звонка и таймера, а не «75:03»
                 // остановить можно щелчком по капсуле — панель во время записи не раскрывается
                 cRight.Visibility = Visibility.Visible; cRight.Text = "■ Стоп"; cRight.Foreground = RecRed;
                 return;
@@ -8963,8 +9760,11 @@ namespace Kapsula
                 cBar.Root.Margin = new Thickness(0, 18, 0, 0);
                 dlLane.Visibility = PetProps() ? Visibility.Visible : Visibility.Collapsed;
                 if (PetProps()) CourierStart(); else CourierStop();
-                cDlName.Text = steamDlName; cDlName.Visibility = steamDlName != "" ? Visibility.Visible : Visibility.Collapsed;
-                steamDlNameW = Math.Min(112, NaturalWidth(cDlName));   // ширина капсулы зависит от длины названия
+                // название — до 150 точек, длиннее идёт бегущей строкой (целиком — в подсказке); ширина капсулы зависит от него
+                cDlName.Text = steamDlName;
+                steamDlNameW = dlName ? Math.Min(150, Math.Ceiling(NaturalWidth(cDlName))) : 0;
+                cDlMarq.Root.Width = Math.Max(1, steamDlNameW);
+                SetTip(cDlMarq.Root, dlName ? steamDlName : null);
                 cText.Visibility = Visibility.Collapsed;
                 cBar.Root.Visibility = Visibility.Visible;
                 cRight.Visibility = Visibility.Visible;
@@ -8979,6 +9779,10 @@ namespace Kapsula
                     cRight.Foreground = Dim;
                     cRight.Text = steamDlPaused ? "пауза" : Math.Round(steamDlPct) + "%" + (steamDlRate > 1024 ? " · " + SizeText(steamDlRate) + "/с" : "");
                 }
+                // Полоса (130 точек) стоит по центру: капсула такая, чтобы ни название слева, ни проценты справа не заходили
+                // под неё (зазор 10). Справа место держим с запасом на «100% · 999,9 МБ/с» — иначе ширина дрожала бы со скоростью.
+                double dlSide = Math.Max(NaturalWidth(cLeftPanel), Math.Max(NaturalWidth(cRightPanel), Ear + 13 + 110));
+                compactW = Math.Ceiling(2 * (dlSide - Ear) + 2 * 10 + 130) - pillExtraW;
                 return;
             }
 
@@ -9002,20 +9806,26 @@ namespace Kapsula
             if (CallVisible() && !timing)
             {
                 bool live = DiscordCall;   // звонок Discord: канал, мут, полный мут и демонстрация — точно, по словам плагина
-                cText.Text = (live ? DvCallName("Звонок") : "Звонок") + " · " + CallTime(); cText.MaxWidth = 200;
                 bool mutedNow = live ? dvMute : Audio.MicMuted();
-                // Состояние звонка показывает зверёк. Значки справа — только когда его в капсуле нет
+                // Время звонка — справа и всегда целиком: длинное имя или канал его больше не выталкивают.
+                // Рядом значки состояния — только когда его не показывает зверёк в капсуле.
                 cRight.Inlines.Clear();
-                if (claudeDot != null && claudeDot.Visibility == Visibility.Visible) { cRight.Visibility = Visibility.Collapsed; cRight.ToolTip = null; eq.Visibility = Visibility.Collapsed; return; }
+                cRight.Inlines.Add(new System.Windows.Documents.Run(CallTime()) { Foreground = Fg });
                 cRight.Visibility = Visibility.Visible;
-                var tip = new List<string>();
-                if (live && dvStream) { CallIcon(0xE7F4, RecRed); tip.Add("идёт демонстрация экрана"); }
-                if (live && dvVideo) { CallIcon(0xE714, ClaudeGreen); tip.Add("камера включена"); }
-                if (live && dvDeaf) { CallIcon(0xE74F, RecRed); tip.Add("полный мут: вы никого не слышите"); }
-                else if (mutedNow) { CallIcon(0xF781, RecRed); tip.Add("микрофон выключен"); }
-                else { CallIcon(0xE720, ClaudeGreen); tip.Add("в эфире: вас слышно"); }
-                cRight.ToolTip = string.Join(" · ", tip.ToArray());
                 eq.Visibility = Visibility.Collapsed;
+                if (claudeDot == null || claudeDot.Visibility != Visibility.Visible)
+                {
+                    var tip = new List<string>();
+                    if (live && dvStream) { CallIcon(0xE7F4, RecRed); tip.Add("идёт демонстрация экрана"); }
+                    if (live && dvVideo) { CallIcon(0xE714, ClaudeGreen); tip.Add("камера включена"); }
+                    if (live && dvDeaf) { CallIcon(0xE74F, RecRed); tip.Add("полный мут: вы никого не слышите"); }
+                    else if (mutedNow) { CallIcon(0xF781, RecRed); tip.Add("микрофон выключен"); }
+                    else { CallIcon(0xE720, ClaudeGreen); tip.Add("в эфире: вас слышно"); }
+                    cRightTip = string.Join(" · ", tip.ToArray());
+                }
+                // имя, канал или «Имя, Имя и ещё 2» — капсула растёт под них до 440 точек, длиннее — бегущей строкой
+                string callName = live ? DvCallName("Звонок") : "Звонок";
+                CompactFitTitle(callName, callName, 440);
                 return;
             }
             // Скоро встреча или задача со временем — как «живая активность» на iPhone: значок и название слева,
@@ -9024,34 +9834,28 @@ namespace Kapsula
             {
                 cGlyph.Visibility = Visibility.Visible; cGlyph.Text = soonNow.Glyph; cGlyph.Foreground = accent;
                 cCover.Visibility = Visibility.Collapsed; eq.Visibility = Visibility.Collapsed;
-                cText.Text = soonNow.Title; cText.MaxWidth = 170;
                 cRight.Visibility = Visibility.Visible; cRight.Text = SoonLeft(soonNow); cRight.Foreground = accent;
                 if (state == 1) SetClock(nClock);
+                // название — между значками, не заходя ни под «12 мин», ни под зверька; капсула растёт под него до 460 точек,
+                // длиннее — бегущей строкой: отсчёт висит минутами, название успеет пройти целиком
+                CompactFitTitle(soonNow.Title, soonNow.Title + " · " + SoonWhen(soonNow), 460);
                 return;
             }
             // Без музыки и таймера: часы по центру, погода — справа, а не одной строкой посередине
             bool weatherRight = !playing && !timing && weather != null && weather.Error == null;
             if (weatherRight) cText.Text = DateTime.Now.ToString(ShowSeconds ? "HH:mm:ss" : "HH:mm"); else SetClock(cText);
-            if (playing && PillMode != 0)
-            {
-                string title = string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
-                if (PillMode == 3 && media.Dur > 0 && !timing)
-                {
-                    // «Полоса трека»: сколько прошло и сколько осталось
-                    double pos = media.Now();
-                    cText.Visibility = Visibility.Collapsed;
-                    cBar.Root.Visibility = Visibility.Visible; cBar.Set(pos / media.Dur);
-                    eq.Visibility = Visibility.Collapsed;
-                    cRight.Visibility = Visibility.Visible; cRight.Foreground = Dim;
-                    cRight.Text = "−" + FmtSec(Math.Max(0, media.Dur - pos));
-                    if (state == 1) SetClock(nClock);
-                    return;
-                }
-                // «С текстом»: строка песни, которая звучит сейчас; пока текста нет — название. «С названием»: трек и исполнитель.
-                cText.Text = PillMode == 2 && !string.IsNullOrEmpty(currentLyric) ? currentLyric : title;
-                cText.MaxWidth = timing ? 190 : 232;
-            }
             if (state == 1) SetClock(nClock);
+            if (playing && PillMode == 3 && media.Dur > 0 && !timing)
+            {
+                // «Полоса трека»: сколько прошло и сколько осталось
+                double pos = media.Now();
+                cText.Visibility = Visibility.Collapsed;
+                cBar.Root.Visibility = Visibility.Visible; cBar.Set(pos / media.Dur);
+                eq.Visibility = Visibility.Collapsed;
+                cRight.Visibility = Visibility.Visible; cRight.Foreground = Dim;
+                cRight.Text = "−" + FmtSec(Math.Max(0, media.Dur - pos));
+                return;
+            }
 
             if (timing) { cRight.Visibility = Visibility.Visible; cRight.Text = Fmt(timerEnd - DateTime.Now); cRight.Foreground = accent; }
             else if (weatherRight)
@@ -9062,6 +9866,27 @@ namespace Kapsula
                 cRight.Inlines.Add(new System.Windows.Documents.Run(Weather.Temp(weather.Temp)));
             }
             else cRight.Visibility = Visibility.Collapsed;
+
+            // Название и строка песни — после значков справа (таймер, эквалайзер, танцующий зверёк): им нужно знать,
+            // сколько места осталось между ними и значками слева (обложка, счётчик непрочитанного, зверёк Claude Code)
+            if (playing && PillMode != 0)
+            {
+                string title = string.IsNullOrWhiteSpace(media.Artist) ? media.Title : media.Title + " — " + media.Artist;
+                if (PillMode == 2 && !string.IsNullOrEmpty(currentLyric))
+                {
+                    // «С текстом»: строка, которая звучит сейчас. Капсула растёт под неё до 440 точек; длиннее — двумя строками помельче
+                    double side = CompactSide();
+                    cText.Text = currentLyric;
+                    cTextTip = currentLyric;
+                    double nat = NaturalWidth(cText);
+                    compactW = Math.Min(440, Math.Ceiling(nat + 2 * side + 12) - pillExtraW);
+                    double avail = CompactWidth() - 2 * side - 12;
+                    if (nat > avail + 0.5) CompactTwoLines();
+                    cText.MaxWidth = Math.Max(40, avail);
+                }
+                // «С названием» (и «С текстом», пока текста нет): трек и исполнитель; не влезают — бегущей строкой
+                else CompactTitle(title, title, CompactWidth() - 2 * CompactSide() - 12);
+            }
         }
 
         static string Fmt(TimeSpan t)
@@ -9072,7 +9897,28 @@ namespace Kapsula
             return (total / 60) + ":" + (total % 60).ToString("00");
         }
 
-        static string FmtSec(double s) { int t = (int)s; return (t / 60) + ":" + (t % 60).ToString("00"); }
+        // Время трека: «3:07», а с часа — «2:00:00», как у таймера и звонка (а не «120:00»)
+        static string FmtSec(double s)
+        {
+            int t = Math.Max(0, (int)s);
+            if (t >= 3600) return (t / 3600) + ":" + ((t / 60) % 60).ToString("00") + ":" + (t % 60).ToString("00");
+            return (t / 60) + ":" + (t % 60).ToString("00");
+        }
+
+        // Время по бокам полосы трека: колонки — по самому длинному времени («−1:35:12»), но не уже min; полоса — на остаток,
+        // так что ряд остаётся той же ширины total и время не обрезается у полосы
+        static void FitTimes(TextBlock a, TextBlock b, Bar bar, double min, double total)
+        {
+            var row = a.Parent as Grid;
+            if (row == null || row.ColumnDefinitions.Count < 3) return;
+            double side = Math.Max(min, Math.Ceiling(Math.Max(NaturalWidth(a), NaturalWidth(b))) + 2);
+            if (row.ColumnDefinitions[0].Width.Value != side)
+            {
+                row.ColumnDefinitions[0].Width = new GridLength(side);
+                row.ColumnDefinitions[2].Width = new GridLength(side);
+            }
+            bar.Resize(total - 2 * side);
+        }
 
         Color AccentFrom(BitmapSource bi)
         {
@@ -9126,17 +9972,50 @@ namespace Kapsula
             tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-d, TimeSpan.FromMilliseconds(120)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
         }
 
+        // То же для бегущей строки: сдвигом самого текста управляет она, поэтому гасим и сдвигаем её целиком,
+        // а с новым текстом она начинает сначала
+        void SwapMarquee(Marquee m, string text)
+        {
+            TextBlock tb = m.Text;
+            if ((tb.Tag as string ?? tb.Text) == text) return;
+            tb.Tag = text;
+            Grid r = m.Root;
+            if (!r.IsVisible || tb.Text.Trim().Length == 0) { r.BeginAnimation(UIElement.OpacityProperty, null); r.Opacity = 1; tb.Text = text; m.Restart(); return; }
+            var tt = r.RenderTransform as TranslateTransform;
+            if (tt == null) { tt = new TranslateTransform(); r.RenderTransform = tt; }
+            double d = (unchecked(Environment.TickCount - trackDirAt) < 4000 ? trackDir : 1) * 12;
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
+            fadeOut.Completed += delegate
+            {
+                tb.Text = tb.Tag as string ?? text;
+                m.Restart();
+                r.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
+                tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(d, 0, TimeSpan.FromMilliseconds(300)) { EasingFunction = ease });
+            };
+            r.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+            tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-d, TimeSpan.FromMilliseconds(120)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+        }
+
         void SwapCover(Border b, Brush brush)
         {
             if (b == null) return;
-            if (!b.IsVisible || b.Background == null || b.Background == Chip || b.Background == Glass.Fill) { b.Background = brush; return; }
+            // обложки нет (видео в браузере, файл без тегов) — на стекле нота, как пустая обложка в плеерах, а не серый
+            // квадрат, будто картинка не загрузилась. Только у больших обложек: в капсуле значок 20 точек — там ноту не разглядеть
+            Action apply = delegate
+            {
+                b.Background = brush;
+                b.Child = brush == Glass.Fill && b.Width >= 40 ? new TextBlock { Text = ((char)0xE8D6).ToString(), FontFamily = Icons, FontSize = Math.Round(b.Width * 0.36), Foreground = Faint,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false } : null;
+            };
+            if (!b.IsVisible || b.Background == null || b.Background == Chip || b.Background == Glass.Fill) { apply(); return; }
             var st = b.RenderTransform as ScaleTransform;
             if (st == null) { st = new ScaleTransform(1, 1); b.RenderTransform = st; b.RenderTransformOrigin = new Point(0.5, 0.5); }
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             var dim = new DoubleAnimation(0.15, TimeSpan.FromMilliseconds(110));
             dim.Completed += delegate
             {
-                b.Background = brush;
+                apply();
                 b.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
                 var pop = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(320)) { EasingFunction = new BackEase { Amplitude = 0.3, EasingMode = EasingMode.EaseOut } };
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
@@ -9155,18 +10034,28 @@ namespace Kapsula
             {
                 bool several = media.Sources != null && media.Sources.Length > 1;
                 srcBtn.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
-                if (several) srcLabel.Text = MediaWatcher.PrettyName(media.Source);
+                if (several) SetSrcLabel(media.Source);
+                FitHomeTitle();
             }
             if (media.Has)
             {
-                SwapTrackText(mTitle, media.Title);
-                SwapTrackText(mArtist, string.IsNullOrEmpty(media.Artist) ? " " : media.Artist);
+                SwapMarquee(titleRun, media.Title);
+                // исполнителя нет (видео в браузере, файл без тегов) — строки исполнителя нет вовсе: пустая держала место,
+                // и название стояло выше середины обложки. Текст меняется, пока строка спрятана, — прежний не мелькает
+                bool noArtist = string.IsNullOrWhiteSpace(media.Artist);
+                if (!noArtist) SwapMarquee(artistRun, media.Artist);
+                artistRun.Root.Visibility = noArtist ? Visibility.Collapsed : Visibility.Visible;
+                // при «Меньше движения» строка не едет — целиком название и исполнитель в подсказке (на «Главной» и в мини-плеере)
+                string namesTip = media.Title + (noArtist ? "" : "\n" + media.Artist);
+                SetTip(homeNames, namesTip);
+                SetTip(miniNames, namesTip);
                 // после нажатия значок уже переключён — 1,2 с не откатываем его назад, пока плеер выполняет команду
                 bool showPlaying = unchecked(Environment.TickCount - playClickAt) < 1200 ? playClickWant : media.Playing;
                 mPlayGlyph.Text = showPlaying ? "" : "";
                 nPlayGlyph.Text = mPlayGlyph.Text;
-                SwapTrackText(nTitle, media.Title);
-                SwapTrackText(nArtist, string.IsNullOrEmpty(media.Artist) ? " " : media.Artist);
+                SwapMarquee(nTitleMarq, media.Title);
+                if (!noArtist) SwapMarquee(nArtistMarq, media.Artist);
+                nArtistMarq.Root.Visibility = artistRun.Root.Visibility;   // мини-плеер: название встаёт ровно против обложки
                 StageMedia(null);
                 string lk = media.Title + "|" + media.Artist;
                 if (lk != lyricsKey)
@@ -9178,7 +10067,7 @@ namespace Kapsula
                     // В игре или в видео на весь экран остров спрятан — на смену трека выглядываем с названием.
                     if (changed && hiddenFs && state == 0 && media.Playing && Store.Get("fsTrack") != "0")
                     {
-                        Toast("", string.IsNullOrEmpty(media.Artist) ? media.Title : media.Title + " — " + media.Artist, null, -1, accent);
+                        Toast("", noArtist ? media.Title : media.Title + " — " + media.Artist, null, -1, accent);
                         toastUntil = Environment.TickCount + 3500;
                         fsPeekUntil = toastUntil + 200;
                         fsPeeking = true;
@@ -9265,6 +10154,9 @@ namespace Kapsula
                     nRem.Text = "−" + FmtSec(Math.Max(0, media.Dur - pos));
                 }
                 else { nProgress.Set(0); if (stageProgress != null) stageProgress.Set(0); nPos.Text = ""; nRem.Text = ""; }
+                // часовое видео или подкаст: колонки времени шире, полоса короче — «−1:35:12» не обрезается
+                FitTimes(mPos, mDur, mProgress, 36, 258 + 72);
+                FitTimes(nPos, nRem, nProgress, 38, MW - 36);
             }
             // Выбранный режим запоминается: «только плеер» включается сам, как только у плеера находится свой звук.
             bool wantPlayer = Store.Get("volPlayer") == "1";
@@ -9299,7 +10191,7 @@ namespace Kapsula
             if (volIcon == null) return;
             volIcon.Text = player ? "" : volIconDefault;
             volIcon.Foreground = player ? (Brush)accent : Fg;
-            if (volLabel != null) volLabel.Text = player ? PlayerKey() : "Весь звук";
+            if (volLabel != null) volLabel.Text = player ? MediaWatcher.DisplayName(media.Source) : "Весь звук";
             if (volSysSeg != null)
             {
                 Ui.Seg(volSysSeg, !player); ((TextBlock)volSysSeg.Child).Foreground = player ? Dim : Fg;
@@ -9315,7 +10207,7 @@ namespace Kapsula
             Store.Set("volPlayer", "1");
             SetVolMode(true);
             RenderHomeLive();
-            Toast("", "Громкость: " + PlayerKey(), null, -1, accent);
+            Toast("", "Громкость: " + MediaWatcher.DisplayName(media.Source), null, -1, accent);   // имя для глаз: длинное — «…» в середине, надпись в одну строку
         }
 
         void SetVolumeFrom(Point p)
@@ -9356,7 +10248,7 @@ namespace Kapsula
             miniVolText.Text = Math.Round(v * 100) + "%";
             miniVolIcon.Text = ((char)(v <= 0.001 ? 0xE74F : v < 0.34 ? 0xE993 : v < 0.67 ? 0xE994 : 0xE995)).ToString();
             miniVolIcon.Foreground = player ? (Brush)accent : Dim;
-            string tip = player ? "Громкость: " + PlayerKey() : "Громкость всей системы (у плеера нет своего звука)";
+            string tip = player ? "Громкость: " + MediaWatcher.DisplayName(media.Source) : "Громкость всей системы (у плеера нет своего звука)";
             miniVolIcon.ToolTip = tip; miniVolBar.Root.ToolTip = tip;
         }
 
@@ -9414,7 +10306,7 @@ namespace Kapsula
             themeTile.SetActive(IsDarkTheme());
             bool muted = Audio.MicMuted();
             micTile.SetActive(muted);
-            micTile.Label.Text = muted ? "Микрофон выкл" : "Микрофон";
+            micTile.Label.Text = muted ? "Микрофон выключен" : "Микрофон";   // в плитке — двумя строками, без «выкл»
             autoTile.SetActive(Autostart.IsOn());
             lyrTile.SetActive(LyricsOn());
             if (quietTile != null) quietTile.SetActive(QuietNow);
@@ -9580,7 +10472,10 @@ namespace Kapsula
                     {
                         recBusy = false;
                         RenderRec();
-                        if (len > 0) ShowCardEx(null, "", "Запись готова", SizeText(len) + (Recorder.HasAudio ? (Recorder.HasMic ? " · звук и микрофон · " : " · со звуком · ") : " · без звука · ") + System.IO.Path.GetFileName(file), delegate { RevealFile(file); }, null, null, true);
+                        // имя файла — первым и сокращённым посередине (время записи и «.mp4» остаются), размер и звук — второй строкой
+                        if (len > 0) ShowCardEx(null, "", "Запись готова",
+                                Ui.MiddleEllipsis(System.IO.Path.GetFileName(file), 40) + "\n" + SizeText(len) + (Recorder.HasAudio ? (Recorder.HasMic ? " · звук и микрофон" : " · со звуком") : " · без звука"), delegate { RevealFile(file); }, null, null, true);
+                        if (len > 0) CardTip(file);   // полный путь — в подсказке
                         else Toast("", "Запись не сохранилась", null, -1, null);
                     }));
                 });
@@ -9637,7 +10532,7 @@ namespace Kapsula
         void RenderRec()
         {
             bool on = Recorder.Active;
-            recTile.Label.Text = on ? "Стоп" : "Запись";
+            recTile.Label.Text = on ? "Стоп" : "Запись экрана";
             recTile.SetActive(on);
             RenderCompact();
             SetTargets();
@@ -9647,7 +10542,7 @@ namespace Kapsula
         // Само превью можно перетащить в чат, письмо или папку — как файл.
         void ShotCard(BitmapSource bs, string path)
         {
-            ShowCardEx(bs, null, "Скриншот готов", "В буфере и в папке · " + bs.PixelWidth + " × " + bs.PixelHeight, delegate { RevealFile(path); }, "Перевести", delegate { TranslateShot(path); }, false);
+            ShowCardEx(bs, null, "Снимок готов", "В буфере и в папке · " + bs.PixelWidth + " × " + bs.PixelHeight, delegate { RevealFile(path); }, "Перевести", delegate { TranslateShot(path); }, false);
             if (state != 3) return;
             cardAlt[0].Visibility = Visibility.Visible; cardAltLabel[0].Text = "Папка"; cardAltAction[0] = delegate { RevealFile(path); };
             cardThumbBox.ToolTip = "Перетащите превью в чат, письмо или папку";
@@ -9954,10 +10849,11 @@ namespace Kapsula
             string q = Store.Get("cityQuery");
             if (q != "" && unchecked(Environment.TickCount - weatherAt) > 30 * 60 * 1000) RefreshWeather(q);
 
-            double before = CompactWidth();
             RenderCompact();
             if (expanded && page == PSystem) { RenderSystem(); if (tick % 6 == 0) RefreshControl(); }
-            if (!expanded && Math.Abs(sw.Target - before) > 0.5) SetTargets();
+            // ширину сверяем уже после отрисовки: капсула растёт под подпись (встреча, звонок, игра) — пусть растёт сразу,
+            // а не тиком позже, пока подпись уже шире капсулы
+            if (!expanded && Math.Abs(sw.Target - CompactWidth()) > 0.5) SetTargets();
         }
     }
 }

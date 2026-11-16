@@ -63,15 +63,30 @@ namespace Kapsula
             Store.Set("tasks", string.Join("¦", parts.ToArray()));
         }
 
+        // Запятая перед днём или временем — тоже граница задач: «в 14:00 созвон, в пятницу отчёт», «в чт в 19 кино, в сб спортзал».
+        // Перед обычным словом — нет: «купить молоко, хлеб» остаётся одной задачей.
+        const string CommaWhen = @",\s*(?=(?:в|во|на|к|ко|до)\s+(?:\d|(?:пн|вт|ср|чт|пт|сб|вс)(?![а-яё])|понедельник|вторник|сред[аеуы](?![а-яё])|четверг|пятниц|суббот|воскресень|выходн"
+            + @"|следующ\w*\s+(?:понедельник|вторник|сред|четверг|пятниц|суббот|воскресень|пн|вт|ср|чт|пт|сб|вс))|(?:завтра|послезавтра|сегодня|ежедневно|еженедельно|ежемесячно|когда-нибудь)(?![а-яё])"
+            + @"|через\s+(?:\d{1,3}\s+|пару\s+)?(?:дн|день|недел|месяц)|кажд(?:ый|ую|ое|ые)\s+(?:\d|день|утро|вечер|будний|неделю|месяц|выходные|понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)"
+            + @"|по\s+(?:будням|выходным|понедельникам|вторникам|средам|четвергам|пятницам|субботам|воскресеньям)|\d{1,2}:\d{2}|\d{1,2}(?:-?го)?\s+(?:янв|фев|мар|апр|ма[яй]|июн|июл|авг|сен|окт|ноя|дек))";
+
         // «отчёт, потом в 14:00 созвон; завтра в 9 спортзал» → несколько задач со временем и днём
         public static List<DayTask> Parse(string input, DateTime today)
         {
             if (today == Someday) today = DateTime.Today;   // от 31.12.9999 «завтра» и дни недели вышли бы за последний день календаря
             var res = new List<DayTask>();
-            string[] parts = Regex.Split(input, @"\s*(?:,\s*(?:а\s+)?(?:потом|затем)\s*|;\s*|\s+(?:потом|затем)\s+|\s+и\s+потом\s+)\s*", RegexOptions.IgnoreCase);
+            string[] parts = Regex.Split(input, @"\s*(?:,\s*(?:а\s+)?(?:потом|затем)\s*|;\s*|\s+(?:потом|затем)\s+|\s+и\s+потом\s+|" + CommaWhen + @")\s*", RegexOptions.IgnoreCase);
+            // Хвост, в котором только день или время («позвонить маме, завтра в 10», «отчёт, в пятницу»), — про дело перед
+            // запятой: следующей части, которой он достался бы, нет, и он возвращается к предыдущей. Пустой хвост («…;») не в счёт.
+            int n = parts.Length;
+            while (n > 1 && parts[n - 1].Trim().Length == 0) n--;
+            while (n > 1 && Parse(parts[n - 1], today).Count == 0) { parts[n - 2] += " " + parts[n - 1]; n--; }
+            if (n < parts.Length) Array.Resize(ref parts, n);
             DateTime day = today;
-            foreach (string raw in parts)
+            for (int pi = 0; pi < parts.Length; pi++)
             {
+                string raw = parts[pi];
+                DateTime dayWas = day;
                 string t = " " + raw.Trim() + " ";
                 if (t.Trim().Length == 0) continue;
                 if (Regex.IsMatch(t, @"\sпослезавтра\s", RegexOptions.IgnoreCase)) { day = today.AddDays(2); t = Regex.Replace(t, @"\sпослезавтра\s", " ", RegexOptions.IgnoreCase); }
@@ -101,7 +116,12 @@ namespace Kapsula
                     time = new TimeSpan(h, 0, 0); t = t.Remove(pm.Index, pm.Length).Insert(pm.Index, " ");
                 }
                 string text = Regex.Replace(t, @"\s+", " ").Trim().Trim(',', '.', ';', '-', ' ');
-                if (text.Length == 0) continue;
+                if (text.Length == 0)
+                {
+                    // в этой части только день, время или повтор («каждый понедельник, в 10 планёрка») — они для следующей части
+                    if (pi + 1 < parts.Length) { parts[pi + 1] = raw + " " + parts[pi + 1]; day = dayWas; }
+                    continue;
+                }
                 text = char.ToUpper(text[0]) + text.Substring(1);
                 // «каждый день в 9», а сейчас уже вечер — первый раз завтра
                 DateTime taskDay = day;
@@ -373,10 +393,15 @@ namespace Kapsula
         {
             // ---- месяц
             var cal = new DockPanel { Margin = new Thickness(12, 10, 12, 10) };
-            var head = new Grid { Height = 26 };
+            // название месяца и кнопки — в своих колонках: «Сентябрь 2027» не залезает под «Неделя», год переносится вниз
+            var head = new Grid { MinHeight = 26 };
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             calTitle = new TextBlock { Foreground = Fg, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+            Ui.Lines(calTitle, 2);
             head.Children.Add(calTitle);
             var nav = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            Grid.SetColumn(nav, 1);
             var prev = IconBtn(((char)0xE76B).ToString(), 24, delegate { calMonth = calMonth.AddMonths(-1); RenderToday(); });
             var next = IconBtn(((char)0xE76C).ToString(), 24, delegate { calMonth = calMonth.AddMonths(1); RenderToday(); });
             ((TextBlock)prev.Child).FontSize = 10; ((TextBlock)next.Child).FontSize = 10;
@@ -413,13 +438,16 @@ namespace Kapsula
             dayHint = new TextBlock { Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis };
             todayBox = MakeTextBox(false);
             todayBox.TextChanged += delegate { dayHint.Visibility = todayBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
-            todayBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; AddTasksFromText(todayBox.Text); todayBox.Text = ""; } };
+            todayBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; if (AddTasksFromText(todayBox.Text)) todayBox.Text = ""; } };   // не понял фразу — набранное остаётся
             var field = new Grid(); field.Children.Add(dayHint); field.Children.Add(todayBox);
             input.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(14, 0, 14, 0), Child = field });
             DockPanel.SetDock(input, Dock.Bottom); day.Children.Add(input);
 
             todayList = new StackPanel();
-            day.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = todayList });
+            var daySv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = todayList };
+            // задач больше, чем помещается над полем, — край списка мягко тает, а не режет строку посреди букв: видно, что он листается
+            daySv.ScrollChanged += delegate { FadeScrollEdges(daySv, true, 16); };
+            day.Children.Add(daySv);
             // конструктор: месяц и день можно поменять местами или спрятать один
             var tdb = PageBoard(PToday, "today", 12, 1, 10);
             tdb.Add("month", "Месяц", calCard, 0, 0, 5, 1, false);
@@ -489,7 +517,7 @@ namespace Kapsula
             weekHint = new TextBlock { Foreground = Faint, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis };
             weekBox = MakeTextBox(false);
             weekBox.TextChanged += delegate { weekHint.Visibility = weekBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; };
-            weekBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; AddWeekTasks(weekBox.Text); weekBox.Text = ""; } };
+            weekBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; if (AddWeekTasks(weekBox.Text)) weekBox.Text = ""; } };
             var field = new Grid(); field.Children.Add(weekHint); field.Children.Add(weekBox);
             input.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 0, 14, 0), Child = field });
             DockPanel.SetDock(input, Dock.Bottom); v.Children.Add(input);
@@ -529,18 +557,27 @@ namespace Kapsula
             tt.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
         }
 
-        void AddWeekTasks(string text)
+        // false — из фразы не вышло ни одной задачи (в ней только день или время): набранное остаётся в поле
+        bool AddWeekTasks(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (string.IsNullOrWhiteSpace(text)) return true;
             DateTime today = DateTime.Today;
             DateTime from = weekStart == WeekOf(today) ? today : weekStart;   // «в пятницу» — пятница показанной недели
-            List<DayTask> all = Tasks.Load();
             List<DayTask> fresh = Tasks.Parse(text, from);
+            if (fresh.Count == 0) { TaskNotUnderstood(); return false; }
+            List<DayTask> all = Tasks.Load();
             all.AddRange(fresh);
             Tasks.Save(all);
-            if (fresh.Count > 0 && fresh[0].Day != Tasks.Someday) { weekStart = WeekOf(fresh[0].Day); weekSetOn = today; movedTo = fresh[0].Day; movedAt = Environment.TickCount; }
+            if (fresh[0].Day != Tasks.Someday) { weekStart = WeekOf(fresh[0].Day); weekSetOn = today; movedTo = fresh[0].Day; movedAt = Environment.TickCount; }
             Toast(((char)0xE73E).ToString(), fresh.Count == 1 ? "Задача добавлена" : "Добавлено задач: " + fresh.Count, null, -1, accent);
             RenderToday();
+            return true;
+        }
+
+        // Во фразе нашлись только день или время, а что сделать — нет
+        void TaskNotUnderstood()
+        {
+            Toast(((char)0xE7BA).ToString(), "Что записать? Например: «завтра в 10 врач»", null, -1, null);
         }
 
         // «9–15 ноября», «27 октября – 2 ноября», «29 декабря 2026 – 4 января 2027»
@@ -619,7 +656,10 @@ namespace Kapsula
             // повторяющиеся — бледно и в следующие свои дни: видно, что впереди (отметить можно в свой день)
             foreach (DayTask t in all)
                 if (RepeatsOn(t, dd, today)) items.Children.Add(WeekTask(t, true));
-            dock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = items });
+            var colSv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = items };
+            // дел больше, чем влезает в колонку, — её край тает, а не срезает задачу посреди букв
+            colSv.ScrollChanged += delegate { FadeScrollEdges(colSv, true, 12); };
+            dock.Children.Add(colSv);
 
             var col = new Border { Background = Glass.Fill, BorderBrush = isToday ? (Brush)accent : Glass.Rim, BorderThickness = new Thickness(isToday ? 1.4 : 1), CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(2, 4, 2, 2), Margin = new Thickness(index == 0 ? 0 : 1.5, 0, index == 6 ? 0 : 1.5, 0), Child = dock };
@@ -661,12 +701,15 @@ namespace Kapsula
             g.Children.Add(new Border { Width = 2.5, CornerRadius = new CornerRadius(1.5), Background = accent, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 1) });
             var texts = new StackPanel();
             texts.Children.Add(new TextBlock { Text = ev.AllDay ? "весь день" : ev.Start.ToString("H:mm"), Foreground = Dim, FontSize = 9.5, FontWeight = FontWeights.SemiBold });
-            texts.Children.Add(new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, LineHeight = 13, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, MaxHeight = 26 });
+            // колонка узкая — название до трёх строк, как у задач рядом; целиком — в подсказке
+            var subjTb = new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 10.5, LineHeight = 13 };
+            Ui.Lines(subjTb, 3);
+            texts.Children.Add(subjTb);
             Grid.SetColumn(texts, 1); g.Children.Add(texts);
             var accentSolid = accent as SolidColorBrush;
             Brush tint = accentSolid != null ? new SolidColorBrush(accentSolid.Color) { Opacity = 0.14 } : (Brush)Glass.Fill;
             return new Border { CornerRadius = new CornerRadius(8), Background = tint, Padding = new Thickness(4, 3, 2, 4), Margin = new Thickness(0, 0, 0, 3), Child = g, Opacity = past ? 0.5 : 1,
-                ToolTip = ev.Subject + (ev.Location.Length > 0 ? " · " + ev.Location : "") };
+                ToolTip = ev.Subject + (ev.Location.Length > 0 ? " · " + ev.Location : "") + "\n" + Calendar.When(ev, now) };
         }
 
         // Задача в колонке недели: кружок и текст в две-три строки, под ним время. Щелчок — отметить,
@@ -685,12 +728,14 @@ namespace Kapsula
             if (ghost) dot.StrokeDashArray = new DoubleCollection { 2, 1.6 };
             g.Children.Add(dot);
             var texts = new StackPanel();
-            texts.Children.Add(new TextBlock { Text = task.Text, Foreground = done ? Faint : Fg, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis,
-                LineHeight = 13.5, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, MaxHeight = 42, TextDecorations = done ? TextDecorations.Strikethrough : null });   // до трёх строк (с запасом на округление)
+            var title = new TextBlock { Text = task.Text, Foreground = done ? Faint : Fg, FontSize = 10.5, LineHeight = 13.5, TextDecorations = done ? TextDecorations.Strikethrough : null };
+            Ui.Lines(title, 3);   // до трёх строк, дальше «…»; целиком — в подсказке
+            texts.Children.Add(title);
             Grid.SetColumn(texts, 1); g.Children.Add(texts);
             if (overdue || task.Time.HasValue || task.Repeat.Length > 0)
             {
-                var meta = new TextBlock { Foreground = overdue ? ClaudeOrange : Faint, FontSize = 9.5, Margin = new Thickness(0, 1, 0, 0) };
+                // «просрочено» и значок повтора не влезают в узкую колонку одной строкой — значок уходит на вторую, а не под край
+                var meta = new TextBlock { Foreground = overdue ? ClaudeOrange : Faint, FontSize = 9.5, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap };
                 if (overdue) meta.Inlines.Add(new System.Windows.Documents.Run("просрочено"));
                 else if (task.Time.HasValue) meta.Inlines.Add(new System.Windows.Documents.Run(new DateTime(task.Time.Value.Ticks).ToString("H:mm")));
                 if (task.Repeat.Length > 0) meta.Inlines.Add(new System.Windows.Documents.Run((meta.Inlines.Count > 0 ? "  " : "") + "") { FontFamily = Icons, FontSize = 8.5 });
@@ -701,11 +746,11 @@ namespace Kapsula
             if (ghost)
             {
                 b.Opacity = 0.42;
-                b.ToolTip = repeatTip + "Отметить можно в свой день";
+                b.ToolTip = task.Text + "\n" + repeatTip + "Отметить можно в свой день";
                 return b;
             }
             b.Cursor = Cursors.Hand;
-            b.ToolTip = repeatTip + (task.Note.Length > 0 ? "Есть заметка. " : "") + "Клик — отметить, перетащите на другой день — перенести, правый клик — удалить";
+            b.ToolTip = task.Text + "\n" + repeatTip + (task.Note.Length > 0 ? "Есть заметка. " : "") + "Клик — отметить, перетащите на другой день — перенести, правый клик — удалить";
             b.MouseEnter += delegate { b.Background = Glass.Hover; };
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
             bool pressed = false;
@@ -741,19 +786,22 @@ namespace Kapsula
             };
             return b;
         }
-        void AddTasksFromText(string text)
+        // false — из фразы не вышло ни одной задачи (в ней только день или время): набранное остаётся в поле
+        bool AddTasksFromText(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (string.IsNullOrWhiteSpace(text)) return true;
             SyncTodayDay();   // после полуночи — на сегодня, а не на вчерашний выбранный день
-            List<DayTask> all = Tasks.Load();
             DateTime from = todayDay == Tasks.Someday ? DateTime.Today : todayDay;   // от 31.12.9999 «завтра» и дни недели не посчитать
             List<DayTask> fresh = Tasks.Parse(text, from);   // без «завтра» и т. п. — на выбранный в календаре день
+            if (fresh.Count == 0) { TaskNotUnderstood(); return false; }
+            List<DayTask> all = Tasks.Load();
             all.AddRange(fresh);
             Tasks.Save(all);
             // выбор переезжает на день новой задачи; «когда-нибудь» — не день, она в своём списке под сегодняшним
-            if (fresh.Count > 0 && fresh[0].Day != Tasks.Someday) { todayDay = fresh[0].Day; calMonth = new DateTime(todayDay.Year, todayDay.Month, 1); todaySetOn = DateTime.Today; }
+            if (fresh[0].Day != Tasks.Someday) { todayDay = fresh[0].Day; calMonth = new DateTime(todayDay.Year, todayDay.Month, 1); todaySetOn = DateTime.Today; }
             Toast(((char)0xE73E).ToString(), fresh.Count == 1 ? "Задача добавлена" : "Добавлено задач: " + fresh.Count, null, -1, accent);
             RenderToday();
+            return true;
         }
 
         // События календаря Windows на день (уже загруженные; читаются с запасом на месяц назад и три вперёд)
@@ -790,7 +838,9 @@ namespace Kapsula
 
             // ---- месяц
             string mn = ru.DateTimeFormat.GetMonthName(calMonth.Month);
-            calTitle.Text = char.ToUpper(mn[0]) + mn.Substring(1) + (calMonth.Year != today.Year ? " " + calMonth.Year : "");
+            calTitle.Inlines.Clear();
+            calTitle.Inlines.Add(new System.Windows.Documents.Run(char.ToUpper(mn[0]) + mn.Substring(1)));
+            if (calMonth.Year != today.Year) calTitle.Inlines.Add(new System.Windows.Documents.Run(" " + calMonth.Year) { FontSize = 11.5, FontWeight = FontWeights.Normal, Foreground = Dim });   // год — мельче и бледнее
             calGrid.Children.Clear();
             DateTime first = calMonth.AddDays(-(((int)calMonth.DayOfWeek + 6) % 7));
             for (int i = 0; i < 42; i++)
@@ -858,23 +908,29 @@ namespace Kapsula
             foreach (CalEvent ev in EventsOn(todayDay))
             {
                 bool past = !ev.AllDay && ev.Start < now;
-                var row = new Grid { Height = 32, Margin = new Thickness(0, 0, 0, 2), Opacity = past ? 0.5 : 1 };
+                // строка растёт под название в две строки; у отсчёта «через 30 мин» своя колонка — он не ложится поверх названия
+                var row = new Grid { MinHeight = 32, Margin = new Thickness(0, 0, 0, 2), Opacity = past ? 0.5 : 1 };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.Children.Add(new Border { Width = 3.5, CornerRadius = new CornerRadius(2), Background = accent, Margin = new Thickness(6, 6, 0, 6), HorizontalAlignment = HorizontalAlignment.Left });
                 var time = new TextBlock { Text = ev.AllDay ? "весь день" : ev.Start.ToString("H:mm"), Foreground = Dim, FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetColumn(time, 1); row.Children.Add(time);
-                var subj = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                subj.Children.Add(new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                var subj = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 5, 0, 5) };
+                var subjTb = new TextBlock { Text = ev.Subject, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
+                Ui.Lines(subjTb, 2);
+                subj.Children.Add(subjTb);
                 if (ev.Location.Length > 0) subj.Children.Add(new TextBlock { Text = ev.Location, Foreground = Faint, FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis });
                 Grid.SetColumn(subj, 2); row.Children.Add(subj);
                 if (!ev.AllDay && ev.Start > now && ev.Start < now.AddHours(12))
                 {
-                    var inTxt = new TextBlock { Text = Calendar.In(ev.Start, now), Foreground = accent, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-                    Grid.SetColumn(inTxt, 2); row.Children.Add(inTxt);
+                    var inTxt = new TextBlock { Text = Calendar.In(ev.Start, now), Foreground = accent, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+                    Grid.SetColumn(inTxt, 3); row.Children.Add(inTxt);
                 }
-                todayList.Children.Add(new Border { CornerRadius = new CornerRadius(14), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = row, Margin = new Thickness(0, 0, 0, 4) });
+                // целиком — в подсказке: название, место и когда
+                todayList.Children.Add(new Border { CornerRadius = new CornerRadius(14), Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = row, Margin = new Thickness(0, 0, 0, 4),
+                    ToolTip = ev.Subject + (ev.Location.Length > 0 ? "\n" + ev.Location : "") + "\n" + Calendar.When(ev, now) });
             }
 
             // задачи выбранного дня (и просроченные — сегодня, сверху)
@@ -950,7 +1006,8 @@ namespace Kapsula
         FrameworkElement TaskNoteEditor(DayTask task)
         {
             string id = task.Id;
-            var hint = new TextBlock { Text = "Заметка к задаче: что взять, кому позвонить, ссылка…", Foreground = Faint, FontSize = 12, IsHitTestVisible = false, Margin = new Thickness(2, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            var hint = new TextBlock { Text = "Заметка к задаче: что взять, кому позвонить, ссылка…", Foreground = Faint, FontSize = 12, IsHitTestVisible = false, Margin = new Thickness(2, 1, 0, 0) };
+            Ui.Lines(hint, 2);   // поле многострочное и даже пустое высотой в две строки — подсказка тоже переносится, а не обрывается
             var box = taskNoteBox = MakeTextBox(true);
             box.FontSize = 12.5; box.MinHeight = 38; box.MaxHeight = 110;
             box.Text = task.Note;
@@ -980,14 +1037,16 @@ namespace Kapsula
                     bool done; string text;
                     if (!Tasks.StepLine(lines[i], out done, out text)) continue;
                     int li = i;
-                    var row = new Grid { Height = 22, Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = done ? "Снять отметку" : "Отметить шаг" };
+                    // шаг — до двух строк; кружок стоит у первой строки, полный текст — в подсказке
+                    var row = new Grid { MinHeight = 22, Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = text + "\n" + (done ? "Снять отметку" : "Отметить шаг") };
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    var mark = new Grid { Width = 13, Height = 13, HorizontalAlignment = HorizontalAlignment.Left };
+                    var mark = new Grid { Width = 13, Height = 13, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 5, 0, 0) };
                     mark.Children.Add(new Ellipse { Stroke = done ? accent : Dim, StrokeThickness = 1.4, Fill = done ? (Brush)accent : Brushes.Transparent });
                     if (done) mark.Children.Add(new TextBlock { Text = ((char)0xE73E).ToString(), FontFamily = Icons, FontSize = 7.5, Foreground = Ink, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
                     row.Children.Add(mark);
-                    var tx = new TextBlock { Text = text, Foreground = done ? Faint : Fg, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, TextDecorations = done ? TextDecorations.Strikethrough : null };
+                    var tx = new TextBlock { Text = text, Foreground = done ? Faint : Fg, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 3, 0, 3), TextDecorations = done ? TextDecorations.Strikethrough : null };
+                    Ui.Lines(tx, 2);
                     Grid.SetColumn(tx, 1); row.Children.Add(tx);
                     row.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                     {
@@ -1032,23 +1091,24 @@ namespace Kapsula
         }
 
         // Строка задачи: кружок, текст, справа время или «Просрочено». Клик — отметить, правый клик — удалить.
-        // В «Скоро» — строка пониже и помельче.
+        // В «Скоро» — строка пониже и помельче. Длинная задача — в две строки; кружок, время и стрелочка — у первой.
         Border TaskRow(DayTask task, bool small)
         {
-            var row = new Grid { Height = small ? 26 : 30 };
+            var row = new Grid { MinHeight = small ? 26 : 30 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });   // стрелочка: заметка к задаче
             double bs = small ? 14 : 16;
-            var box = new Grid { Width = bs, Height = bs, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(small ? 9 : 8, 0, 0, 0) };
+            var box = new Grid { Width = bs, Height = bs, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(small ? 9 : 8, small ? 6 : 7, 0, 0) };
             box.Children.Add(new Ellipse { Stroke = task.Done ? accent : Dim, StrokeThickness = 1.6, Fill = task.Done ? (Brush)accent : Brushes.Transparent });
             if (task.Done) box.Children.Add(new TextBlock { Text = ((char)0xE73E).ToString(), FontFamily = Icons, FontSize = 9, Foreground = Ink, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(box);
-            var txt = new TextBlock { Text = task.Text, Foreground = task.Done ? Faint : Fg, FontSize = small ? 12 : 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, TextDecorations = task.Done ? TextDecorations.Strikethrough : null };
+            var txt = new TextBlock { Text = task.Text, Foreground = task.Done ? Faint : Fg, FontSize = small ? 12 : 13, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, small ? 5 : 6, 0, 5), TextDecorations = task.Done ? TextDecorations.Strikethrough : null };
+            Ui.Lines(txt, 2);
             Grid.SetColumn(txt, 1); row.Children.Add(txt);
             string right = IsOverdue(task) ? "Просрочено" : task.Time.HasValue ? new DateTime(task.Time.Value.Ticks).ToString("H:mm") : "";
-            var r = new TextBlock { Foreground = IsOverdue(task) ? ClaudeOrange : Dim, FontSize = small ? 11 : 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) };
+            var r = new TextBlock { Foreground = IsOverdue(task) ? ClaudeOrange : Dim, FontSize = small ? 11 : 11.5, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, small ? 6 : 7, 4, 0) };
             if (task.Note.Length > 0)
             {
                 // есть заметка — значок; есть шаги — сколько сделано: «1/3»
@@ -1068,13 +1128,13 @@ namespace Kapsula
             Grid.SetColumn(r, 2); row.Children.Add(r);
             // стрелочка: раскрыть заметку под строкой (видна при наведении, у раскрытой — всегда)
             bool open = task.Id == taskOpenId;
-            var chev = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = open ? "Свернуть заметку" : "Заметка к задаче", Opacity = open ? 1 : 0,
+            var chev = new Border { Height = small ? 26 : 30, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = open ? "Свернуть заметку" : "Заметка к задаче", Opacity = open ? 1 : 0,
                 Child = new TextBlock { Text = open ? "" : "", FontFamily = Icons, FontSize = 9, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             string tid = task.Id;
             chev.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; TaskNoteToggle(tid); };
             Grid.SetColumn(chev, 3); row.Children.Add(chev);
             string tip = (task.Repeat.Length > 0 ? "Повтор: " + Tasks.RepeatLabel(task.Repeat) + ". " : "") + "Клик — отметить, перетащите на число в календаре — перенести, правый клик — удалить";
-            var b = new Border { CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, ToolTip = tip };
+            var b = new Border { CornerRadius = new CornerRadius(10), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = row, ToolTip = task.Text + "\n" + tip };   // полный текст задачи — первой строкой подсказки
             b.MouseEnter += delegate { b.Background = Glass.Hover; chev.Opacity = 1; };
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; if (!open) chev.Opacity = 0; };
             // щелчок — отметить; повели с зажатой кнопкой — перетаскивание на число в календаре
@@ -1142,7 +1202,7 @@ namespace Kapsula
                 x.Day = next;
                 Tasks.Save(cur); Happy(1500); HabitAdd(1, 1);   // выполненные задачи — к бабочке
                 var ru = new CultureInfo("ru-RU");
-                Toast("", "Следующий раз — " + (next == DateTime.Today.AddDays(1) ? "завтра" : next == DateTime.Today ? "сегодня" : next.ToString("ddd, d MMMM", ru)), null, -1, accent);
+                Toast("", "Следующий раз — " + (next == DateTime.Today.AddDays(1) ? "завтра" : next == DateTime.Today ? "сегодня" : DayShort(next, ru)), null, -1, accent);
                 if (wasToday) PartyCheck(cur, true);   // сегодняшний раз сделан — может, это была последняя задача дня (надпись — после «Следующий раз»)
             }
             else if (x != null)
@@ -1254,9 +1314,13 @@ namespace Kapsula
                 string id = t.Id;
                 System.Media.SystemSounds.Exclamation.Play();
                 cardCarryNext = "bell";   // как напоминание: зверёк приносит колокольчик и звонит в него
-                string noteLine = t.Note.Length > 0 ? t.Note.Split('\n')[0].Trim() : "";
-                if (noteLine.Length > 60) noteLine = noteLine.Substring(0, 59) + "…";
-                ShowCardEx(null, ((char)0xE73E).ToString(), "Задача · " + new DateTime(t.Time.Value.Ticks).ToString("H:mm"), t.Text + (noteLine.Length > 0 ? " — " + noteLine : ""), delegate { SetState(2); ShowPage(PToday); }, "Готово", delegate { TaskToggle(id); }, true);
+                // сама задача — заголовком карточки, под ней время и первая строка заметки целиком (обрезает, если нужно,
+                // уже сама подпись карточки — своим «…» в конце, а не кодом посреди слова)
+                string noteLine = t.Note.Length > 0 ? t.Note.Replace("\r", "").Split('\n')[0].Trim() : "";
+                bool stepDone; string stepText;
+                if (Tasks.StepLine(noteLine, out stepDone, out stepText)) noteLine = stepText;   // «- взять паспорт» — без чёрточки
+                ShowCardEx(null, ((char)0xE73E).ToString(), t.Text, "Задача · " + new DateTime(t.Time.Value.Ticks).ToString("H:mm") + (noteLine.Length > 0 ? " · " + noteLine : ""), delegate { SetState(2); ShowPage(PToday); }, "Готово", delegate { TaskToggle(id); }, true);
+                if (t.Note.Length > 0) CardTip(t.Text + "\n" + t.Note);   // вся заметка, все её строки — в подсказке карточки
                 cardPage = PToday;
                 cardUntil = Environment.TickCount + 60000;   // ждёт ответа, а не исчезает через пару секунд
                 return;
@@ -1280,9 +1344,11 @@ namespace Kapsula
             List<DayTask> list = Tasks.Load().FindAll(delegate(DayTask t) { return !t.Done && t.Day <= DateTime.Today; });
             string next = "";
             DayTask first = null;
-            foreach (DayTask t in list) if (t.Time.HasValue && (first == null || t.Time < first.Time)) first = t;
-            if (first != null) next = "ближайшее: " + first.Text + " в " + new DateTime(first.Time.Value.Ticks).ToString("H:mm");
-            else if (list.Count > 0) next = "первое: " + list[0].Text;
+            // ближайшая — из сегодняшних, чьё время ещё впереди: прошедшая «в 7:00» в девять утра ближайшей уже не будет
+            foreach (DayTask t in list) if (t.Time.HasValue && t.Day == DateTime.Today && DateTime.Today + t.Time.Value >= now && (first == null || t.Time < first.Time)) first = t;
+            // время — в начале: при длинной задаче подпись обрезается с конца, а время и есть главное
+            if (first != null) next = "ближайшая в " + new DateTime(first.Time.Value.Ticks).ToString("H:mm") + " — " + first.Text;
+            else if (list.Count > 0) next = "первая — " + list[0].Text;
             else next = "задач на сегодня нет — добавьте во вкладке «Сегодня»";
             string head = "Доброе утро" + (list.Count > 0 ? " · " + Plural(list.Count, "задача", "задачи", "задач") : "");   // после полудня карточки нет (см. выше)
             ShowCardEx(null, ((char)0xE706).ToString(), head, next, delegate { SetState(2); ShowPage(PToday); }, "Фокус", delegate { PomodoroStart(); }, true);
@@ -1303,8 +1369,7 @@ namespace Kapsula
                 List<DayTask> fresh = Tasks.Parse(q.Substring(k.Length).Trim(), DateTime.Today);
                 if (fresh.Count == 0) return;
                 string sub = TaskWhen(fresh[0]) + (fresh.Count > 1 ? " · и ещё " + Plural(fresh.Count - 1, "задача", "задачи", "задач") : "") + " · Enter — добавить";
-                string title = fresh[0].Text.Length > 50 ? fresh[0].Text.Substring(0, 49) + "…" : fresh[0].Text;
-                AddCmd("Задача: " + title, sub, ((char)0xE73E).ToString(), null, delegate { AddParsedTasks(fresh); });
+                AddCmd("Задача: " + fresh[0].Text, sub, ((char)0xE73E).ToString(), null, delegate { AddParsedTasks(fresh); });   // длинное обрезает сама строка команды, по своей ширине
                 return;
             }
         }
@@ -1333,7 +1398,7 @@ namespace Kapsula
                 string id = t.Id;
                 int before = cmdItems.Count;
                 string sub = t.Done ? "сделано" : (IsOverdue(t) ? "просрочено" : t.Time.HasValue ? "в " + new DateTime(t.Time.Value.Ticks).ToString("H:mm") : "сегодня")
-                    + (t.Repeat.Length > 0 ? " · " + Tasks.RepeatLabel(t.Repeat) : "") + (t.Note.Length > 0 ? StepsSub(t.Note) : "") + (!hinted ? (t.Done ? " · щелчок — вернуть" : " · щелчок — отметить") : "");
+                    + (t.Repeat.Length > 0 ? " · " + Tasks.RepeatLabel(t.Repeat) : "") + (t.Note.Length > 0 ? StepsSub(t.Note) : "") + (!hinted ? (t.Done ? " · клик — вернуть" : " · клик — отметить") : "");
                 hinted = true;
                 AddCmd((t.Done ? "✓  " : "○  ") + t.Text, sub, ((char)0xE73E).ToString(), null, delegate { TaskToggle(id); });
                 if (cmdItems.Count > before) cmdItems[cmdItems.Count - 1].Stay = true;   // отметили — список остаётся открытым
@@ -1354,8 +1419,14 @@ namespace Kapsula
             if (t.Repeat.Length > 0) return Tasks.RepeatLabel(t.Repeat) + time;
             if (t.Day == Tasks.Someday) return "когда-нибудь";
             DateTime today = DateTime.Today;
-            string day = t.Day == today ? "сегодня" : t.Day == today.AddDays(1) ? "завтра" : t.Day == today.AddDays(2) ? "послезавтра" : t.Day.ToString("ddd, d MMMM", ru) + (t.Day.Year != today.Year ? " " + t.Day.Year : "");
+            string day = t.Day == today ? "сегодня" : t.Day == today.AddDays(1) ? "завтра" : t.Day == today.AddDays(2) ? "послезавтра" : DayShort(t.Day, ru) + (t.Day.Year != today.Year ? " " + t.Day.Year : "");
             return day + time;
+        }
+
+        // «пн, 17 ноября» — день недели со строчной: «ddd» в ru-RU даёт «Пн», и посреди фразы выходило «Следующий раз — Пн, 17 ноября»
+        static string DayShort(DateTime d, CultureInfo ru)
+        {
+            return ru.DateTimeFormat.GetAbbreviatedDayName(d.DayOfWeek).ToLowerInvariant() + ", " + d.ToString("d MMMM", ru);
         }
 
         void AddParsedTasks(List<DayTask> fresh)
@@ -1382,7 +1453,8 @@ namespace Kapsula
             }
             if (mins < 1 || mins > 600) return;
             string l2 = label;
-            AddCmd("Фокус " + mins + ":00" + (label.Length > 0 ? " · " + label : ""), "таймер в капсуле, по окончании — карточка", ((char)0xE916).ToString(), null, delegate { StartFocus(mins, l2); });
+            // длительность — минутами, как в надписи после запуска («Фокус 90 мин»): «90:00» читалось бы как время на часах
+            AddCmd("Фокус " + mins + " мин" + (label.Length > 0 ? " · " + label : ""), "таймер в капсуле, по окончании — карточка", ((char)0xE916).ToString(), null, delegate { StartFocus(mins, l2); });
         }
 
         void StartFocus(int mins, string label)

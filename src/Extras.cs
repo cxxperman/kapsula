@@ -112,26 +112,30 @@ namespace Kapsula
 
         FrameworkElement BuildNotifPage()
         {
-            var foot = new Grid { Height = 28, Margin = new Thickness(0, 6, 0, 0) };
+            var foot = new Grid { Height = 26, Margin = new Thickness(0, 6, 0, 0) };
             notifCount = new TextBlock { Foreground = Faint, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
             foot.Children.Add(notifCount);
-            var clear = Btn("Очистить всё", false, 0, 28, delegate { seenNotes.Clear(); RenderNotifPage(); });
+            var clear = notifClearBtn = Btn("Очистить всё", false, 0, 26, delegate { seenNotes.Clear(); RenderNotifPage(); });   // ряд конструктора — 26 точек: кнопка выше срезалась бы снизу
             clear.HorizontalAlignment = HorizontalAlignment.Right;
             foot.Children.Add(clear);
             notifList = new StackPanel();
             var nsv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = notifList };
+            // уведомлений больше, чем помещается, — край списка мягко тает, а не режет карточку посреди букв
+            nsv.ScrollChanged += delegate { FadeScrollEdges(nsv, true, 16); };
             var ntb = PageBoard(PNotif, "notif", 1, 9, 8);
             ntb.Add("list", "Список", nsv, 0, 0, 1, 8, false);
             ntb.Add("foot", "Счётчик и «Очистить всё»", foot, 0, 8, 1, 1, false);
             return FinishBoard(ntb);
         }
         TextBlock notifCount;
+        Border notifClearBtn;   // «Очистить всё» — только когда есть что стирать
 
         void RenderNotifPage()
         {
             if (notifList == null) return;
+            if (notifClearBtn != null) notifClearBtn.Visibility = seenNotes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;   // пустой истории стирать нечего
             notifList.Children.Clear();
-            notifCount.Text = seenNotes.Count == 0 ? "Хранятся до закрытия Kapsula" : Plural(seenNotes.Count, "уведомление", "уведомления", "уведомлений") + " · хранятся до закрытия Kapsula";
+            notifCount.Text = seenNotes.Count == 0 ? "История хранится до закрытия Kapsula" : Plural(seenNotes.Count, "уведомление", "уведомления", "уведомлений") + " · история хранится до закрытия Kapsula";
             if (seenNotes.Count == 0)
             {
                 notifList.Children.Add(PetSpot("sleep", 50, 12, "notif"));
@@ -141,28 +145,55 @@ namespace Kapsula
             for (int i = seenNotes.Count - 1; i >= 0; i--)
             {
                 Seen s = seenNotes[i];
-                var row = new Grid { Height = 46 };
+                // строка растёт под текст: имя — до двух строк, сообщение — до трёх; целиком — в подсказке
+                var row = new Grid { MinHeight = 46 };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 ImageSource ic = null;
-                try { ic = SourceIcon(s.Source); } catch { }
+                try { ic = SourceIcon((s.Source ?? "").ToLowerInvariant()); } catch { }   // в истории — «Discord», «Steam», а значки ищутся по «discord», «steam»
                 FrameworkElement icon = ic != null ? (FrameworkElement)new Image { Source = ic, Width = 26, Height = 26 } :
                     new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Glass.Fill, Child = new TextBlock { Text = ((char)0xEA8F).ToString(), FontFamily = Icons, FontSize = 13, Foreground = Dim, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-                icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center;
+                icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Top; icon.Margin = new Thickness(0, 9, 0, 0);
                 row.Children.Add(icon);
-                var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-                texts.Children.Add(new TextBlock { Text = s.Title, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-                if (s.Text.Length > 0) texts.Children.Add(new TextBlock { Text = s.Text, Foreground = Dim, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis });
+                var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 7, 0, 8) };
+                // без заголовка — хотя бы откуда пришло, а не пустая строка; текст из одних пробелов — без пустой второй строки
+                bool hasTitle = s.Title.Trim().Length > 0, hasText = s.Text.Trim().Length > 0;
+                string head = hasTitle ? s.Title : string.IsNullOrEmpty(s.Source) ? "Уведомление" : s.Source;
+                var title = new TextBlock { Text = head, Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
+                Ui.Lines(title, 2);
+                texts.Children.Add(title);
+                if (hasText)
+                {
+                    // сообщения из Discord и Telegram бывают с переводами строк — здесь они сливаются в одну строку текста
+                    var body = new TextBlock { Text = Regex.Replace(s.Text, @"\s+", " ").Trim(), Foreground = Dim, FontSize = 11.5 };
+                    Ui.Lines(body, 3);
+                    texts.Children.Add(body);
+                }
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
-                TimeSpan ago = DateTime.Now - s.At;
-                var tm = new TextBlock { Text = ago.TotalMinutes < 1 ? "сейчас" : ago.TotalMinutes < 60 ? (int)ago.TotalMinutes + " мин" : s.At.ToString("H:mm"), Foreground = Faint, FontSize = 11, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 8, 10, 0) };
+                var tm = new TextBlock { Text = NotifAgo(s.At), Foreground = Faint, FontSize = 11, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 8, 10, 0) };
                 Grid.SetColumn(tm, 2); row.Children.Add(tm);
-                Seen copy = s;
-                var b = new Border { CornerRadius = Ui.Row, Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand, ToolTip = "Клик — скопировать текст" };
-                b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; CopyResult(copy.Title + (copy.Text.Length > 0 ? " — " + copy.Text : "")); };
+                string full = s.Text.Length > 600 ? s.Text.Substring(0, char.IsHighSurrogate(s.Text[599]) ? 599 : 600) + "…" : s.Text;   // в подсказке — до 600 знаков, остальное даст «скопировать»
+                string clip = hasTitle && hasText ? s.Title + " — " + s.Text : hasText ? s.Text : head;   // без висящего « — », когда чего-то нет
+                var b = new Border { CornerRadius = Ui.Row, Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 5), Child = row, Cursor = Cursors.Hand,
+                    ToolTip = head + (hasText ? "\n" + full : "") + "\n\nКлик — скопировать текст" };
+                b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; CopyResult(clip); };
                 notifList.Children.Add(b);
             }
+        }
+
+        // Когда пришло уведомление: «сейчас», «5 мин назад», сегодня — «14:05», «вчера, 14:05», раньше — «12 ноября, 14:05».
+        // История живёт до закрытия Kapsula, а это бывает и сутки: одно «14:05» выдавало бы вчерашнее за сегодняшнее.
+        // Месяц — словом, как в календаре и задачах: короткие названия .NET без точки и не в том падеже («12 май»)
+        static string NotifAgo(DateTime at)
+        {
+            var ru = new System.Globalization.CultureInfo("ru-RU");
+            TimeSpan ago = DateTime.Now - at;
+            if (ago.TotalMinutes < 1) return "сейчас";
+            if (ago.TotalMinutes < 60) return (int)ago.TotalMinutes + " мин назад";
+            if (at.Date == DateTime.Today) return at.ToString("H:mm", ru);
+            if (at.Date == DateTime.Today.AddDays(-1)) return "вчера, " + at.ToString("H:mm", ru);
+            return at.ToString("d MMMM, H:mm", ru);
         }
 
         // ================================================================ Звонок
@@ -201,7 +232,7 @@ namespace Kapsula
                                 object v = s == null ? null : s.GetValue("LastUsedTimeStop");
                                 if (!(v is long) || (long)v != 0) continue;
                                 string exe = n.Substring(n.LastIndexOf('#') + 1).ToLowerInvariant().Replace(".exe", "");
-                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && (exe == a || exe.StartsWith(a)) && AppVolume.SessionActive(exe)) return Pretty(exe);
+                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && (exe == a || exe.StartsWith(a)) && AppVolume.SessionActive(exe)) return exe;
                             }
                 }
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone"))
@@ -215,7 +246,7 @@ namespace Kapsula
                                 object v = s == null ? null : s.GetValue("LastUsedTimeStop");
                                 if (!(v is long) || (long)v != 0) continue;
                                 string low = n.ToLowerInvariant();
-                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && low.Contains(a) && AppVolume.SessionActive(a)) return Pretty(a);
+                                foreach (string a in CallApps) if (!(skipDiscord && a == "discord") && low.Contains(a) && AppVolume.SessionActive(a)) return a;
                             }
                         }
                 }
@@ -224,11 +255,14 @@ namespace Kapsula
             return null;
         }
 
+        // Название программы для карточки звонка: «WhatsApp», а не «Whatsapp»; «Яндекс» по-русски, как в списке плееров
+        // (MediaWatcher.DisplayName). Звук ищется не по нему, а по имени процесса (callCandidate)
         static string Pretty(string exe)
         {
             switch (exe)
             {
                 case "msedge": return "Edge"; case "chrome": return "Chrome"; case "ms-teams": case "teams": return "Teams";
+                case "whatsapp": return "WhatsApp"; case "yandex": return "Яндекс";
                 default: return exe.Length > 0 ? char.ToUpper(exe[0]) + exe.Substring(1) : exe;
             }
         }
@@ -237,7 +271,7 @@ namespace Kapsula
         // Звонок = программа для звонков держит микрофон и звук, и в разговоре реально говорят (вы или собеседник).
         // Просто сидеть в голосовом канале Discord — не звонок: карточка появится, когда кто-то заговорит,
         // и уйдёт после 45 секунд тишины.
-        string callCandidate;
+        string callCandidate;   // имя процесса («yandex», «msedge»): по нему ищется звук; в карточке — Pretty(callCandidate)
         int callVoiceAt;
         void CallTick()
         {
@@ -254,7 +288,7 @@ namespace Kapsula
                 if (pk > 0.08) callVoiceAt = now;   // тишина в канале ~0.01, речь — от 0.1
             }
             bool talking = callCandidate != null && callVoiceAt != 0 && unchecked(now - callVoiceAt) < 45000;
-            string app = talking ? callCandidate : null;
+            string app = talking ? Pretty(callCandidate) : null;
             if (app != callApp)
             {
                 bool started = callApp == null && app != null;
@@ -315,26 +349,34 @@ namespace Kapsula
             }
         }
 
-        // Заголовок записи: метка типа (ссылка, цвет с образцом, код) и сам текст
-        FrameworkElement ClipTitle(ClipItem it, string one)
+        // Заголовок записи: метка типа (ссылка, цвет с образцом, код) и сам текст — до двух строк, дальше «…».
+        // Сетка, а не горизонтальная StackPanel: в StackPanel у текста бесконечная ширина, и он обрезался посреди буквы без «…».
+        // text — сама надпись: по ней строка решает, нужна ли подсказка с полным текстом
+        FrameworkElement ClipTitle(ClipItem it, string one, out TextBlock text)
         {
             int k = ClipKind(it);
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             if (k == 3)
             {
                 Color c;
                 if (TryParseCssColor(it.Text.Trim(), out c))
-                    sp.Children.Add(new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(c), BorderBrush = Line, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) });
+                    g.Children.Add(new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(c), BorderBrush = Line, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 7, 0) });
             }
             else if (k == 2 || k == 4)
             {
-                var badge = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 0, 6, 1), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
+                // метка — у первой строки текста
+                var badge = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 0, 6, 1), Margin = new Thickness(0, 2, 7, 0), VerticalAlignment = VerticalAlignment.Top,
                     Background = new SolidColorBrush(k == 2 ? Color.FromArgb(0x40, 0x4D, 0xA3, 0xFF) : Color.FromArgb(0x40, 0xAF, 0x52, 0xDE)),
-                    Child = new TextBlock { Text = k == 2 ? "Ссылка" : "Код", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(k == 2 ? Color.FromRgb(0x7F, 0xBE, 0xFF) : Color.FromRgb(0xD0, 0x9C, 0xFF)) } };
-                sp.Children.Add(badge);
+                    Child = new TextBlock { Text = k == 2 ? "Ссылка" : "Код", FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(k == 2 ? Color.FromRgb(0x7F, 0xBE, 0xFF) : Color.FromRgb(0xD0, 0x9C, 0xFF)) } };
+                g.Children.Add(badge);
             }
-            sp.Children.Add(new TextBlock { Text = one, Foreground = Fg, FontSize = 12.5, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, FontFamily = k == 4 ? new FontFamily("Cascadia Mono, Consolas") : FontFamily });
-            return sp;
+            var tb = new TextBlock { Text = one, Foreground = Fg, FontSize = 12.5, FontFamily = k == 4 ? new FontFamily("Cascadia Mono, Consolas") : FontFamily };
+            Ui.Lines(tb, 2);
+            Grid.SetColumn(tb, 1); g.Children.Add(tb);
+            text = tb;
+            return g;
         }
 
         static bool TryParseCssColor(string s, out Color c)
@@ -366,7 +408,9 @@ namespace Kapsula
             Uri u;
             if (!Uri.TryCreate(url, UriKind.Absolute, out u)) { Toast(((char)0xE774).ToString(), "Не похоже на адрес сайта", null, -1, null); return; }
             if (name.Length == 0) name = u.Host.StartsWith("www.") ? u.Host.Substring(4) : u.Host;
-            if (name.Length > 16) name = name.Substring(0, 15) + "…";
+            // имя хранится целиком (без «…»): его показывают и в предложениях («Открываю …»); короче его делает
+            // только сама плашка над чатом. 60 знаков — просто разумный предел
+            if (name.Length > 60) name = name.Substring(0, char.IsHighSurrogate(name[59]) ? 59 : 60).TrimEnd();
             string cur = Store.Get("webSites");
             Store.Set("webSites", (cur.Length > 0 ? cur + "¦" : "") + name + "~" + url);
             Store.Set("webChat", (WebUrls.Length - 1).ToString());

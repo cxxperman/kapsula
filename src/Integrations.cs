@@ -156,7 +156,43 @@ namespace Kapsula
         {
             s = Regex.Replace(s ?? "", "<[^<>]{1,60}>", "");
             s = s.Replace("\r", " ").Replace("\n", " ").Trim();
-            return s.Length > max ? s.Substring(0, max) + "…" : s;
+            if (s.Length <= max) return s;
+            int n = max;
+            if (n > 0 && char.IsHighSurrogate(s[n - 1])) n--;   // эмодзи (пара половинок-суррогатов) пополам не режем
+            return s.Substring(0, n).TrimEnd() + "…";
+        }
+
+        // XSOverlay дописывает к тексту пометки по-английски: « [image: IMG_1234.png] », « [attachment: отчёт.pdf] »,
+        // « [sticker] », « [embed] », а сообщение без текста называет «sent a sticker» или «sent message embed(s)».
+        // Переводим до обрезки (иначе останется половина «[image: …]»). С заглавной — только сами пометки, текст человека не трогаем.
+        static string RuContent(string s)
+        {
+            int pics = 0;
+            var files = new List<string>();
+            // имя файла может само содержать «]»: пометка кончается «]» в конце текста или перед следующей такой же пометкой
+            s = Regex.Replace(s, @"\s*\[(image|attachment): (.*?)\](?=\s*$|\s+\[(?:image|attachment): )", delegate(Match m)
+            {
+                if (m.Groups[1].Value == "image") pics++; else files.Add(m.Groups[2].Value.Trim());
+                return "";
+            });
+            bool sticker = Regex.IsMatch(s, @"\s\[sticker\](?=\s|$)");
+            s = Regex.Replace(s, @"\s+\[(?:sticker|embed)\](?=\s|$)", "").Trim();   // «[embed]» — превью ссылки, сама ссылка уже в тексте
+            bool embed = s == "sent message embed(s)";
+            if (s == "sent a sticker") { sticker = true; s = ""; }
+            if (embed) s = "";
+            var parts = new List<string>();
+            if (s.Length > 0) parts.Add(s);
+            if (sticker) parts.Add("стикер");
+            if (pics > 0)
+            {
+                int m10 = pics % 10, m100 = pics % 100;
+                parts.Add(pics == 1 ? "картинка" : pics.ToString() + (char)0xA0 + (m10 == 1 && m100 != 11 ? "картинка" : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? "картинки" : "картинок"));
+            }
+            foreach (string f in files) parts.Add("файл " + Ui.MiddleEllipsis(f, 40));
+            if (parts.Count == 0 && embed) parts.Add("вложение");
+            string r = string.Join(" · ", parts.ToArray());
+            if (s.Length == 0 && r.Length > 0) r = char.ToUpper(r[0]) + r.Substring(1);   // «Картинка», «Файл отчёт.pdf», «Стикер»
+            return r;
         }
 
         // Разбирает сообщение плагина XSOverlay: конверт { command: "SendNotification", jsonData: "<JSON уведомления>" }.
@@ -170,8 +206,22 @@ namespace Kapsula
                 if (env == null || Str(env, "command") != "SendNotification") return false;
                 var n = ser.DeserializeObject(Str(env, "jsonData")) as Dictionary<string, object>;
                 if (n == null) return false;
-                title = Clean(Str(n, "title"), 80);
-                text = Clean(Str(n, "content"), 300);
+                string rt = Str(n, "title"), rx = Str(n, "content");
+                if (rx == "Incoming call")
+                {
+                    // звонок: в заголовке «<имя> is calling you...» — остаётся имя (у личного звонка его нет — будет «Discord»)
+                    rt = Regex.Replace(rt, @"\s*is calling you\.*\s*$", "");
+                    rx = "Входящий звонок";
+                }
+                else if (rt == "Hello from Vendor!" && rx.StartsWith("This is a test notification", StringComparison.Ordinal))
+                {
+                    rt = ""; rx = "Проверочное уведомление — всё работает";   // кнопка проверки в настройках XSOverlay
+                }
+                else rx = RuContent(rx);
+                // у беседы без названия в заголовке пустые скобки «()»; ответ на сообщение помечен « (reply)» в конце
+                rt = Regex.Replace(Regex.Replace(rt, @"\s*\(\s*\)", ""), @"\s*\(reply\)\s*$", " · ответ");
+                title = Clean(rt, 80);
+                text = Clean(rx, 300);
                 if (title == "" && text == "") return false;
                 if (title == "") { title = "Discord"; }
                 object b64;
@@ -461,7 +511,8 @@ namespace Kapsula
             catch { return null; }
         }
 
-        // Названия видов уведомлений, как их называет сам Steam, по-русски. Для незнакомых остаётся исходное.
+        // Названия видов уведомлений, как их называет сам Steam, по-русски. Незнакомый или пустой вид — просто
+        // «Уведомление»: внутреннее английское имя Steam на карточку не попадает, а «Steam» и так на значке карточки.
         public static string KindName(string kind)
         {
             switch ((kind ?? "").ToLowerInvariant())
@@ -480,8 +531,7 @@ namespace Kapsula
                 case "gift": return "Подарок";
                 case "wishlist": return "Список желаемого";
                 case "incoming voice chat": return "Голосовой вызов";
-                case "": return "Steam";
-                default: return kind;
+                default: return "Уведомление";
             }
         }
 

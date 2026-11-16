@@ -278,15 +278,18 @@ namespace Kapsula
             {
                 string s = Updater.StatusText;
                 if (!Updater.Configured) s = "Автообновление в этой сборке не настроено.";
+                else if (Updater.Checking) s = "Проверяю…";   // пока идёт проверка, не показываем прошлый итог
                 else if (s == "") s = Store.Get("autoUpdate") == "0" ? "Автообновление выключено. Проверить можно кнопкой." : "Обновления проверяются сами раз в час.";
                 if (verStatus != null) verStatus.Text = s;
+                // новая версия уже скачана — та же кнопка перезапускает Kapsula, и подпись говорит об этом прямо
+                checkLabel.Text = Updater.Ready ? "Перезапустить и обновить" : "Проверить обновления";
             };
             showStatus();
             var statusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             statusTimer.Tick += delegate { showStatus(); };
             statusTimer.Start();
             Closed += delegate { statusTimer.Stop(); };
-            checkBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (verStatus != null) verStatus.Text = "Проверяю…"; Updater.CheckNow(); };
+            checkBtn.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Updater.Ready && verStatus != null) verStatus.Text = "Проверяю…"; Updater.CheckNow(); };
             sp.Children.Add(verRow);
             {
                 // свой стикер: выбор картинки и сброс
@@ -356,8 +359,8 @@ namespace Kapsula
             sp.Children.Add(Row("Светлая кромка", "Тонкий блик по краю острова — он не сливается с тёмными обоями и окнами.", Toggle(island.RimOn, delegate(bool v) { island.SetFlag("rim", v); }), false));
             sp.Children.Add(Row("Тень под островом", "Мягкая тень: на светлых окнах остров словно парит над ними.", Toggle(island.ShadowOn, delegate(bool v) { island.SetFlag("shadow", v); }), false));
             sp.Children.Add(Row("Характер анимаций", "Как остров раскрывается и сворачивается. Выберите — остров сразу покажет. «Капля» сначала стекает вниз, потом расплывается вширь. «Меньше движения» — без отскоков и прыжков; включается само, если в Windows выключены анимации.", Chips(IslandWindow.MotionNames, island.MotionStyle, delegate(int i) { island.SetMotion(i); }), true));
-            sp.Children.Add(Row("Зверёк в переходах", "Зверёк сам переходит туда, куда вы смотрите: выпрыгивает из капсулы на край панели и сидит, свесив лапки, перескакивает за вкладками, занимает место зверьков погоды, таймера и пустых списков, приносит уведомления — садится на край карточки и отдаёт вам письмо, — качается на жидком крае под музыку. Пока вкладку перестраивают, надевает каску и следит за стройкой. Щёлкните по нему — подпрыгнет.", Toggle(island.RideOn, delegate(bool v) { island.SetFlag("petRide", v); }), false));
-            sp.Children.Add(Row("Зверёк гуляет по окнам", "Когда остров свёрнут и ничего не происходит, зверёк иногда выпрыгивает из капсулы и садится на верхний край окна, в котором вы работаете: сидит, свесив лапки, прохаживается, засыпает, если вы отошли. Окно двигают — едет с ним. Что-то случилось — возвращается. Сквозь него можно щёлкать. На развёрнутых окнах, в играх и на весь экран не гуляет. Наведите на эту строку — сядет на окно настроек.", Toggle(island.WalkOn, delegate(bool v) { island.SetFlag("walk", v); }), false));
+            sp.Children.Add(Row("Зверёк в переходах", "Зверёк сам переходит туда, куда вы смотрите: выпрыгивает из капсулы на край панели и сидит, свесив лапки, перескакивает за вкладками, занимает место зверьков погоды, таймера и пустых списков, приносит уведомления — садится на край карточки и отдаёт вам письмо, — качается на жидком крае под музыку. Пока вкладку перестраивают, надевает каску и следит за стройкой. Кликните по нему — подпрыгнет.", Toggle(island.RideOn, delegate(bool v) { island.SetFlag("petRide", v); }), false));
+            sp.Children.Add(Row("Зверёк гуляет по окнам", "Когда остров свёрнут и ничего не происходит, зверёк иногда выпрыгивает из капсулы и садится на верхний край окна, в котором вы работаете: сидит, свесив лапки, прохаживается, засыпает, если вы отошли. Окно двигают — едет с ним. Что-то случилось — возвращается. Сквозь него можно кликать. На развёрнутых окнах, в играх и на весь экран не гуляет. Наведите на эту строку — сядет на окно настроек.", Toggle(island.WalkOn, delegate(bool v) { island.SetFlag("walk", v); }), false));
             sp.Children.Add(Row("Блоки по очереди", "Когда открывается панель или вкладка, блоки проявляются один за другим, волной сверху вниз.", Toggle(island.CascadeOn, delegate(bool v) { island.SetFlag("cascade", v); }), false));
             sp.Children.Add(Row("Матовое стекло · бета", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными. Функция пробная: на некоторых компьютерах фон может обновляться с задержкой или нагружать систему — тогда выключите.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
             Sec("Поведение").Children.Add(Row("Остров можно отцепить", "Потяните остров за пустое место — он отцепится от верхнего края и останется там, где отпустите; у краёв экрана прилипает. Поднесите к верхнему краю — встанет на место. Если панели не хватает места, остров сам приподнимается, пока она открыта.", Toggle(island.AllowDetach, delegate(bool v) { island.SetFlag("detach", v); }), false));
@@ -425,24 +428,26 @@ namespace Kapsula
             sp.Children.Add(Row("Оценки в других плеерах · альфа", "Сырая функция, по умолчанию выключена. Звезда и «Не интересует» для Spotify, Яндекс Музыки, YouTube Music, SoundCloud и других — в браузере и в приложениях, без расширений и ключей. Kapsula находит кнопки «Нравится» и «Не нравится» в окне плеера через специальные возможности Windows и нажимает их, не трогая мышь. Вкладка с плеером должна быть выбранной в своём окне (окно может быть свёрнуто). Кнопки появляются, только если нашлись в плеере.", Toggle(Store.Get("uiaRate") == "1", delegate(bool v) { Store.Set("uiaRate", v ? "1" : "0"); }), false));
 
             sp = Sec("AirPods и Beats");
-            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке острова покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
+            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке команд покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
             sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
 
             sp = Sec("Нейросети");
-            sp.Children.Add(Row("Кто отвечает в чате", "«Сайты без ключа» — Duck.ai, DeepSeek или Gemini прямо во вкладке «Чат»: переключаются строкой над чатом, кнопка «В окне» открывает сайт отдельным окном. Duck.ai работает без входа; в DeepSeek и Gemini входите в свой аккаунт на самом сайте. «Qwen на этом ПК» — нейросеть прямо на компьютере: без ключа, без интернета и без отправки вопросов куда-либо (сначала её нужно скачать ниже). Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Сайты без ключа", "Claude по ключу", "Gemini по ключу", "Qwen на этом ПК" }, Ai.Local ? 3 : Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : i == 3 ? "local" : "claude"); }), true));
+            sp.Children.Add(Row("Кто отвечает в чате", "«Сайты без ключа» — Duck.ai, DeepSeek или Gemini прямо во вкладке «Чат»: переключаются строкой над чатом, кнопка «В окне» открывает сайт отдельным окном. Duck.ai работает без входа; в DeepSeek и Gemini входите в свой аккаунт на самом сайте. «Qwen на этом ПК» — нейросеть прямо на компьютере: без ключа, без интернета и без отправки вопросов куда-либо (сначала её нужно скачать ниже). Claude и Gemini отвечают по вашему ключу; кнопкам «Перевести», «Исправить», «Сократить», «Объяснить» ключ нужен в любом случае. К Claude Code это не относится.", Chips(new string[] { "Сайты без ключа", "Claude по ключу", "Gemini по ключу", "Qwen на этом ПК" }, Ai.Local ? 3 : Ai.Duck ? 0 : Ai.Gemini ? 2 : 1, delegate(int i) { Store.Set("aiProvider", i == 0 ? "duck" : i == 2 ? "gemini" : i == 3 ? "local" : "claude"); if (qwenRefresh != null) qwenRefresh(); }), true));   // кнопка Qwen ниже («Используется в чате») — сразу в лад с выбором
             sp.Children.Add(Header("Qwen на этом компьютере"));
             {
                 int rec = QwenLocal.Recommended();
                 var names = new string[QwenLocal.Models.Length];
-                for (int i = 0; i < names.Length; i++) names[i] = QwenLocal.Models[i].Name + " · " + QwenLocal.Models[i].SizeGb.ToString("0.#") + " ГБ";
+                // «6,2 ГБ» с запятой и при английском формате чисел в Windows
+                for (int i = 0; i < names.Length; i++) names[i] = QwenLocal.Models[i].Name + " · " + QwenLocal.Models[i].SizeGb.ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")) + " ГБ";
                 string ramNote = "В этом ПК " + Math.Round(QwenLocal.RamGb()) + " ГБ памяти — советуем " + QwenLocal.Models[rec].Name + ".";
                 TextBlock desc = null;
                 Func<int, string> descOf = delegate(int i) { return "Чем больше модель, тем умнее, но медленнее и тяжелее. " + ramNote + " Выбрана " + QwenLocal.Models[i].Name + ": " + QwenLocal.Models[i].Note + "; нужно около " + QwenLocal.Models[i].RamGb + " ГБ свободной памяти."; };
                 int cur = Array.IndexOf(QwenLocal.Models, QwenLocal.Chosen);
                 var modelRow = Row("Модель Qwen 3.5", descOf(cur), Chips(names, cur, delegate(int i) { QwenLocal.Choose(QwenLocal.Models[i].Id); if (desc != null) desc.Text = descOf(i); if (qwenRefresh != null) qwenRefresh(); }), true);
-                try { desc = ((StackPanel)((Grid)((Border)modelRow).Child).Children[0]).Children[1] as TextBlock; } catch { }
+                // строка с выбором под описанием — внутри StackPanel, а не Grid: Panel подходит к обеим раскладкам
+                try { desc = ((StackPanel)((Panel)((Border)modelRow).Child).Children[0]).Children[1] as TextBlock; } catch { }
                 sp.Children.Add(modelRow);
-                sp.Children.Add(Row("Скачать на компьютер", "Скачиваются движок llama.cpp (github.com/ggml-org/llama.cpp, " + QwenLocal.EngineSizeText + ") и выбранная модель (huggingface.co, сборка unsloth). Всё хранится в папке Kapsula и удаляется кнопкой «Удалить». Во время разговора интернет не нужен; Модель загружается на первом вопросе в чате и полностью выгружается из памяти кнопкой «Очистить» (и после 15 минут без вопросов). Работает на видеокарте: на NVIDIA — через CUDA (быстрее всего), на AMD и Intel — через Vulkan, а без видеокарты — на процессоре, медленнее.", BuildQwenEditor(), true));
+                sp.Children.Add(Row("Скачать на компьютер", "Скачиваются движок llama.cpp (github.com/ggml-org/llama.cpp, " + QwenLocal.EngineSizeText + ") и выбранная модель (huggingface.co, сборка unsloth). Всё хранится в папке Kapsula и удаляется кнопкой «Удалить». Во время разговора интернет не нужен. Модель загружается при первом вопросе в чате и полностью выгружается из памяти кнопкой «Очистить» (и после 15 минут без вопросов). Работает на видеокарте: на NVIDIA — через CUDA (быстрее всего), на AMD и Intel — через Vulkan, а без видеокарты — на процессоре, медленнее.", BuildQwenEditor(), true));
             }
             sp.Children.Add(Header("Gemini"));
             sp.Children.Add(Row("Ключ Gemini API", "Ключ создаётся в Google AI Studio под вашим аккаунтом Google; у Gemini есть бесплатный уровень с ограничением числа запросов. Ключ хранится только на этом компьютере, зашифрованный Windows, и отправляется только на generativelanguage.googleapis.com.", BuildGeminiKeyEditor(), true));
@@ -466,7 +471,7 @@ namespace Kapsula
                     cSet(have);
                     string st = !have ? "Kapsula допишет свои строки в настройки Claude Code (прежний файл сохранится рядом). В интернет ничего не уходит."
                         : old ? "Подключение устарело: нажмите на переключатель — оно обновится и останется включённым."
-                        : ClaudeBridge.Error != null ? "Не работает: " + ClaudeBridge.Error + "."
+                        : ClaudeBridge.Error != null ? "Не работает: " + Reason(ClaudeBridge.Error) + "."
                         : "Подключено. Новые сессии Claude Code подхватят это сразу, уже открытые — после перезапуска.";
                     if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно из значка Kapsula у часов или командой «стоп claude». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
                 };
@@ -475,19 +480,19 @@ namespace Kapsula
                     if (ClaudeBridge.Installed && ClaudeBridge.Enabled && !ClaudeBridge.UpToDate)
                     {
                         string err = ClaudeBridge.Install();
-                        cNote = err == null ? "" : " Не удалось: " + err + ".";
+                        cNote = err == null ? "" : " Не удалось: " + Reason(err) + ".";
                     }
                     else if (ClaudeBridge.Installed && ClaudeBridge.Enabled)
                     {
                         string err = ClaudeBridge.Remove();
                         Store.Set("claudeCode", "0"); if (!ClaudeBridge.McpOn) ClaudeBridge.Stop();   // сервер нужен и другим агентам (MCP)
-                        cNote = err == null ? "" : " Не удалось убрать строки из настроек: " + err + ".";
+                        cNote = err == null ? "" : " Не удалось убрать строки из настроек: " + Reason(err) + ".";
                     }
                     else
                     {
                         string err = ClaudeBridge.Install();
                         if (err == null) { Store.Set("claudeCode", "1"); ClaudeBridge.Start(); cNote = ""; }
-                        else cNote = " Не удалось: " + err + ".";
+                        else cNote = " Не удалось: " + Reason(err) + ".";
                     }
                     cShow();
                 };
@@ -495,7 +500,7 @@ namespace Kapsula
                 sp.Children.Add(Header("Claude Code"));
                 sp.Children.Add(cRow);
                 sp.Children.Add(Row("Звук, когда Claude Code ждёт вас", "Системный звук вместе с карточкой разрешения или вопроса — чтобы не пропустить, если вы отвернулись от экрана.", Toggle(Store.Get("claudeSound") != "0", delegate(bool v) { Store.Set("claudeSound", v ? "1" : "0"); }), false));
-                sp.Children.Add(Row("Кнопка «Открыть в VS Code» · альфа", "Сырая функция, по умолчанию выключена. На карточке «Claude закончил» появляется кнопка, открывающая папку проекта в VS Code (без VS Code — в Проводнике), а в строке острова — команда «открыть проект в VS Code».", Toggle(Store.Get("vscodeButton") == "1", delegate(bool v) { Store.Set("vscodeButton", v ? "1" : "0"); }), false));
+                sp.Children.Add(Row("Кнопка «Открыть в VS Code» · альфа", "Сырая функция, по умолчанию выключена. На карточке «Claude закончил» появляется кнопка, открывающая папку проекта в VS Code (без VS Code — в Проводнике), а в строке команд — команда «открыть проект в VS Code».", Toggle(Store.Get("vscodeButton") == "1", delegate(bool v) { Store.Set("vscodeButton", v ? "1" : "0"); }), false));
                 sp.Children.Add(Row("Показывать, что делает Claude Code", "Короткая надпись на острове о каждом его действии: какую команду выполняет, какой файл правит. По умолчанию выключено — без этого остров показывает только важное: запросы разрешений, вопросы и «закончил» после работы дольше полуминуты.", Toggle(Store.Get("claudeActivity") == "1", delegate(bool v) { Store.Set("claudeActivity", v ? "1" : "0"); }), false));
             }
 
@@ -508,7 +513,7 @@ namespace Kapsula
                 {
                     if (DiscordBridge.Enabled && !DiscordBridge.Listening && DiscordBridge.Error == null) DiscordBridge.Start();   // Vencord поставили, пока Kapsula работала, — начать слушать
                     string st = Store.Get("discordVencord") == "0" ? "Выключено."
-                        : DiscordBridge.Error != null ? "Не работает: " + DiscordBridge.Error + "."
+                        : DiscordBridge.Error != null ? "Не работает: " + Reason(DiscordBridge.Error) + "."
                         : DiscordBridge.Clients > 0 ? "Подключено: сообщения и звонки Discord появляются на острове."
                         : "Ждёт уведомлений: Discord подключается сам, когда приходит сообщение. Если карточек нет — в Vencord откройте Настройки → Плагины и включите XSOverlay.";
                     if (dText != null) dText.Text = "Kapsula только принимает уведомления; в Discord ничего не меняется. " + st;
@@ -546,7 +551,7 @@ namespace Kapsula
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
                             vBusy = false; vInBuild = inBuild;
-                            vResult = err != null ? "Не вышло: " + err + "." : off ? "Отключено — перезапустите Discord." : "Готово — перезапустите Discord, и звонки появятся на острове.";
+                            vResult = err != null ? "Не вышло: " + Reason(err) + "." : off ? "Отключено — перезапустите Discord." : "Готово — перезапустите Discord, и звонки появятся на острове.";
                             vShow();
                         }));
                     });
@@ -557,7 +562,7 @@ namespace Kapsula
                 {
                     bool inst = DiscordInstall.Installed;
                     ((TextBlock)vBtn.Child).Text = inst ? "Отключить" : "Подключить";
-                    string st = island.DiscordLive ? "Плагин на связи." : DiscordVoiceServer.Error != null ? "Не работает: " + DiscordVoiceServer.Error + "." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
+                    string st = island.DiscordLive ? "Плагин на связи." : DiscordVoiceServer.Error != null ? "Не работает: " + Reason(DiscordVoiceServer.Error) + "." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
                         : "Плагин пропал из Discord (видимо, Vencord переустановили) — нажмите «Отключить», потом «Подключить».");
                     if (vText != null && !vBusy)
                         vText.Text = "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы. " + st;
@@ -570,7 +575,7 @@ namespace Kapsula
                 sp.Children.Add(vRow);
             }
             if (Steam.Found)
-                sp.Children.Add(Row("Steam · бета", "Игры в командной строке, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
+                sp.Children.Add(Row("Steam · бета", "Игры в строке команд, карточка «игра готова» после загрузки, время игровой сессии. Данные берутся из папки Steam на этом компьютере — без входа в аккаунт.", Toggle(Store.Get("steam") != "0", delegate(bool v) { island.SetFlag("steam", v); }), false));
 
             if (Steam.Found && !SteamBridge.MillenniumFound)
                 sp.Children.Add(Row("Уведомления Steam · бета", "Сообщения друзей, «друг в игре» и другие уведомления Steam на острове. Нужен Millennium — неофициальная модификация клиента Steam; ставить её или нет, решаете вы.", LinkButton("Сайт Millennium", "https://steambrew.app/"), false));
@@ -586,9 +591,10 @@ namespace Kapsula
                 {
                     bool have = SteamBridge.PluginInstalled;
                     sSet(have);
+                    string sv = SteamBridge.InstalledVersion;   // plugin.json не прочитался — версии нет, и пустых скобок тоже
                     string st = !have ? "Kapsula положит свой плагин в папку Millennium. В интернет ничего не уходит."
-                        : SteamBridge.Error != null ? "Не работает: " + SteamBridge.Error + "."
-                        : SteamBridge.Clients > 0 ? "Подключено (плагин " + SteamBridge.InstalledVersion + ")."
+                        : SteamBridge.Error != null ? "Не работает: " + Reason(SteamBridge.Error) + "."
+                        : SteamBridge.Clients > 0 ? "Подключено" + (string.IsNullOrEmpty(sv) ? "" : " (плагин " + sv + ")") + "."
                         : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите Kapsula и перезапустите Steam.";
                     if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. " + st + sNote;
                 };
@@ -620,7 +626,7 @@ namespace Kapsula
             sp.Children.Add(Row("Яркость на острове", "Меняете яркость клавишами ноутбука или в Windows — остров показывает её полоской, как громкость. Колёсико над островом с зажатым Ctrl тоже меняет яркость; у внешних мониторов — если они позволяют это программам.", Toggle(island.BrightHud, delegate(bool v) { island.SetFlag("brightHud", v); }), false));
             sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
             sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, Kapsula убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия Kapsula). Пока Kapsula закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
-            sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке острова.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке команд.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Отсчёт до встречи в капсуле", "За 15 минут до события из календаря или задачи со временем капсула показывает «Созвон · через 12 мин». Пока играет музыка — только последние 5 минут.", Toggle(Store.Get("soonPill") != "0", delegate(bool v) { Store.Set("soonPill", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
 
@@ -695,7 +701,7 @@ namespace Kapsula
         void Arrange()
         {
             // Игровой режим — отдельной строкой в «Играх», чтобы о нём знали не только по сочетанию клавиш
-            var gameRow = (Border)Row("Игровой режим", "Остров уезжает за край и не выезжает от мыши — открыть его можно двойным щелчком у верхней кромки. Уведомления приходят как обычно, Qwen выгружается из видеопамяти, курсор с телефона не работает. Быстро включается сочетанием из раздела «Клавиши» (по умолчанию Ctrl+Alt+G).",
+            var gameRow = (Border)Row("Игровой режим", "Остров уезжает за край и не выезжает от мыши — открыть его можно двойным кликом у верхней кромки. Уведомления приходят как обычно, Qwen выгружается из видеопамяти, курсор с телефона не работает. Быстро включается сочетанием из раздела «Клавиши» (по умолчанию Ctrl+Alt+G).",
                 Toggle(island.GamerMode, delegate(bool v) { if (v != island.GamerMode) island.ToggleGamerMode(); }), false);
             Sec("Игры").Children.Add(gameRow);
             rowsByTitle["Игровой режим"] = gameRow;   // одноимённая строка в «Клавишах» — это сочетание, она остаётся там
@@ -768,7 +774,8 @@ namespace Kapsula
         {
             ReturnBorrowed();
             q = (q ?? "").Trim().ToLowerInvariant();
-            if (q.Length < 2) { ShowSection(currentSection ?? "Общее"); return; }
+            // одна буква — ещё не запрос: показываем раздел, но поле не трогаем (иначе первая же буква стиралась)
+            if (q.Length < 2) { searchMuted = true; ShowSection(currentSection ?? "Общее"); searchMuted = false; return; }
             string[] words = q.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             int found = 0;
             foreach (string name in SectionOrder)
@@ -857,11 +864,21 @@ namespace Kapsula
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             texts.Children.Add(new TextBlock { Text = "Зверёк — душа Kapsula", Foreground = Txt, FontSize = 17, FontWeight = FontWeights.SemiBold });
             texts.Children.Add(new TextBlock { Text = "Живёт в капсуле, переходит туда, куда вы смотрите, гуляет по окнам, приносит уведомления и получает наряды за привычки.", Foreground = Sub, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
-            texts.Children.Add(new TextBlock { Text = pets > 0 ? "Вы погладили его " + pets + " " + Times(pets) + " — поводите по нему курсором ещё" : "Поводите по нему курсором туда-сюда — он это любит", Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0) });
+            // «1 284 раза» — тысячи, как «Гладили 1 284 раза» на странице «Зверёк»; число не отрывается от «раза»,
+            // а в узком окне строка переносится, а не обрезается краем
+            texts.Children.Add(new TextBlock { Text = pets > 0 ? "Вы погладили его " + TextTools.Thousands(pets) + (char)0xA0 + Times(pets) + " — поводите по нему курсором ещё" : "Поводите по нему курсором туда-сюда — он это любит", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
             var row = new DockPanel();
             DockPanel.SetDock(pet.Root, Dock.Left);
             row.Children.Add(pet.Root); row.Children.Add(texts);
             return new Border { Background = RowBg, CornerRadius = new CornerRadius(Ui.BlockR), Padding = new Thickness(18, 16, 20, 16), Margin = new Thickness(0, 0, 0, 16), Child = row, Tag = "hero" };
+        }
+
+        // Текст ошибки для «Не работает: …» и «Не удалось: …»: сообщения Windows сами кончаются точкой, а мы ставим
+        // свою — без этого выходило «…settings.json"..». Пустое — «неизвестная ошибка».
+        static string Reason(string e)
+        {
+            e = (e ?? "").Trim().TrimEnd('.', ' ');
+            return e.Length == 0 ? "неизвестная ошибка" : e;
         }
 
         // «1 раз», «2 раза», «5 раз», «11 раз», «22 раза»
@@ -878,7 +895,9 @@ namespace Kapsula
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(232) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var nav = new StackPanel { Margin = new Thickness(12, 20, 10, 12) };
+            // поля поскромнее: при окне в 700 точек все 16 разделов помещаются без прокрутки (а на экранах поменьше
+            // список прокручивается, и ShowSection сама показывает выбранный раздел)
+            var nav = new StackPanel { Margin = new Thickness(12, 14, 10, 12) };
             var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 2, 0, 0) };
             var navPet = new PetView(2.0, RowBg);
             navPet.Context = "nav";   // зверёк рядом с названием: моргает и поглядывает по сторонам
@@ -886,7 +905,7 @@ namespace Kapsula
             brand.Children.Add(navPet.Root);
             brand.Children.Add(new TextBlock { Text = "Kapsula", Foreground = Txt, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             nav.Children.Add(brand);
-            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 12) });
+            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 8) });
             // поиск по всем настройкам
             var sGrid = new Grid { Margin = new Thickness(2, 0, 2, 12) };
             searchBox = new TextBox { Height = 32, Background = Brushes.Transparent, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 13 };
@@ -912,7 +931,7 @@ namespace Kapsula
                     Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.35, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
                 row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 30, CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS: все разделы видны без прокрутки */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
+                var item = new Border { Height = 30, CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
                 item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
                 Fx.Press(item, 0.97);
@@ -964,8 +983,12 @@ namespace Kapsula
             var bg = new LinearGradientBrush(Color.FromRgb(0x3A, 0x45, 0x63), Color.FromRgb(0x27, 0x2C, 0x40), 90);
             var grid = new Grid { ClipToBounds = true };
 
-            var mirror = new VisualBrush(island.PreviewRoot) { Stretch = Stretch.None, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(IslandWindow.PreviewBaseW / 2 - 260, 0, 520, PvH) };
-            pvIsland = new Rectangle { Fill = mirror, Width = 520, Height = PvH, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
+            // окно в остров шире прежних 520 точек: капсула во всю «Ширину капсулы» (до +240), панель (584) и строка команд
+            // видны целиком; не влезает в рамку — уменьшается (Viewbox), а не обрезается по краям
+            double pvW = Math.Max(520, IslandWindow.PreviewBaseW - 80);
+            var mirror = new VisualBrush(island.PreviewRoot) { Stretch = Stretch.None, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Top, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(IslandWindow.PreviewBaseW / 2 - pvW / 2, 0, pvW, PvH) };
+            pvIsland = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+                Child = new Rectangle { Fill = mirror, Width = pvW, Height = PvH } };
             grid.Children.Add(pvIsland);
 
             pvHomeBox = new Border { Width = IslandWindow.PreviewEW, Height = island.PreviewHomeH, Background = island.PreviewInk, CornerRadius = new CornerRadius(IslandWindow.PreviewER), ClipToBounds = true,
@@ -1033,6 +1056,7 @@ namespace Kapsula
             // Высота рамки зависит только от раздела: иначе при наведении на разные строки рамка прыгала, строки
             // уезжали из-под курсора, и превью начинало мигать.
             pvBox.Height = currentSection == "Музыка" ? PvHomeH : PvH;
+            pvHome.Height = pvBox.Height - 16;   // «Главная» в низкой рамке — уменьшается целиком, а не срезается сверху и снизу
             pvCaption.Text = kind == 1 ? "Главная" : kind == 2 ? "Мини-плеер" : "Остров сейчас";
         }
 
@@ -1041,7 +1065,7 @@ namespace Kapsula
         {
             if (!sections.ContainsKey(name)) return;
             if (borrowed.Count > 0 || scroller != null && scroller.Content == searchPage) ReturnBorrowed();
-            if (searchBox != null && searchBox.Text.Length > 0) { searchMuted = true; searchBox.Text = ""; searchMuted = false; }
+            if (!searchMuted && searchBox != null && searchBox.Text.Length > 0) { searchMuted = true; searchBox.Text = ""; searchMuted = false; }   // переход по разделу сбрасывает поиск, а сам поиск — нет
             // где настройки ничего не меняют на самом острове, большое превью только мешает
             if (pvBox != null) pvBox.Visibility = name == "Нейросети" || name == "Телефон" || name == "Клавиши" ? Visibility.Collapsed : Visibility.Visible;
             currentSection = name;
@@ -1053,6 +1077,14 @@ namespace Kapsula
             scroller.ScrollToTop();
             // выбранный раздел — плотное стекло с бликом, остальные — без подложки
             foreach (Border b in navItems) { bool on = (string)b.Tag == name; b.Background = on ? Glass.DarkStrong : Brushes.Transparent; b.BorderBrush = on ? Glass.DarkRim : Brushes.Transparent; }
+            // на невысоком экране список разделов прокручивается: выбранный (из поиска, с прошлого раза, по ссылке с острова)
+            // показываем целиком, а не спрятанным за краем или под надписью внизу
+            foreach (Border b in navItems)
+                if ((string)b.Tag == name)
+                {
+                    Border nb = b;
+                    Dispatcher.BeginInvoke(new Action(delegate { nb.BringIntoView(); }), DispatcherPriority.Loaded);
+                }
             // раздел появляется мягко: чуть всплывает и проявляется
             StackPanel sec = sections[name];
             var rise = sec.RenderTransform as TranslateTransform;
@@ -1083,20 +1115,29 @@ namespace Kapsula
             // «Название · бета» — оранжевая плашка «БЕТА»; «Название · альфа» — голубая «АЛЬФА»: совсем сырая функция, по умолчанию выключена
             const string betaMark = " · бета", alphaMark = " · альфа";
             bool alpha = title.EndsWith(alphaMark);
+            // название — до двух строк (рядом бывает широкий элемент: сочетание « — занято», две кнопки), а не срез
+            // посреди буквы; плашка «БЕТА» при нехватке места переходит на следующую строку
             if (title.EndsWith(betaMark) || alpha)
             {
                 string mark = alpha ? alphaMark : betaMark;
                 Color mc = alpha ? Color.FromRgb(0x40, 0xB4, 0xFF) : Color.FromRgb(0xFF, 0x9F, 0x0A);
-                var head = new StackPanel { Orientation = Orientation.Horizontal };
-                head.Children.Add(new TextBlock { Text = title.Substring(0, title.Length - mark.Length), Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+                var head = new WrapPanel();
+                var headTb = new TextBlock { Text = title.Substring(0, title.Length - mark.Length), Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), ToolTip = title.Substring(0, title.Length - mark.Length) };
+                Ui.Lines(headTb, 2);
+                head.Children.Add(headTb);
                 head.Children.Add(new Border
                 {
-                    Background = new SolidColorBrush(Color.FromArgb(0x33, mc.R, mc.G, mc.B)), CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 1, 7, 2), Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Background = new SolidColorBrush(Color.FromArgb(0x33, mc.R, mc.G, mc.B)), CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 1, 7, 2), Margin = new Thickness(0, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center,
                     Child = new TextBlock { Text = alpha ? "АЛЬФА" : "БЕТА", Foreground = new SolidColorBrush(mc), FontSize = 10.5, FontWeight = FontWeights.Bold }
                 });
                 texts.Children.Add(head);
             }
-            else texts.Children.Add(new TextBlock { Text = title, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold });
+            else
+            {
+                var titleTb = new TextBlock { Text = title, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, ToolTip = title };
+                Ui.Lines(titleTb, 2);
+                texts.Children.Add(titleTb);
+            }
             if (!string.IsNullOrEmpty(desc)) texts.Children.Add(new TextBlock { Text = desc, Foreground = Sub, FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
             FrameworkElement body;
             if (below)
@@ -1220,10 +1261,12 @@ namespace Kapsula
         // current — что выбрано на самом деле после pick: окно закрыли «Отменой» — подсветка возвращается туда
         FrameworkElement Chips(string[] labels, int selected, Action<int> pick, int again, Func<int> current)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            // варианты переносятся на следующую строку, если не влезают в ширину строки настроек: «Другой…» у шрифта
+            // и «Qwen на этом ПК» не уходят за край. Подсветка выбранного ездит по обеим осям.
+            var row = new WrapPanel();
             var items = new List<Border>();
             var tx = new TranslateTransform();
-            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = Glass.DarkStrong, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
+            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = Glass.DarkStrong, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
             int cur = selected;
             var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
             Action<bool> move = delegate(bool animate)
@@ -1233,18 +1276,19 @@ namespace Kapsula
                 Border it = items[cur];
                 double w = it.ActualWidth;
                 if (w <= 0) return;
-                double x = it.TranslatePoint(new Point(0, 0), row).X;
+                Point pt = it.TranslatePoint(new Point(0, 0), row);
                 thumb.Opacity = 1;
                 if (animate && thumb.ActualWidth > 0)
                 {
                     var dur = TimeSpan.FromMilliseconds(260);
-                    tx.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(x, dur) { EasingFunction = ease });
+                    tx.BeginAnimation(TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(pt.X, dur) { EasingFunction = ease });
+                    tx.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(pt.Y, dur) { EasingFunction = ease });
                     thumb.BeginAnimation(FrameworkElement.WidthProperty, new System.Windows.Media.Animation.DoubleAnimation(thumb.ActualWidth, w, dur) { EasingFunction = ease });
                 }
                 else
                 {
-                    tx.BeginAnimation(TranslateTransform.XProperty, null); thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
-                    tx.X = x; thumb.Width = w;
+                    tx.BeginAnimation(TranslateTransform.XProperty, null); tx.BeginAnimation(TranslateTransform.YProperty, null); thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
+                    tx.X = pt.X; tx.Y = pt.Y; thumb.Width = w;
                 }
             };
             for (int i = 0; i < labels.Length; i++)
@@ -1264,7 +1308,8 @@ namespace Kapsula
             var grid = new Grid();
             grid.Children.Add(thumb); grid.Children.Add(row);
             var track = new Border { Background = Glass.DarkFill, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
-            row.SizeChanged += delegate { move(false); };
+            // в одну строку — капсула; перенеслось на вторую — скругление как у строк списка
+            row.SizeChanged += delegate { track.CornerRadius = row.ActualHeight > 34 ? new CornerRadius(Ui.RowR) : new CornerRadius(17); move(false); };
             track.Loaded += delegate { move(false); };
             return track;
         }
@@ -1349,14 +1394,18 @@ namespace Kapsula
                             try { if (p.MainWindowHandle == IntPtr.Zero) continue; pn = p.ProcessName; title = p.MainWindowTitle ?? ""; } catch { continue; }
                             if (title.Length == 0 || seen.Exists(delegate(string x) { return string.Equals(x, pn, StringComparison.OrdinalIgnoreCase); })) continue;
                             seen.Add(pn);
-                            string shown = title.Length > 40 ? title.Substring(0, 39) + "…" : title;
+                            // длинный заголовок окна — «…» в середине: видно и начало, и конец; целиком — в подсказке
+                            string shown = Ui.MiddleEllipsis(title, 48);
                             string app = pn;
-                            menu.Items.Add(pn + "  —  " + shown, null, delegate { List<string> cur = IslandWindow.HideApps(); cur.Add(app); IslandWindow.SetHideApps(cur); fill(); });
+                            // одиночный «&» меню Windows приняло бы за подчёркнутую букву и съело («Tom & Jerry» → «Tom  Jerry»)
+                            var mi = menu.Items.Add((pn + "  —  " + shown).Replace("&", "&&"), null, delegate { List<string> cur = IslandWindow.HideApps(); cur.Add(app); IslandWindow.SetHideApps(cur); fill(); });
+                            if (shown != title) mi.ToolTipText = title;
                         }
                     }
                     catch { }
                     if (menu.Items.Count == 0) menu.Items.Add("Нет открытых программ").Enabled = false;
-                    DarkMenuRenderer.Apply(menu, 420, false);
+                    menu.ShowItemToolTips = true;
+                    DarkMenuRenderer.Apply(menu, 420, false);   // строки растут под самую длинную подпись и под масштаб Windows
                     Point at = add.PointToScreen(new Point(0, add.ActualHeight + 6));
                     menu.Show(new System.Drawing.Point((int)at.X, (int)at.Y));
                 };
@@ -1501,7 +1550,7 @@ namespace Kapsula
             };
             camPaint();
             sp.Children.Add(Row("Телефон как веб-камера · бета", "Камера телефона становится обычной камерой Windows: её видят Discord, Zoom, Teams, браузеры и OBS. Телефон подключается по QR-коду через домашнюю сеть Wi-Fi.", camCol, true));
-            sp.Children.Add(Row("Качество камеры", "Что камера предлагает программам первым. С вариантами «· 60» программы и сайты получают только режимы на 60 кадров. Discord для камеры сам берёт не больше 30. Для 1080p · 60 и 4K нужны хороший телефон и быстрый Wi-Fi; если картинка дёргается — выберите ниже. Программу с открытой камерой после смены нужно переоткрыть.", Chips(PhoneCam.ModeNames, PhoneCam.Mode, delegate(int i) { PhoneCam.Mode = i; }), true));
+            sp.Children.Add(Row("Качество камеры", "Что камера предлагает программам первым. С вариантами «· 60» программы и сайты получают только режимы на 60 кадров. Discord для камеры сам берёт не больше 30. Для 1080p · 60 и 4K нужны хороший телефон и быстрый Wi-Fi; если картинка дёргается — выберите качество пониже. Программу с открытой камерой после смены нужно переоткрыть.", Chips(PhoneCam.ModeNames, PhoneCam.Mode, delegate(int i) { PhoneCam.Mode = i; }), true));
             sp.Children.Add(Header("Телефон"));
             Action<bool> pSet;
             var pBtn = ToggleSet(Store.Get("phoneRemote") == "1", delegate(bool v)
@@ -1534,7 +1583,7 @@ namespace Kapsula
                 string tok = ClaudeBridge.Token();   // сначала ключ, потом сервер: сервер читает ключ при запуске
                 if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек Kapsula.", "Kapsula"); return; }
                 Store.Set("mcp", "1"); ClaudeBridge.Start(); mSet(true);   // MCP-серверу не нужен «Claude Code на острове»
-                if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + (ClaudeBridge.Error ?? "неизвестная ошибка") + ".", "Kapsula"); return; }
+                if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + Reason(ClaudeBridge.Error) + ".", "Kapsula"); return; }
                 string json = "{\n  \"mcpServers\": {\n    \"kapsula\": {\n      \"type\": \"http\",\n      \"url\": \"" + ClaudeBridge.McpUrl + "\",\n      \"headers\": { \"X-Kapsula-Token\": \"" + tok + "\", \"X-Kapsula-Agent\": \"Мой агент\" }\n    }\n  }\n}";
                 try { Clipboard.SetText(json); } catch { }
                 MessageBox.Show(this, "Настройка скопирована. Вставьте её в файл MCP-серверов вашего агента (Cursor, Codex, Claude Desktop и т. п.) и поменяйте «Мой агент» на его имя.\n\nВ настройке есть секретный ключ — не публикуйте её.", "Kapsula");
@@ -1570,8 +1619,9 @@ namespace Kapsula
             paint = delegate
             {
                 var m = QwenLocal.Chosen;
+                var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");   // «6,2 ГБ» с запятой и при английском формате чисел в Windows
                 string mode = QwenLocal.Busy ? "busy" : QwenLocal.Downloaded(m) && QwenLocal.EngineReady ? (QwenLocal.CanSpeedUp ? "ready-slow" : "ready") : "none";
-                string key = mode + m.Id + QwenLocal.HasFiles(m);   // появилось или удалено недокачанное — перестроить кнопки
+                string key = mode + m.Id + QwenLocal.HasFiles(m) + Ai.Local;   // появилось или удалено недокачанное, сменился выбор в чате — перестроить кнопки
                 if (key != shown)
                 {
                     shown = key;
@@ -1583,7 +1633,7 @@ namespace Kapsula
                         row.Children.Add(use);
                         var del = PillBtn("Удалить", false, delegate
                         {
-                            if (MessageBox.Show(this, "Удалить Qwen " + m.Name + " с компьютера? Освободится около " + m.SizeGb.ToString("0.#") + " ГБ.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                            if (MessageBox.Show(this, "Удалить Qwen " + m.Name + " с компьютера? Освободится около " + m.SizeGb.ToString("0.#", ru) + " ГБ.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
                             QwenLocal.Delete(m); shown = null; paint();
                         });
                         del.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(del);
@@ -1596,7 +1646,7 @@ namespace Kapsula
                     }
                     else
                     {
-                        row.Children.Add(PillBtn("Скачать Qwen " + m.Name + " · " + m.SizeGb.ToString("0.#") + " ГБ", true, delegate { QwenLocal.Download(m); shown = null; paint(); }));
+                        row.Children.Add(PillBtn("Скачать Qwen " + m.Name + " · " + m.SizeGb.ToString("0.#", ru) + " ГБ", true, delegate { QwenLocal.Download(m); shown = null; paint(); }));
                         if (QwenLocal.HasFiles(m))
                         {
                             // недокачанная модель или оставшийся движок — их тоже убирает «Удалить»
@@ -1610,17 +1660,18 @@ namespace Kapsula
                     }
                 }
                 double partGb = mode == "none" ? QwenLocal.UsedGb() : 0;   // недокачанное тоже занимает место — показываем сколько
-                string partNote = partGb > 0.05 ? " Занято " + partGb.ToString("0.#") + " ГБ." : "";
+                string partNote = partGb > 0.05 ? " Занято " + partGb.ToString("0.#", ru) + " ГБ." : "";
                 bar.Visibility = QwenLocal.Busy ? Visibility.Visible : Visibility.Collapsed;
                 if (QwenLocal.Busy)
                 {
                     long d = System.Threading.Interlocked.Read(ref QwenLocal.Done), tot = System.Threading.Interlocked.Read(ref QwenLocal.Total);
                     double p = tot > 0 ? Math.Min(1, (double)d / tot) : 0;
                     fill.Width = 320 * p;
-                    status.Text = QwenLocal.Status + (tot > 0 ? " — " + Math.Round(p * 100) + "% · " + (d / 1048576.0).ToString("0") + " из " + (tot / 1048576.0).ToString("0") + " МБ" : "");
+                    // «2 854 из 6 349 МБ»: тысячи — через узкий неразрывный пробел, как во всём острове; «МБ» не отрывается от числа
+                    status.Text = QwenLocal.Status + (tot > 0 ? " — " + Math.Round(p * 100) + "% · " + TextTools.Thousands((long)Math.Round(d / 1048576.0)) + " из " + TextTools.Thousands((long)Math.Round(tot / 1048576.0)) + (char)0xA0 + "МБ" : "");
                 }
-                else if (QwenLocal.Error != null) status.Text = QwenLocal.Error + "." + partNote;
-                else if (mode.StartsWith("ready")) status.Text = (QwenLocal.EngineKind.StartsWith("cuda") ? "Скачана, работает через CUDA. " : "Скачана. ") + "Всего занято " + QwenLocal.UsedGb().ToString("0.#") + " ГБ." + (Ai.Local ? " Отвечает в чате и в действиях с текстом." : "");
+                else if (QwenLocal.Error != null) status.Text = (QwenLocal.Error == "Скачивание отменено" ? "Скачивание отменено." : "Не удалось скачать: " + Reason(QwenLocal.Error) + ".") + partNote;
+                else if (mode.StartsWith("ready")) status.Text = (QwenLocal.EngineKind.StartsWith("cuda") ? "Скачана, работает через CUDA. " : "Скачана. ") + "Всего занято " + QwenLocal.UsedGb().ToString("0.#", ru) + " ГБ." + (Ai.Local ? " Отвечает в чате и в действиях с текстом." : "");
                 else status.Text = (QwenLocal.EngineReady ? "llama.cpp уже скачан, осталась модель." : partGb > 0.05 ? "Скачано не до конца." : "Пока ничего не скачано.") + partNote;
             };
             qwenRefresh = delegate { shown = null; paint(); };
@@ -1687,7 +1738,8 @@ namespace Kapsula
             var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
             Action paint = delegate
             {
-                status.Text = Secrets.Saved ? "Ключ сохранён." : (Secrets.GetKey() != "" ? "Используется ключ из переменной среды ANTHROPIC_API_KEY." : "Ключ не задан — чат не работает.");
+                // без ключа Claude чат всё равно отвечает — через сайты без ключа, Qwen или Gemini; не отвечает только сам Claude
+                status.Text = Secrets.Saved ? "Ключ сохранён." : (Secrets.GetKey() != "" ? "Используется ключ из переменной среды ANTHROPIC_API_KEY." : "Ключ не задан — Claude не ответит.");
             };
             var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             save.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));   // главная кнопка — синяя, как везде

@@ -359,7 +359,7 @@ namespace Kapsula
             var b = FaceImage(dvRingAvatar, 128) as ImageBrush;
             if (b != null) return b.ImageSource;
             string who = dvRingCaller.Length > 0 ? dvRingCaller : RingTitle();
-            return ImageFrom(DemoAvatar(System.Globalization.StringInfo.GetNextTextElement(who).ToUpper(), Color.FromRgb(0x58, 0x65, 0xF2), Color.FromRgb(0x8A, 0x5C, 0xF6)));
+            return ImageFrom(DemoAvatar(FaceLetter(who), Color.FromRgb(0x58, 0x65, 0xF2), Color.FromRgb(0x8A, 0x5C, 0xF6)));   // та же буква, что в карточке звонка
         }
 
         // Аватарка догрузилась, а карточка звонка ещё на острове — поставить её вместо буквы

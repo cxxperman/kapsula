@@ -16,23 +16,38 @@ namespace Kapsula
         public static string Error;   // почему списка нет: нет адаптера, нет разрешения на местоположение и т. п.
         public static bool NeedsLocation;
 
-        static string Netsh(string args)
+        // Команда с именем сети в аргументах (подключить, удалить профиль) — прямо в netsh, без cmd: имя сети
+        // может придумать кто угодно поблизости, и через разбор команд cmd оно идти не должно. Вывод не нужен.
+        static void Netsh(string args) { Run("netsh", args, null); }
+
+        // Списки (сети, профили, текущая сеть). netsh пишет в кодировке консоли, а в OEM (866 в русской Windows)
+        // нет «—», эмодзи, украинской «і» — имя сети превращалось в «Кофейня ? гости», и подключиться к ней было
+        // нельзя. Поэтому сначала chcp 65001: вывод приходит в UTF-8 без потерь. Не сменилась кодировка (байты
+        // не UTF-8) — читаем по-старому, в OEM. Аргументы здесь только постоянные: строка идёт через cmd.
+        static string NetshList(string args)
+        {
+            byte[] raw = Run(System.IO.Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /c chcp 65001 >nul & netsh " + args, Environment.SystemDirectory);
+            if (Array.IndexOf(raw, (byte)':') < 0) raw = Run("netsh", args, null);   // cmd запрещён политикой — как раньше, напрямую
+            try { return new UTF8Encoding(false, true).GetString(raw); }
+            catch (ArgumentException) { return Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage).GetString(raw); }
+        }
+
+        static byte[] Run(string exe, string args, string dir)
         {
             try
             {
-                var psi = new System.Diagnostics.ProcessStartInfo("netsh", args)
-                {
-                    CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage)
-                };
+                var psi = new System.Diagnostics.ProcessStartInfo(exe, args) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                if (dir != null) psi.WorkingDirectory = dir;   // cmd ищет netsh сначала в текущей папке — пусть это будет System32
                 using (var p = System.Diagnostics.Process.Start(psi))
+                using (var ms = new System.IO.MemoryStream())
                 {
-                    string s = p.StandardOutput.ReadToEnd();
+                    p.StandardInput.Close();   // «нажмите любую клавишу» (так отвечает запрещённый cmd) сразу получает конец ввода, а не ждёт вечно
+                    p.StandardOutput.BaseStream.CopyTo(ms);
                     p.WaitForExit(8000);
-                    return s;
+                    return ms.ToArray();
                 }
             }
-            catch { return ""; }
+            catch { return new byte[0]; }
         }
 
         // «  Имя  : значение» — значение после первого двоеточия
@@ -105,7 +120,7 @@ namespace Kapsula
         public static List<WifiNet> List()
         {
             Error = null; NeedsLocation = false;
-            string nets = Netsh("wlan show networks mode=bssid");
+            string nets = NetshList("wlan show networks mode=bssid");
             if (nets.IndexOf("privacy-location", StringComparison.OrdinalIgnoreCase) >= 0 || nets.IndexOf("местополож", StringComparison.OrdinalIgnoreCase) >= 0 || nets.IndexOf("location", StringComparison.OrdinalIgnoreCase) >= 0 && nets.IndexOf("SSID", StringComparison.Ordinal) < 0)
             {
                 NeedsLocation = true;
@@ -113,10 +128,12 @@ namespace Kapsula
                 return new List<WifiNet>();
             }
             var list = ParseNetworks(nets);
+            // Текст виден, только когда Wi-Fi включён (RenderWifi): переключатель выше уже «Включён», и совет «включите
+            // его» выключил бы Wi-Fi. Сетей нет рядом или Windows их не отдаёт — смотреть в параметрах Windows
             if (list.Count == 0 && nets.IndexOf("SSID", StringComparison.Ordinal) < 0)
-                Error = "Сети Wi-Fi не найдены. Если адаптер выключен — включите его переключателем выше.";
-            string cur = ParseCurrent(Netsh("wlan show interfaces"));
-            List<string> known = ParseProfiles(Netsh("wlan show profiles"));
+                Error = "Сети Wi-Fi не найдены. Если сеть рядом есть, проверьте Wi-Fi в параметрах Windows.";
+            string cur = ParseCurrent(NetshList("wlan show interfaces"));
+            List<string> known = ParseProfiles(NetshList("wlan show profiles"));
             foreach (WifiNet n in list)
             {
                 n.Connected = cur != null && n.Ssid == cur;
@@ -154,12 +171,12 @@ namespace Kapsula
             for (int i = 0; i < 20; i++)
             {
                 System.Threading.Thread.Sleep(500);
-                if (ParseCurrent(Netsh("wlan show interfaces")) == n.Ssid) return true;
+                if (ParseCurrent(NetshList("wlan show interfaces")) == n.Ssid) return true;
             }
             // Неверный пароль не оставляем в Windows: иначе сеть стала бы «сохранённой» и пароль больше не спросили бы
             if (!wasKnown && typed)
             {
-                if (ParseCurrent(Netsh("wlan show interfaces")) == n.Ssid) return true;   // успела подключиться в последний миг — профиль нужен
+                if (ParseCurrent(NetshList("wlan show interfaces")) == n.Ssid) return true;   // успела подключиться в последний миг — профиль нужен
                 Netsh("wlan delete profile name=\"" + name + "\"");
             }
             return false;
@@ -250,13 +267,24 @@ namespace Kapsula
             catch (Exception ex) { Store.LogError("Звук: выбор устройства", ex); return false; }
         }
 
-        // «Динамики (Realtek(R) Audio)» → «Динамики»
+        // «Динамики (Realtek(R) Audio)» → «Динамики». Без обрезки по числу букв: кнопка «Наушники ⌄» на «Главной»
+        // сама сокращает имя по своей ширине («…»), а полное показывает в подсказке.
         public static string Short(string name)
         {
             if (string.IsNullOrEmpty(name)) return "Звук";
             int i = name.IndexOf(" (");
             string s = i > 0 ? name.Substring(0, i) : name;
-            return s.Length > 18 ? s.Substring(0, 17) + "…" : s;
+            return s;
+        }
+
+        // Для надписи на капсуле «Звук: …» — то же имя без « (…)»: целиком, а очень длинное — с «…» в середине,
+        // начало и конец имени остаются. 22 знака — столько с «Звук: » влезает в одну строку надписи (210 точек),
+        // второй «…» в конце не появится. Short — для кнопки на «Главной», которая сокращает имя сама.
+        public static string ToastName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "другое устройство";
+            int i = name.IndexOf(" (");
+            return Ui.MiddleEllipsis(i > 0 ? name.Substring(0, i) : name, 22);
         }
     }
 }

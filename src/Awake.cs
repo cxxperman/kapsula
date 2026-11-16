@@ -60,6 +60,18 @@ namespace Kapsula
             return Calc.TryTimer(m.Groups[1].Value.Trim(), out span);
         }
 
+        // На сколько — словами, в том падеже, что нужен после «на»: «21 минуту», «2 часа», «1 час 30 минут», «45 секунд».
+        // Запись таймера («21:00», «2:00:00») здесь не годится: рядом стоит время на часах («до 22:20»), и её читали бы так же.
+        // Ею пользуется и строка «Запустить таймер на …».
+        static string SpanWords(TimeSpan s)
+        {
+            int h = (int)s.TotalHours, m = s.Minutes, c = s.Seconds;
+            string r = h > 0 ? Plural(h, "час", "часа", "часов") : "";
+            if (m > 0) r += (r.Length > 0 ? " " : "") + Plural(m, "минуту", "минуты", "минут");
+            if (c > 0 || r.Length == 0) r += (r.Length > 0 ? " " : "") + Plural(c, "секунду", "секунды", "секунд");
+            return r;
+        }
+
         // Строка в командной строке острова
         void FillAwakeCmd(string q)
         {
@@ -71,7 +83,7 @@ namespace Kapsula
                 return;
             }
             if (span > TimeSpan.Zero)
-                AddCmd("Не засыпать " + Fmt(span), "до " + (DateTime.Now + span).ToString("H:mm") + ", потом компьютер снова сможет уснуть", "", null, delegate { SetAwake(true, span, true); });
+                AddCmd("Не засыпать на " + SpanWords(span), "до " + (DateTime.Now + span).ToString("H:mm") + ", потом компьютер снова сможет уснуть", "", null, delegate { SetAwake(true, span, true); });
             else
                 AddCmd("Не засыпать", "компьютер не уснёт и экран не погаснет, пока не выключите", "", null, delegate { SetAwake(true, TimeSpan.Zero, true); });
         }

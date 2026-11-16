@@ -7,7 +7,8 @@ using Windows.ApplicationModel.Appointments;
 
 namespace Kapsula
 {
-    class CalEvent { public string Subject, Location; public DateTime Start; public bool AllDay; }
+    // название и место — не null: без места (событие из проверки, день рождения) подсказки и список дня не падают
+    class CalEvent { public string Subject = "", Location = ""; public DateTime Start; public bool AllDay; }
 
     // Читается только то, что уже лежит в календаре Windows на этом компьютере; в сеть Kapsula за ним не ходит.
     static class Calendar
@@ -50,7 +51,11 @@ namespace Kapsula
                         foreach (Appointment a in Wait(store.FindAppointmentsAsync(DateTimeOffset.Now.Date.AddDays(-40), TimeSpan.FromDays(110))))
                         {
                             if (a.IsCanceledMeeting) continue;
-                            list.Add(new CalEvent { Subject = string.IsNullOrEmpty(a.Subject) ? "Без названия" : a.Subject, Location = a.Location ?? "", Start = a.StartTime.LocalDateTime, AllDay = a.AllDay });
+                            // название и место бывают пробелом или адресом в несколько строк (вставлен из почты) — одной строкой:
+                            // без пустой строки под названием и без висячего «·» в подсказках; пустое название — «Без названия»
+                            string subj = System.Text.RegularExpressions.Regex.Replace(a.Subject ?? "", "\\s+", " ").Trim();
+                            string loc = System.Text.RegularExpressions.Regex.Replace(a.Location ?? "", "\\s+", " ").Trim();
+                            list.Add(new CalEvent { Subject = subj.Length > 0 ? subj : "Без названия", Location = loc, Start = a.StartTime.LocalDateTime, AllDay = a.AllDay });
                         }
                     list.Sort(delegate(CalEvent x, CalEvent y) { return x.Start.CompareTo(y.Start); });
                     lock (typeof(Calendar)) events = list;

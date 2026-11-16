@@ -146,7 +146,7 @@ namespace Kapsula
         public static bool IsNvidia { get { return WantedEngine() != "vulkan"; } }
         // Уже скачан Vulkan, а видеокарта NVIDIA — можно ускорить
         public static bool CanSpeedUp { get { return EngineReady && EngineKind == "vulkan" && IsNvidia; } }
-        public static string EngineSizeText { get { return IsNvidia ? "около 600 МБ (CUDA для NVIDIA)" : "около 40 МБ"; } }
+        public static string EngineSizeText { get { return IsNvidia ? "около 600 МБ, сборка CUDA для NVIDIA" : "около 40 МБ"; } }
 
         public static void SpeedUp()
         {
@@ -541,9 +541,10 @@ namespace Kapsula
                 var hr = ex.Response as HttpWebResponse;
                 if (hr == null) return "Qwen не ответил: " + ex.Message;
                 string msg = "";
-                try { using (var sr = new StreamReader(hr.GetResponseStream(), Encoding.UTF8)) msg = sr.ReadToEnd(); } catch { }
+                try { using (var sr = new StreamReader(hr.GetResponseStream(), Encoding.UTF8)) msg = sr.ReadToEnd().Trim(); } catch { }
                 if (msg.IndexOf("image", StringComparison.OrdinalIgnoreCase) >= 0) return "Эта модель Qwen не принимает картинки.";
-                return "Ошибка Qwen " + (int)hr.StatusCode + (msg.Length > 0 ? ": " + (msg.Length > 200 ? msg.Substring(0, 200) : msg) : "");
+                // длинный ответ сервера — до 200 знаков, и видно, что он не весь
+                return "Ошибка Qwen " + (int)hr.StatusCode + (msg.Length > 0 ? ": " + (msg.Length > 200 ? msg.Substring(0, 199) + "…" : msg) : "");
             }
             catch (Exception ex) { return "Не удалось получить ответ Qwen: " + ex.Message; }
         }

@@ -119,6 +119,8 @@ namespace Kapsula
 
         public static void Apply(System.Windows.Forms.ContextMenuStrip menu) { Apply(menu, 290, true); }
 
+        // width — наименьшая ширина строк в точках при 100 %. Шрифт меню растёт с масштабом Windows, поэтому и строки
+        // растут вместе с ним, а меню шире, если какая-то подпись длиннее: при 150–200 % текст не обрезается по букве.
         public static void Apply(System.Windows.Forms.ContextMenuStrip menu, int width, bool checks)
         {
             menu.Renderer = new DarkMenuRenderer();
@@ -126,11 +128,29 @@ namespace Kapsula
             menu.ShowImageMargin = false; menu.ShowCheckMargin = checks;
             menu.Font = new System.Drawing.Font("Segoe UI", 9.75f);
             menu.Padding = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            foreach (System.Windows.Forms.ToolStripItem it in menu.Items)
+            Action fit = delegate
             {
-                if (it is System.Windows.Forms.ToolStripSeparator) continue;
-                it.AutoSize = false; it.Height = 30; it.Width = width;
-            }
+                float k = 1;
+                try { using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) k = g.DpiX / 96f; } catch { }
+                int w = (int)(width * k);
+                foreach (System.Windows.Forms.ToolStripItem it in menu.Items)
+                    if (!(it is System.Windows.Forms.ToolStripSeparator))
+                        w = Math.Max(w, System.Windows.Forms.TextRenderer.MeasureText(it.Text ?? "", menu.Font).Width + (int)((checks ? 64 : 36) * k));
+                // Само меню WinForms меряет по тексту подписей, а не по ширине строк: с короткими подписями меню выходило
+                // уже строк (подсветка срезана у правого края), с длинной — строки уже меню (подпись обрезалась по краю
+                // строки без «…», подсветка не доходила до края). Поэтому строки — не уже меню, а меню — не уже строк.
+                menu.MinimumSize = System.Drawing.Size.Empty;   // мерить заново: подписи могли стать короче
+                w = Math.Max(w, menu.GetPreferredSize(System.Drawing.Size.Empty).Width);
+                // у всех строк одна ширина — подсветка под курсором ровная
+                foreach (System.Windows.Forms.ToolStripItem it in menu.Items)
+                {
+                    if (it is System.Windows.Forms.ToolStripSeparator) continue;
+                    it.AutoSize = false; it.Height = (int)Math.Ceiling(30 * k); it.Width = w;
+                }
+                menu.MinimumSize = new System.Drawing.Size(w, 0);
+            };
+            fit();
+            menu.Opening += delegate { fit(); };   // подписи могут смениться при открытии («Выключить «Не беспокоить»»)
             // скруглённые углы, как у системных меню Windows 11 (в Windows 10 вызов ничего не делает)
             menu.Opened += delegate { try { int round = 2; DwmSetWindowAttribute(menu.Handle, 33, ref round, 4); } catch { } };
         }
@@ -246,20 +266,23 @@ namespace Kapsula
             return this;
         }
 
-        // Вид «быстрой команды»: цветной квадратик со значком сверху слева, короткая подпись в одну строку снизу
+        // Вид «быстрой команды»: цветной квадратик со значком сверху слева, подпись снизу — до двух строк, чтобы
+        // название было полным («Текст с экрана», «Запись экрана»). Плитка 76 точек: без рамки (2) и полей (9 + 8) остаётся 57,
+        // у включённой с рамкой 1,5 — 56: квадратик 26 и две строки по 15 помещаются и не налезают друг на друга
         Brush shortcutColor;
         public Tile Shortcut(Color color, string shortLabel, string tip)
         {
             shortcutColor = new LinearGradientBrush(Color.FromRgb((byte)Math.Min(255, color.R + 28), (byte)Math.Min(255, color.G + 28), (byte)Math.Min(255, color.B + 28)), color, 90);
             var sp = (StackPanel)Root.Child;
             sp.Children.Clear();
-            var g = new Grid { Margin = new Thickness(10, 10, 10, 9) };
+            var g = new Grid { Margin = new Thickness(10, 9, 10, 8) };
             badge.Width = badge.Height = 26; badge.CornerRadius = new CornerRadius(8);
             badge.Background = shortcutColor;
             badge.HorizontalAlignment = HorizontalAlignment.Left; badge.VerticalAlignment = VerticalAlignment.Top;
             Glyph.FontSize = 13; Glyph.Foreground = Brushes.White;
             Label.Text = shortLabel; Label.FontSize = 12.5; Label.FontWeight = FontWeights.SemiBold;
-            Label.TextWrapping = TextWrapping.NoWrap; Label.TextTrimming = TextTrimming.CharacterEllipsis; Label.MaxWidth = double.PositiveInfinity;
+            Label.MaxWidth = double.PositiveInfinity;
+            Label.LineHeight = 15; Ui.Lines(Label, 2);
             Label.HorizontalAlignment = HorizontalAlignment.Left; Label.VerticalAlignment = VerticalAlignment.Bottom; Label.Margin = new Thickness(1, 0, 0, 0);
             g.Children.Add(badge); g.Children.Add(Label);
             Root.Child = g;

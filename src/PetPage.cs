@@ -20,7 +20,7 @@ namespace Kapsula
         readonly Border[] roomModes = new Border[3];
         static readonly string[] RoomModeIds = { "", "season", "none" };
         static readonly string[] RoomModeNames = { "Сам", "По сезону", "Без наряда" };
-        static readonly string[] RoomUnits = { "перерывов", "задач", "музыки", "кругов" };
+        static readonly string[] RoomUnits = { "перерывов", "задач", "музыки", "помодоро" };   // «2 из 3 перерывов», «4 из 10 ч музыки», «3 из 10 помодоро»
 
         FrameworkElement BuildPetPage()
         {
@@ -60,7 +60,7 @@ namespace Kapsula
             right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var head = new StackPanel { Margin = new Thickness(4, 2, 0, 8) };
             head.Children.Add(new TextBlock { Text = "Гардероб", Foreground = Fg, FontSize = 14, FontWeight = FontWeights.SemiBold });
-            head.Children.Add(new TextBlock { Text = "Наряды за привычки — полученный надевается щелчком", Foreground = Dim, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) });
+            head.Children.Add(new TextBlock { Text = "Наряды за привычки — полученный надевается по клику", Foreground = Dim, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) });   // «клик», как во всём острове
             right.Children.Add(head);
             var slots = new System.Windows.Controls.Primitives.UniformGrid { Rows = 2, Columns = 2 };
             for (int i = 0; i < 4; i++)
@@ -69,14 +69,18 @@ namespace Kapsula
                 var mini = roomMinis[i] = new PetView(3.2, Ink);
                 mini.OwnOutfit = OutfitIds[i];   // примерка: этот зверёк всегда в «своём» наряде
                 mini.Root.VerticalAlignment = VerticalAlignment.Center;
-                mini.Root.HorizontalAlignment = HorizontalAlignment.Center;
+                // от края плитки — с запасом: амбушюры наушников торчат из тела на клетку влево (а при «нет» зверёк ещё
+                // и мотает головой) — они должны оставаться внутри плитки, а не ложиться на её кромку
+                mini.Root.HorizontalAlignment = HorizontalAlignment.Left;
+                mini.Root.Margin = new Thickness(8, 0, 0, 0);
                 var sg = new Grid();
-                sg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+                sg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });   // 8 + зверёк со значком (≈56)
                 sg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 sg.Children.Add(mini.Root);
                 var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 texts.Children.Add(new TextBlock { Text = OutfitNames[i], Foreground = Fg, FontSize = 12.5, FontWeight = FontWeights.SemiBold });
-                roomSlotSub[i] = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+                roomSlotSub[i] = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
+                Ui.Lines(roomSlotSub[i], 2);   // в широком шрифте острова (моноширинном, рукописном) — второй строкой: плитка высокая, место есть
                 texts.Children.Add(roomSlotSub[i]);
                 Grid.SetColumn(texts, 1); sg.Children.Add(texts);
                 var slot = roomSlots[i] = new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, i % 2 == 0 ? 6 : 0, i < 2 ? 6 : 0), Child = sg };
@@ -101,7 +105,8 @@ namespace Kapsula
             }
             roomModes[0].ToolTip = "Последний полученный наряд, а пока их нет — сезонный";
             Grid.SetRow(modes, 2); right.Children.Add(modes);
-            roomStats = new TextBlock { Foreground = Faint, FontSize = 11.5, Margin = new Thickness(4, 9, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            roomStats = new TextBlock { Foreground = Faint, FontSize = 11.5, Margin = new Thickness(4, 9, 0, 0) };
+            Ui.Lines(roomStats, 2);   // большие числа — во вторую строку, а не «помодоро 3…»; строка сетки растёт сама
             Grid.SetRow(roomStats, 3); right.Children.Add(roomStats);
             Grid.SetColumn(right, 2); g.Children.Add(right);
             return g;
@@ -132,7 +137,15 @@ namespace Kapsula
             for (int m = 0; m < 3; m++) roomModes[m].Background = pick == RoomModeIds[m] ? Glass.Strong : Glass.Fill;
             roomWearing.Text = wear == "none" ? "Без наряда" : wear == "" ? (PetView.Season() > 0 ? "В сезонном наряде" : "Без наряда")
                 : "В наряде: " + OutfitNames[Array.IndexOf(OutfitIds, wear)].ToLower();
-            roomStats.Text = "Накоплено: перерывов " + HabitCount(0) + " · задач " + HabitCount(1) + " · музыки " + HabitCount(2) / 60 + " ч · помодоро " + HabitCount(3);
+            // число не отрывается от своего слова, «·» — от предыдущего (неразрывные пробелы): переносится только целыми кусками
+            char nb = (char)0xA0;
+            string sep = nb + "· ";
+            // музыка — минутами, пока не набрался первый час: «55 мин музыки», а не «0 ч музыки»
+            int musicMin = Math.Max(0, HabitCount(2));
+            string music = (musicMin < 60 ? musicMin.ToString() + nb + "мин" : (musicMin / 60).ToString() + nb + "ч") + nb + "музыки";
+            roomStats.Text = "Накоплено: " + Plural(HabitCount(0), "перерыв", "перерыва", "перерывов").Replace(' ', nb) + sep
+                + Plural(HabitCount(1), "задача", "задачи", "задач").Replace(' ', nb) + sep
+                + music + sep + HabitCount(3) + nb + "помодоро";
             int pets;
             int.TryParse(Store.Get("petPets"), out pets);
             roomPets.Text = pets > 0 ? "Гладили " + Plural(pets, "раз", "раза", "раз") : "Погладьте его: поводите курсором туда-сюда";

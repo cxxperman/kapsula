@@ -240,7 +240,11 @@ namespace Kapsula
                     w.Days.Add(new string[] { i == 0 ? "Сегодня" : char.ToUpper(dn[0]) + dn.Substring(1), Symbol(dc), T(dmax[i]), T(dmin[i]), dc.ToString() });
                 }
             }
-            catch (Exception ex) { w.Error = "Нет связи: " + ex.Message; }
+            // Сбои связи ловятся там, где идёт загрузка (Geocode, open-meteo выше, FetchMet), — сюда доходит непонятный
+            // ответ сервиса. Текст исключения не показываем: без языкового пакета .NET он английский («The given key was
+            // not present…»), и «Нет связи» тут была бы неправдой. Подробности — в error.log. Повтор через пару минут
+            // устраивает RefreshWeather
+            catch (Exception ex) { Store.LogError("погода", ex); w.Error = "Не удалось получить прогноз — попробую ещё раз через пару минут"; }
             return w;
         }
 
@@ -365,11 +369,14 @@ namespace Kapsula
         static void FetchMet(string lat, string lon, WeatherData w)
         {
             w.Source = "MET Norway";
+            w.RainProb = -1;   // вероятности осадков у MET Norway нет — плитка «Осадки» покажет «—» (IslandWindow.AnimateWeather)
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             var js = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
             string json;
             try { json = Download("https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=" + lat + "&lon=" + lon); }
-            catch (Exception ex) { w.Error = "Погодные сервисы недоступны — возможно, их блокирует провайдер (" + ex.Message + ")"; return; }
+            // сюда приходят, когда open-meteo тоже не ответил: чаще всего сеть ещё не поднялась после сна или входа в Windows.
+            // Текст исключения (английский без языкового пакета .NET) — только в error.log
+            catch (Exception ex) { Store.LogError("погода MET Norway", ex); w.Error = "Погодные сервисы недоступны — нет связи или их блокирует провайдер. Попробую ещё раз через пару минут."; return; }
             var root = (Dictionary<string, object>)js.DeserializeObject(json);
             object[] ts = Arr(((Dictionary<string, object>)root["properties"])["timeseries"]);
             if (ts.Length == 0) { w.Error = "Прогноз пуст"; return; }
@@ -498,23 +505,43 @@ namespace Kapsula
             return sb.ToString();
         }
 
-        // «85 симв. · 75 без пробелов · 11 слов · 3 стр.»
+        // «1 329 символов · 1 120 без пробелов · 210 слов · 3 строки» — словами, без «симв.» и «стр.» (строк или страниц?),
+        // тысячи — через узкий неразрывный пробел. Знаки — как их видно (Chars): эмодзи — один знак, а не два.
+        // Перенос в самом конце текста новой строки не начинает: скопированная строка редактора — «1 строка», а не две
         public static string Stats(string s)
         {
-            int chars = s.Length, noSp = 0, words = 0, lines = s.Length == 0 ? 0 : 1;
+            string t = s.Replace("\r\n", "\n");
+            int[] starts = System.Globalization.StringInfo.ParseCombiningCharacters(t);   // где начинается каждый видимый знак
+            int chars = starts.Length, noSp = 0, words = 0, lines = 0;
             bool inWord = false;
-            foreach (char c in s)
+            foreach (int i in starts)
             {
-                if (!char.IsWhiteSpace(c)) noSp++;
-                if (c == '\n') lines++;
-                bool w = char.IsLetterOrDigit(c);
+                if (!char.IsWhiteSpace(t, i)) noSp++;
+                if (t[i] == '\n') lines++;
+                bool w = char.IsLetterOrDigit(t, i);   // по первой букве знака: знак ударения над буквой не делит слово надвое
                 if (w && !inWord) words++;
                 inWord = w;
             }
-            return chars + " симв. · " + noSp + " без пробелов · " + words + " " + Plural(words, "слово", "слова", "слов") + " · " + lines + " стр.";
+            if (t.Length > 0 && t[t.Length - 1] != '\n') lines++;   // последняя строка — без переноса в конце
+            return Thousands(chars) + " " + Plural(chars, "символ", "символа", "символов") + " · " + Thousands(noSp) + " без пробелов · "
+                + Thousands(words) + " " + Plural(words, "слово", "слова", "слов") + " · " + Thousands(lines) + " " + Plural(lines, "строка", "строки", "строк");
         }
 
-        static string Plural(int n, string one, string few, string many)
+        // Сколько знаков видно: эмодзи и буква с ударением — один знак, перенос строки Windows (\r\n) — тоже один.
+        // По тому же правилу считает Stats — у одного и того же текста числа на «Тексте» и в «Буфере» совпадают
+        public static int Chars(string s)
+        {
+            return string.IsNullOrEmpty(s) ? 0 : new System.Globalization.StringInfo(s.Replace("\r\n", "\n")).LengthInTextElements;
+        }
+
+        // «1 284», «12 345»: тысячи — через узкий неразрывный пробел, число не разрывается переносом
+        public static string Thousands(long n)
+        {
+            return n.ToString("#,0", System.Globalization.CultureInfo.InvariantCulture).Replace(',', (char)0x202F);
+        }
+
+        // только слово: «1 символ», «2 символа», «5 символов», «11 символов», «21 символ» — число ставит тот, кто зовёт
+        public static string Plural(int n, string one, string few, string many)
         {
             int m10 = n % 10, m100 = n % 100;
             return m10 == 1 && m100 != 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
@@ -1197,6 +1224,15 @@ namespace Kapsula
 
         static string Num(double d) { return Math.Round(d, 6).ToString("0.######", Inv).Replace('.', ','); }
 
+        // То же число для глаз: тысячи — через узкий неразрывный пробел («= 18 000», «3 км = 3 000 м»).
+        // Результат TryCalc копируется как есть, без пробелов (18000): так его поймёт любая программа
+        public static string Grouped(string num)
+        {
+            double d;
+            if (string.IsNullOrEmpty(num) || !double.TryParse(num.Replace(',', '.'), System.Globalization.NumberStyles.Float, Inv, out d)) return num;
+            return d.ToString("#,0.######", Inv).Replace(',', (char)0x202F).Replace('.', ',');
+        }
+
         public static bool TryCalc(string q, out string res)
         {
             res = null;
@@ -1246,7 +1282,8 @@ namespace Kapsula
             double[] a, b;
             if (!Units.TryGetValue(m.Groups[2].Value, out a) || !Units.TryGetValue(m.Groups[3].Value, out b) || a[0] != b[0]) return false;
             double v = double.Parse(m.Groups[1].Value.Replace(',', '.'), Inv);
-            res = Num(v) + " " + m.Groups[2].Value + " = " + Math.Round(v * a[1] / b[1], 3).ToString("0.###", Inv).Replace('.', ',') + " " + m.Groups[3].Value;
+            // строка показывается и копируется целиком, как фраза, — числа в ней с пробелами между тысячами
+            res = Grouped(Num(v)) + " " + m.Groups[2].Value + " = " + Grouped(Math.Round(v * a[1] / b[1], 3).ToString("0.###", Inv).Replace('.', ',')) + " " + m.Groups[3].Value;
             return true;
         }
 

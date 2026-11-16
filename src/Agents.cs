@@ -12,10 +12,12 @@ namespace Kapsula
 {
     partial class IslandWindow
     {
+        // «1 файл», «22 файла», «1 329 символов»: тысячи — как везде (TextTools.Thousands), а перед словом — неразрывный
+        // пробел, чтобы число при переносе строки не отрывалось от своего слова
         static string Plural(int n, string one, string few, string many)
         {
             int m10 = n % 10, m100 = n % 100;
-            return n + " " + (m10 == 1 && m100 != 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
+            return TextTools.Thousands(n) + (char)0xA0 + (m10 == 1 && m100 != 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
         }
 
         // ---- открыть папку проекта в VS Code (или в Проводнике, если редактора нет)
@@ -74,7 +76,7 @@ namespace Kapsula
             var g = new Grid { Margin = new Thickness(0, 6, 0, 0), Height = 14 };
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(62) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // «148,6 тыс. из 200 тыс.» — целиком, полоса уступает место
             g.Children.Add(new TextBlock { Text = "Контекст", Foreground = Faint, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center });
             var track = new Grid { Height = 4, VerticalAlignment = VerticalAlignment.Center };
             track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Bar.TrackBrush });
@@ -83,7 +85,7 @@ namespace Kapsula
             track.SizeChanged += delegate { bar.Width = Math.Max(3, track.ActualWidth * f); };
             track.Children.Add(bar);
             Grid.SetColumn(track, 1); g.Children.Add(track);
-            var v = new TextBlock { Text = ClaudeUsage.Short(t) + " из " + (cap >= 1000000 ? "1M" : "200k"), Foreground = Dim, FontSize = 10.5, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var v = new TextBlock { Text = ClaudeUsage.Short(t) + " из " + ClaudeUsage.Short(cap), Foreground = Dim, FontSize = 10.5, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
             Grid.SetColumn(v, 2); g.Children.Add(v);
             g.ToolTip = "Сколько контекста сессии занято: " + Math.Round(f * 100) + "%. Ближе к краю Claude Code начнёт сжимать разговор.";
             return g;
@@ -97,7 +99,8 @@ namespace Kapsula
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     if (QuietNow) return;
-                    ShowCardEx(null, ((char)0xE99A).ToString(), agent + " · " + (title.Length > 0 ? title : "уведомление"), text.Length > 0 ? text : " ", delegate { }, null, null, true);
+                    // без текста — строки под заголовком нет вовсе (ShowCardEx прячет пустую подпись)
+                    ShowCardEx(null, ((char)0xE99A).ToString(), agent + " · " + (title.Length > 0 ? title : "уведомление"), text, delegate { }, null, null, true);
                     CardPet("done");
                     cardUntil = Environment.TickCount + 7000;
                 }));
@@ -149,7 +152,22 @@ namespace Kapsula
             var acts = new Action[q.Options.Length];
             for (int i = 0; i < q.Options.Length; i++) { string opt = q.Options[i]; acts[i] = delegate { q.Answer(opt); }; }
             Action no = delegate { q.Answer(""); };   // крестик — отказ, а не «не ответил за две минуты»
-            ShowCardOptions(((char)0xE99A).ToString(), q.Agent + " спрашивает", q.Question, q.Options, acts, no, Math.Min(110000, left));
+            // варианты кнопками — только если все влезают целиком; длинные — списком в строке ввода по кнопке «Выбрать»
+            if (CardButtonsFit(q.Options)) ShowCardOptions(((char)0xE99A).ToString(), q.Agent + " спрашивает", q.Question, q.Options, acts, no, Math.Min(110000, left));
+            else
+            {
+                Action pick = delegate
+                {
+                    StartChoice(new Choice
+                    {
+                        // без вопроса — без висячего «: »
+                        Title = q.Agent + " спрашивает" + (string.IsNullOrEmpty(q.Question) ? "" : ": " + q.Question), Labels = q.Options, Notes = new string[q.Options.Length], Multi = false,
+                        Done = delegate(string a) { q.Answer(a); },
+                        Cancel = delegate { q.Answer(""); }
+                    });
+                };
+                ShowCardOptions(((char)0xE99A).ToString(), q.Agent + " спрашивает", q.Question, new string[] { "Выбрать" }, new Action[] { pick }, no, Math.Min(110000, left));
+            }
             if (state != 3) { mcpQueue.Insert(0, q); return; }
             mcpNow = q; mcpNo = no;
             CardPet("ask");
@@ -165,7 +183,7 @@ namespace Kapsula
                 if (pq.StartsWith(w) && q.Length > w.Length + 1)
                 {
                     string task = q.Substring(w.Length).Trim();
-                    AddCmd("Спросить Claude Code: «" + (task.Length > 44 ? task.Substring(0, 43) + "…" : task) + "»", proj.Length > 0 ? "новая сессия · " + proj : "новая сессия в папке пользователя", ClaudeGlyph, null, delegate { RunClaude(task, dir); });
+                    AddCmd("Спросить Claude Code: «" + task + "»", proj.Length > 0 ? "новая сессия · " + proj : "новая сессия в папке пользователя", ClaudeGlyph, null, delegate { RunClaude(task, dir); });
                     return;
                 }
             if (proj.Length > 0 && Store.Get("vscodeButton") == "1" && (pq.StartsWith("vs") || pq.StartsWith("код") || pq.StartsWith("откр") || pq.StartsWith("code") || pq.StartsWith(proj.ToLowerInvariant())))

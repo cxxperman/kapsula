@@ -644,8 +644,8 @@ namespace Kapsula
 :root{color-scheme:dark}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:#0b0b0d;color:#f2f2f5;font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:14px 16px 30px}
 h1{font-size:20px;margin:4px 0 2px}.sub{color:#8a8a93;font-size:13px;margin-bottom:12px}
-.seg{display:flex;gap:4px;background:#18181c;border-radius:14px;padding:4px;margin-bottom:10px;overflow-x:auto}
-.seg b{flex:1;text-align:center;padding:9px 6px;border-radius:10px;color:#9a9aa3;font-weight:600;font-size:13px;white-space:nowrap}
+.seg{display:flex;flex-wrap:wrap;gap:4px;background:#18181c;border-radius:14px;padding:4px;margin-bottom:10px}
+.seg b{flex:1 1 auto;min-width:0;text-align:center;padding:9px 6px;border-radius:10px;color:#9a9aa3;font-weight:600;font-size:13px;overflow-wrap:anywhere}
 .seg b.on{background:#2a2a30;color:#fff}
 #v{width:100%;border-radius:18px;background:#000;aspect-ratio:16/9;object-fit:contain;display:block;margin:6px 0 12px}
 #v.mirror{transform:scaleX(-1)}
@@ -696,13 +696,17 @@ function stopAll(){run=false;if(stream)stream.getTracks().forEach(function(t){t.
 function restart(){var old=stream;openCam().then(function(ok){if(!ok){stopAll();return}
  if(old&&old!==stream)old.getTracks().forEach(function(t){t.stop()});
  if(sender){sender.replaceTrack(stream.getVideoTracks()[0]);tune()}})}
+// почему камера не открылась — по-русски и с подсказкой, что делать, а не «NotAllowedError»
+function camError(e){var n=e&&e.name||'';
+ return n==='NotAllowedError'?'Нет доступа к камере — разрешите её для этой страницы в браузере':n==='NotFoundError'?'Камера не найдена':
+  n==='NotReadableError'?'Камера занята другой программой':n==='OverconstrainedError'?'Камера не поддерживает это качество — выберите другое':'Нет доступа к камере'+(n?': '+n:'')}
 async function openCam(){
  var m=M[mode];
  var vc={width:{ideal:m[0]},height:{ideal:m[1]},frameRate:{ideal:m[2]}};
  if(cam)vc.deviceId={exact:cam};else vc.facingMode={ideal:'environment'};
  var s;
  try{s=await navigator.mediaDevices.getUserMedia({audio:false,video:vc})}
- catch(e){if(cam){cam=null;return openCam()}st.textContent='Нет доступа к камере: '+e.name;return false}
+ catch(e){if(cam){cam=null;return openCam()}st.textContent=camError(e);return false}
  var tr=s.getVideoTracks()[0];
  if(!cams.length){await listCams();var id=tr.getSettings().deviceId;if(cam&&id&&id!==cam){tr.stop();return openCam()}}
  try{tr.contentHint='motion'}catch(e){}

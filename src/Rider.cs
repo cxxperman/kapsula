@@ -57,6 +57,12 @@ namespace Kapsula
         void ApplyMotion(int m)
         {
             MotionStyle = m;
+            // «Меньше движения» — бегущие строки стоят, переключатели не скользят; строку, застывшую на полпути, — к началу
+            Marquee.Reduced = Switch.Reduced = m == 5;
+            if (stageTitleM != null) stageTitleM.Restart();
+            if (cMarq != null) { cMarq.Restart(); cDlMarq.Restart(); }                     // капсула: название и игра, которую качает Steam
+            if (nTitleMarq != null) { nTitleMarq.Restart(); nArtistMarq.Restart(); }       // мини-плеер: название и исполнитель
+            if (titleRun != null) { titleRun.Restart(); artistRun.Restart(); }   // бегущие строки названия и исполнителя на «Главной» — тоже к началу
             double kw = 250, cw = 23, kh = 250, ch = 23, kr = 250, cr = 26, ko = 340, co = 37;
             switch (m)
             {
@@ -711,6 +717,61 @@ namespace Kapsula
             }
             // =8: остров просто в капсуле — для карточек --democard (кубок за достижение): вкладки не листаются
             if (rp == "8") return;
+            // =11: проверка вёрстки длинными текстами (вместе с KAPSULA_DEMOLONG=1 и --demo): сначала карточки
+            // и надпись в капсуле, потом все вкладки, списки Wi-Fi и Bluetooth, мини-плеер и командная строка
+            if (rp == "11")
+            {
+                ClaudeAfter(3000, delegate { SteamNotify("Александр Константинопольский", "го вечером в кооп, только сначала обнови игру и скачай все DLC, которые вышли на прошлой неделе", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                ClaudeAfter(7000, delegate { DiscordNotify("Екатерина Великолепная · #общий-чат-сервера", "скинула скрин, глянь — там очень длинное сообщение, которое точно не влезет в карточку острова", DemoAvatar("Е", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
+                ClaudeAfter(11000, delegate { SteamInvite("Максимилиан Длиннофамильный", "Зовёт в Counter-Strike 2: Global Offensive Remastered Edition", DemoAvatar("М", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
+                ClaudeAfter(15000, delegate { SetState(0); Toast("", "Очень длинная надпись в капсуле, которая не должна вылезать за края острова", null, -1, null); });
+                int[] tour = { PHome, PPet, PClip, PShelf, PText, PToday, PNote, PNotif, PChat, PWeather, PSystem };
+                for (int i = 0; i < tour.Length; i++) { int p = tour[i]; ClaudeAfter(18000 + i * 2600, delegate { pinned = true; ShowPage(p); SetState(2); }); }
+                int t = 18000 + tour.Length * 2600;
+                ClaudeAfter(t, delegate { ShowWifi(true); });
+                ClaudeAfter(t + 2600, delegate { ShowWifi(false); ShowBt(true); });
+                ClaudeAfter(t + 5200, delegate { ShowBt(false); SetState(0); });
+                ClaudeAfter(t + 6400, delegate { ForceOpen = -2; SetState(1); });
+                ClaudeAfter(t + 9400, delegate { ForceOpen = -1; pinned = false; SetState(0); });
+                ClaudeAfter(t + 10600, delegate { ToggleCommand(); cmdBox.Text = "напомни через 15 минут позвонить в сервисный центр по поводу ремонта"; });
+                ClaudeAfter(t + 14600, delegate { SetState(0); });
+                return;
+            }
+            // =12: проверка вёрстки «неудобными» данными (вместе с KAPSULA_DEMOLONG=2 и --demo): имя из одной буквы, эмодзи,
+            // сообщение без текста, двадцать одно уведомление, «Не засыпать» на 21 минуту, потом вкладки, Wi-Fi и Bluetooth,
+            // мини-плеер и командная строка с одной буквой; =13 (с KAPSULA_DEMOLONG=3) — то же с пустыми списками, без карточек
+            if (rp == "12" || rp == "13")
+            {
+                bool edge = rp == "12";
+                int t = 3000;
+                if (edge)
+                {
+                    ClaudeAfter(3000, delegate { SteamNotify("Я", "ок", DemoAvatar("Я", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                    ClaudeAfter(7000, delegate { DiscordNotify("🎮 Геймеры 🔥 · #мемы", "🔥🔥🔥", DemoAvatar("Г", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
+                    ClaudeAfter(11000, delegate { SteamInvite("xX_Дима_Xx", "Зовёт в Dota 2", DemoAvatar("X", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
+                    ClaudeAfter(15000, delegate
+                    {
+                        DiscordNotify("Аня", "", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)));   // картинка без подписи
+                        // остальные — в историю без карточек (раньше пришедших), чтобы в «Уведомлениях» было ровно двадцать одно
+                        for (int i = 0; seenNotes.Count < 21; i++)
+                            seenNotes.Insert(0, new Seen { At = DateTime.Now.AddMinutes(-(i + 1) * 7), Source = i % 2 == 0 ? "Discord" : "Steam", Title = i % 3 == 0 ? "Я" : "Саша", Text = i % 4 == 0 ? "👍" : "сообщение " + (i + 1) });
+                    });
+                    ClaudeAfter(19000, delegate { SetState(0); SetAwake(true, TimeSpan.FromMinutes(21), true); });
+                    t = 23000;
+                }
+                int[] tour = { PHome, PClip, PShelf, PText, PToday, PNote, PNotif, PWeather, PSystem };
+                for (int i = 0; i < tour.Length; i++) { int p = tour[i]; ClaudeAfter(t + i * 2600, delegate { pinned = true; ShowPage(p); SetState(2); }); }
+                t += tour.Length * 2600;
+                ClaudeAfter(t, delegate { ShowWifi(true); });
+                ClaudeAfter(t + 2600, delegate { ShowWifi(false); ShowBt(true); });
+                ClaudeAfter(t + 5200, delegate { ShowBt(false); SetState(0); });
+                // мини-плеер — только если что-то играет: без музыки он и в жизни не открывается (в пустом прогоне его нет)
+                ClaudeAfter(t + 6400, delegate { if (media.Has) { ForceOpen = -2; SetState(1); } });
+                ClaudeAfter(t + 9400, delegate { ForceOpen = -1; pinned = false; SetState(0); });
+                ClaudeAfter(t + 10600, delegate { ToggleCommand(); cmdBox.Text = edge ? "а" : ""; });
+                ClaudeAfter(t + 14600, delegate { SetState(0); if (edge) SetAwake(false, TimeSpan.Zero, true); });
+                return;
+            }
             // =10: полный обход для обзора дизайна (всё в демо-данных): капсула, все вкладки по очереди, мини-плеер,
             // карточки сообщения, Discord и приглашения, командная строка
             if (rp == "10")
@@ -938,7 +999,7 @@ namespace Kapsula
                 {
                     pinned = false;
                     cardCarryNext = "bell";
-                    ShowCardEx(null, ((char)0xE787).ToString(), "Напоминание", "Полить цветы", delegate { }, "+10 мин", delegate { }, true);
+                    ShowCardEx(null, ((char)0xE787).ToString(), "Полить цветы", "Напоминание · " + DateTime.Now.ToString("H:mm"), delegate { }, "+10 мин", delegate { }, true);   // как настоящее: текст — заголовком
                     cardUntil = Environment.TickCount + 60000;
                 });
                 ClaudeAfter(13000, delegate { SetState(0); });
@@ -979,7 +1040,7 @@ namespace Kapsula
                 });
                 ClaudeAfter(4800, delegate { CardExpand(); holdOpenUntil = Environment.TickCount + 60000; });
                 ClaudeAfter(7800, delegate { holdOpenUntil = 0; SetState(0); });
-                ClaudeAfter(9300, delegate { ShowCard(null, ((char)0xE896).ToString(), "Загружено", "Отчёт за квартал.pdf · 2,4 МБ", null); cardUntil = Environment.TickCount + 60000; });
+                ClaudeAfter(9300, delegate { ShowCard(null, ((char)0xE896).ToString(), "Отчёт за квартал.pdf", "Загружено · 2,4 МБ", null); cardUntil = Environment.TickCount + 60000; });
                 ClaudeAfter(10000, delegate { CardGrabShow(true); });   // «ручка» — как при наведении курсора
                 ClaudeAfter(11300, delegate { CardExpand(); holdOpenUntil = Environment.TickCount + 60000; });
                 ClaudeAfter(14000, delegate { holdOpenUntil = 0; SetState(0); });
@@ -1317,7 +1378,8 @@ namespace Kapsula
                 AddToLauncher(files);
                 if (homeBoard != null) homeBoard.ShowItem("launcher");
                 Store.Set("homeLauncher", "1");
-                Toast(((char)0xE71D).ToString(), files.Length == 1 ? "В ярлыках: " + System.IO.Path.GetFileName(files[0]) : "В ярлыках: " + files.Length, null, -1, accent);
+                // имя — сокращённое посередине (видно расширение): так надпись влезает в капсулу одной строкой
+                Toast(((char)0xE71D).ToString(), files.Length == 1 ? "В ярлыках: " + Ui.MiddleEllipsis(System.IO.Path.GetFileName(files[0]), 19) : "Добавлено в ярлыки: " + files.Length, null, -1, accent);
             }
             else if (zone == 2)
             {
@@ -1337,7 +1399,7 @@ namespace Kapsula
                 foreach (string f in files) if (!shelf.Contains(f)) { shelf.Add(f); added++; last = f; }
                 SaveShelf();
                 RenderShelf();
-                if (added > 0) Toast(((char)0xE8F1).ToString(), added == 1 ? "На полке: " + System.IO.Path.GetFileName(last) : "На полке файлов: " + added, null, -1, accent);
+                if (added > 0) Toast(((char)0xE8F1).ToString(), added == 1 ? "На полке: " + Ui.MiddleEllipsis(System.IO.Path.GetFileName(last), 20) : "На полку: " + Plural(added, "файл", "файла", "файлов"), null, -1, accent);
             }
             Happy(2200);
             if (rider != null && rOut) rider.Play("hop", 800);

@@ -152,8 +152,12 @@ namespace Kapsula
             sel.Width = r.Width; sel.Height = r.Height;
             dim.Data = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(0, 0, Width, Height)), new RectangleGeometry(r));
             sizeText.Text = (int)(r.Width * scale) + " × " + (int)(r.Height * scale);
-            Canvas.SetLeft(sizeText, r.X);
-            Canvas.SetTop(sizeText, r.Y > 26 ? r.Y - 24 : r.Bottom + 6);
+            // подпись не уходит за край экрана: у правого края сдвигается левее, у нижнего — внутрь рамки
+            sizeText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(sizeText, Math.Max(0, Math.Min(r.X, Width - sizeText.DesiredSize.Width - 4)));
+            double ty = r.Y > 26 ? r.Y - 24 : r.Bottom + 6;
+            if (ty + sizeText.DesiredSize.Height > Height) ty = r.Y + 6;
+            Canvas.SetTop(sizeText, ty);
         }
 
         void OnMove(object s, MouseEventArgs e)
@@ -356,7 +360,18 @@ namespace Kapsula
                     FontSize = 20, FontWeight = FontWeights.SemiBold, MinWidth = 24, Padding = new Thickness(0), FontFamily = FontFamily
                 };
                 tb.FocusVisualStyle = null;
-                Canvas.SetLeft(tb, p.X); Canvas.SetTop(tb, p.Y - 14);
+                // Надпись не выходит за выделенную область (за её краем она обрезалась и на экране, и в готовой
+                // картинке): у правого края поле сдвигается левее, длинный текст переносится по ширине рамки,
+                // у верхнего края буквы не срезаются, а выросшее от переноса поле у нижнего края поднимается.
+                double x = Math.Max(0, Math.Min(p.X, ink.Width - 84)), y = Math.Max(0, Math.Min(p.Y - 14, ink.Height - 30));
+                tb.TextWrapping = TextWrapping.Wrap;
+                tb.MaxWidth = Math.Max(24, ink.Width - x - 4);
+                Canvas.SetLeft(tb, x); Canvas.SetTop(tb, y);
+                tb.SizeChanged += delegate
+                {
+                    double over = Canvas.GetTop(tb) + tb.ActualHeight - ink.Height;
+                    if (over > 0) Canvas.SetTop(tb, Math.Max(0, Canvas.GetTop(tb) - over));
+                };
                 ink.Children.Add(tb);
                 items.Add(tb);
                 tb.Focus();

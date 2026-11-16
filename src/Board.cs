@@ -33,6 +33,8 @@ namespace Kapsula
         public readonly Canvas Root;
         public readonly List<Item> Items = new List<Item>();
         public bool Editing { get; private set; }
+        // Высота полоски правки: спрятанных блоков много — их кнопки встают во второй ряд, и остров растёт под неё
+        public double TrayHeight { get { return tray.ActualHeight; } }
         public Action Changed;          // раскладка поменялась
         public Action<string> Say;      // короткая подсказка на острове
         public Action Done;             // правка закончилась
@@ -76,6 +78,8 @@ namespace Kapsula
             Canvas.SetLeft(tray, 0); Canvas.SetTop(tray, height + 10);
             Panel.SetZIndex(tray, 60);
             Root.Children.Add(tray);
+            // кнопки спрятанных блоков перешли во второй ряд (или вернулись в один) — остров подстраивает высоту
+            tray.SizeChanged += delegate { if (Editing && Changed != null) Changed(); };
         }
 
         static Border TrayBtn(string text, bool main, Action click)
@@ -439,7 +443,7 @@ namespace Kapsula
                 Item cur = it;
                 var chip = new Border
                 {
-                    Height = 26, CornerRadius = new CornerRadius(13), Padding = new Thickness(9, 0, 11, 1), Margin = new Thickness(0, 0, 6, 0), Cursor = Cursors.Hand,
+                    Height = 26, CornerRadius = new CornerRadius(13), Padding = new Thickness(9, 0, 11, 1), Margin = new Thickness(0, 1, 6, 1), Cursor = Cursors.Hand,   // во втором ряду — с зазором
                     Background = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)), ToolTip = "Вернуть на свободное место",
                     Child = new TextBlock { Text = "+  " + it.Name, Foreground = Brushes.White, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center }
                 };
