@@ -54,6 +54,46 @@ namespace Kapsula
             return false;
         }
 
+        // Ответ, когда Discord открыт: настройки по нему предлагают «Закрыть Discord и подключить»
+        public const string NeedClose = "закройте Discord (и в трее у часов) и нажмите ещё раз";
+        public static bool Running() { return DiscordRunning(); }
+
+        // Закрыть Discord (и в трее у часов) — только по кнопке «Закрыть Discord и …» в настройках, которую нажал сам
+        // человек. Возвращает, какие из Discord были открыты: их потом запускаем снова (StartDiscord)
+        public static List<string> CloseDiscord()
+        {
+            var was = new List<string>();
+            if (Environment.GetEnvironmentVariable("KAPSULA_TEST_LOCALAPPDATA") != null) return was;
+            foreach (string name in new[] { "Discord", "DiscordPTB", "DiscordCanary" })
+            {
+                System.Diagnostics.Process[] ps;
+                try { ps = System.Diagnostics.Process.GetProcessesByName(name); } catch { continue; }
+                if (ps.Length > 0) was.Add(name);
+                foreach (System.Diagnostics.Process p in ps)
+                {
+                    try { p.Kill(); p.WaitForExit(5000); } catch { }
+                    finally { p.Dispose(); }
+                }
+            }
+            if (was.Count > 0) System.Threading.Thread.Sleep(1000);   // app.asar отпускается не сразу после выхода
+            return was;
+        }
+
+        // Запустить снова те Discord, что закрыли, — так же, как их ярлык: Update.exe --processStart
+        public static void StartDiscord(List<string> names)
+        {
+            if (names == null) return;
+            foreach (string name in names)
+            {
+                try
+                {
+                    string upd = Path.Combine(Path.Combine(LocalRoot, name), "Update.exe");
+                    if (File.Exists(upd)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(upd, "--processStart " + name + ".exe") { UseShellExecute = false });
+                }
+                catch (Exception ex) { Store.LogError("запуск Discord после подключения", ex); }
+            }
+        }
+
         // Папки resources у установленных Discord (обычный, PTB, Canary) — у самой новой версии каждого
         static List<string> DiscordResources()
         {
@@ -180,7 +220,7 @@ namespace Kapsula
             if (Directory.Exists(Roaming("BetterDiscord"))) return "у вас стоит BetterDiscord — вместе с Vencord он не уживается";
             List<string> res = DiscordResources();
             if (res.Count == 0) return "Discord не найден";
-            if (DiscordRunning()) return "закройте Discord (и в трее у часов) и нажмите ещё раз";
+            if (DiscordRunning()) return NeedClose;
             // 1. Сначала скачать сборку целиком — и только потом что-то менять
             var data = new Dictionary<string, byte[]>();
             foreach (string f in Files)
@@ -270,8 +310,8 @@ namespace Kapsula
                         catch { File.Move(orig, asar); throw; }   // без заглушки Discord не запустится — вернуть как было
                         injected.Add(r);
                     }
-                    catch (IOException) { undo(); return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
-                    catch (UnauthorizedAccessException) { undo(); return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                    catch (IOException) { undo(); return NeedClose; }
+                    catch (UnauthorizedAccessException) { undo(); return NeedClose; }
                 }
                 string old = Installed ? File.ReadAllText(Marker) : "";
                 var sb = new System.Text.StringBuilder();
@@ -314,8 +354,8 @@ namespace Kapsula
                             File.Move(orig, asar);
                         }
                     }
-                    catch (IOException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
-                    catch (UnauthorizedAccessException) { return "закройте Discord (и в трее у часов) и нажмите ещё раз"; }
+                    catch (IOException) { return NeedClose; }
+                    catch (UnauthorizedAccessException) { return NeedClose; }
                 }
                 // 2. Сборка Vencord: прежняя — на место, иначе убрать нашу
                 if (Directory.Exists(Backup) && !fakeBackup)

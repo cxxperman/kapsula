@@ -125,7 +125,8 @@ namespace Kapsula
                 text = char.ToUpper(text[0]) + text.Substring(1);
                 // «каждый день в 9», а сейчас уже вечер — первый раз завтра
                 DateTime taskDay = day;
-                if (repeat.Length > 0 && taskDay == DateTime.Today && time.HasValue && time.Value < DateTime.Now.TimeOfDay) taskDay = NextDay(repeat, taskDay.AddDays(1));
+                // (только когда разбираем от сегодняшнего дня: от другого дня «уже прошло» по часам не считается)
+                if (repeat.Length > 0 && taskDay == today && today == DateTime.Today && time.HasValue && time.Value < DateTime.Now.TimeOfDay) taskDay = NextDay(repeat, taskDay.AddDays(1));
                 res.Add(new DayTask { Text = text, Day = taskDay, Time = time, Repeat = repeat });
                 if (repeat.Length > 0) day = today;   // следующая часть фразы — снова на этот день, а не на повтор
             }

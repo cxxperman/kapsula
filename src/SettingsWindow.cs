@@ -531,10 +531,11 @@ namespace Kapsula
             }
             // Звонки Discord напрямую — наш плагин в сборке Vencord, ставится и снимается одной кнопкой
             {
-                TextBlock vText = null;
+                TextBlock vText = null, vStatus = null;
                 Border vBtn = null;
-                bool vBusy = false;
+                bool vBusy = false, vRunning = false;
                 string vResult = null;
+                bool vResultBad = false;
                 bool vInBuild = DiscordInstall.Installed && DiscordInstall.PluginInBuild;
                 Action vShow = null;
                 vBtn = PillBtn(DiscordInstall.Installed ? "Отключить" : "Подключить", !DiscordInstall.Installed, delegate
@@ -542,30 +543,55 @@ namespace Kapsula
                     if (vBusy) return;
                     vBusy = true;
                     bool off = DiscordInstall.Installed;
-                    if (vText != null) vText.Text = off ? "Возвращаю Discord как было…" : "Скачиваю сборку Vencord с плагином Kapsula и ставлю…";
+                    // Discord открыт (часто — только в трее у часов): пока он держит свои файлы, подключить нельзя. Кнопка
+                    // так и называется — «Закрыть Discord и подключить»: закрываем, подключаем и запускаем его снова
+                    bool close = vRunning;
+                    vStatus.Text = close ? "Закрываю Discord…" : off ? "Возвращаю Discord как было…" : "Скачиваю сборку Vencord с плагином Kapsula и ставлю…";
+                    vStatus.Foreground = Sub; vStatus.Visibility = Visibility.Visible;
                     System.Threading.ThreadPool.QueueUserWorkItem(delegate
                     {
+                        List<string> closed = close ? DiscordInstall.CloseDiscord() : null;
                         string err = off ? DiscordInstall.Uninstall() : DiscordInstall.Install();
                         if (!off && err == null) DiscordBridge.Start();   // Vencord появился только что — уведомления XSOverlay слушаем сразу, без перезапуска Kapsula
                         bool inBuild = !off && err == null && DiscordInstall.PluginInBuild;
+                        bool restarted = closed != null && closed.Count > 0;
+                        DiscordInstall.StartDiscord(closed);   // закрывали сами — запускаем снова, даже если не вышло
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
                             vBusy = false; vInBuild = inBuild;
-                            vResult = err != null ? "Не вышло: " + Reason(err) + "." : off ? "Отключено — перезапустите Discord." : "Готово — перезапустите Discord, и звонки появятся на острове.";
+                            vResultBad = err != null;
+                            vResult = err == DiscordInstall.NeedClose ? "Discord открыт (может быть, только в трее у часов). Нажмите «Закрыть Discord и " + (off ? "отключить" : "подключить") + "» — Kapsula закроет его, " + (off ? "отключит" : "подключит") + " и запустит снова."
+                                : err != null ? "Не вышло: " + Reason(err) + "."
+                                : off ? (restarted ? "Отключено — Discord запущен снова." : "Отключено — перезапустите Discord.")
+                                : restarted ? "Готово — Discord запущен снова, звонки появятся на острове." : "Готово — перезапустите Discord, и звонки появятся на острове.";
                             vShow();
                         }));
                     });
                 });
-                var vRow = Row("Звонки Discord на острове · бета", "—", vBtn, false);
-                vText = ((StackPanel)((Grid)((Border)vRow).Child).Children[0]).Children[1] as TextBlock;
+                var vRow = Row("Звонки Discord на острове · бета", "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы.", vBtn, false);
+                var vTexts = (StackPanel)((Grid)((Border)vRow).Child).Children[0];
+                vText = vTexts.Children[1] as TextBlock;
+                // что сейчас и чем кончилось нажатие — своей строкой под описанием, а не в конце длинного абзаца
+                vStatus = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
+                vTexts.Children.Add(vStatus);
                 vShow = delegate
                 {
+                    if (vBusy) return;
                     bool inst = DiscordInstall.Installed;
-                    ((TextBlock)vBtn.Child).Text = inst ? "Отключить" : "Подключить";
-                    string st = island.DiscordLive ? "Плагин на связи." : DiscordVoiceServer.Error != null ? "Не работает: " + Reason(DiscordVoiceServer.Error) + "." : vResult ?? (!inst ? "" : vInBuild ? "Подключено — перезапустите Discord, если ещё не перезапускали."
-                        : "Плагин пропал из Discord (видимо, Vencord переустановили) — нажмите «Отключить», потом «Подключить».");
-                    if (vText != null && !vBusy)
-                        vText.Text = "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы. " + st;
+                    // плагин на связи — значит, Discord уже с ним: закрывать его ради «Отключить» не предлагаем заранее
+                    vRunning = !island.DiscordLive && DiscordInstall.Running();
+                    ((TextBlock)vBtn.Child).Text = vRunning ? (inst ? "Закрыть Discord и отключить" : "Закрыть Discord и подключить") : inst ? "Отключить" : "Подключить";
+                    bool bad = false, good = false;
+                    string st;
+                    if (island.DiscordLive) { st = "Плагин на связи."; good = true; }
+                    else if (DiscordVoiceServer.Error != null) { st = "Не работает: " + Reason(DiscordVoiceServer.Error) + "."; bad = true; }
+                    else if (vResult != null) { st = vResult; bad = vResultBad; good = !vResultBad; }
+                    else if (!inst) st = "";
+                    else if (vInBuild) st = "Подключено — перезапустите Discord, если ещё не перезапускали.";
+                    else { st = "Плагин пропал из Discord (видимо, Vencord переустановили) — нажмите «Отключить», потом «Подключить»."; bad = true; }
+                    vStatus.Text = st;
+                    vStatus.Foreground = bad ? Red : good ? Green : Sub;
+                    vStatus.Visibility = st.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
                 };
                 vShow();
                 var vTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
