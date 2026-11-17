@@ -1,4 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: IslandWindow.cs
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -351,7 +352,7 @@ namespace Kapsula
         // Запись экрана
         Tile recTile;
         bool recBusy;
-        static readonly Brush RecRed = new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A));
+        static readonly Brush RecRed = new SolidColorBrush(Tokens.Palette.Red);
 
         // Центр управления
         Tile netTile, btTile, vpnTile;
@@ -2545,7 +2546,7 @@ namespace Kapsula
         void BuildCompact()
         {
             var left = cLeftPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(Ear + 12, 0, 0, 0) };
-            micDot = new Ellipse { Width = 7, Height = 7, Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A)), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Микрофон используется" };
+            micDot = new Ellipse { Width = 7, Height = 7, Fill = new SolidColorBrush(Tokens.Palette.Orange), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, ToolTip = "Микрофон используется" };
             cCover = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), Background = Glass.Fill, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             cGlyph = new TextBlock { FontFamily = Icons, FontSize = 14, Foreground = Fg, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             left.Children.Add(micDot);
@@ -3224,13 +3225,13 @@ namespace Kapsula
             card.SizeChanged += delegate { card.Clip = new RectangleGeometry(new Rect(0, 0, card.ActualWidth, card.ActualHeight), Ui.BlockR, Ui.BlockR); };
 
             // Быстрые действия
-            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Color.FromRgb(0xFF, 0x45, 0x3A), "Запись экрана", "Запись экрана · правый клик — выбрать область");   // подписи — полным названием, в две строки
+            recTile = new Tile("", "Запись экрана", delegate { ToggleRecord(false); }).Shortcut(Tokens.Palette.Red, "Запись экрана", "Запись экрана · правый клик — выбрать область");   // подписи — полным названием, в две строки
             recTile.Root.MouseRightButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; if (!Recorder.Active) ToggleRecord(true); };
             Tile[] ts = {
-                new Tile("", "Область", delegate { StartSnip(false); }).Shortcut(Color.FromRgb(0x0A, 0x84, 0xFF), "Область", "Снимок области экрана"),
+                new Tile("", "Область", delegate { StartSnip(false); }).Shortcut(Tokens.Palette.Blue, "Область", "Снимок области экрана"),
                 new Tile("", "Весь экран", delegate { FullShot(); }).Shortcut(Color.FromRgb(0x5E, 0x5C, 0xE6), "Весь экран", "Снимок всего экрана"),
                 new Tile("", "Текст с экрана", delegate { StartOcr(); }).Shortcut(Color.FromRgb(0x30, 0xB0, 0x5A), "Текст с\u00A0экрана", "Распознать текст с экрана"),   // «Текст» / «с экрана»: предлог не висит в конце строки
-                new Tile("", "QR-код", delegate { ScanQr(); }).Shortcut(Color.FromRgb(0xFF, 0x9F, 0x0A), "QR-код", "Прочитать QR-код с экрана"),
+                new Tile("", "QR-код", delegate { ScanQr(); }).Shortcut(Tokens.Palette.Orange, "QR-код", "Прочитать QR-код с экрана"),
                 new Tile("", "Пипетка", delegate { StartSnip(true); }).Shortcut(Color.FromRgb(0xE0, 0x4E, 0x9A), "Пипетка", "Взять цвет с экрана"),
                 recTile
             };
@@ -5251,9 +5252,9 @@ namespace Kapsula
             gUv = new Canvas { Width = 12, Height = 30 };
             var scale = new LinearGradientBrush { StartPoint = new Point(0, 1), EndPoint = new Point(0, 0) };
             scale.GradientStops.Add(new GradientStop(Color.FromRgb(0x4C, 0xD9, 0x64), 0));
-            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0xD6, 0x0A), 0.35));
+            scale.GradientStops.Add(new GradientStop(Tokens.Palette.Yellow, 0.35));
             scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0x8A, 0x1E), 0.6));
-            scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xFF, 0x45, 0x3A), 0.8));
+            scale.GradientStops.Add(new GradientStop(Tokens.Palette.Red, 0.8));
             scale.GradientStops.Add(new GradientStop(Color.FromRgb(0xAF, 0x52, 0xDE), 1));
             var strip = new Rectangle { Width = 4, Height = 30, RadiusX = 2, RadiusY = 2, Fill = scale };
             Canvas.SetLeft(strip, 4);
@@ -6847,8 +6848,8 @@ namespace Kapsula
                 claudeList.Children.Add(new Border { Background = Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 9, 10, 9), Margin = new Thickness(0, 0, 0, 6), Child = row });
             }
         }
-        static readonly Brush ClaudeGreen = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
-        static readonly Brush ClaudeOrange =new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A));
+        static readonly Brush ClaudeGreen = new SolidColorBrush(Tokens.Palette.Green);
+        static readonly Brush ClaudeOrange =new SolidColorBrush(Tokens.Palette.Orange);
 
         // Значок в капсуле: 0 — нет, 1 — Claude Code работает, 2 — ждёт вас, 3 — только что закончил
         int claudeState;
@@ -6857,7 +6858,7 @@ namespace Kapsula
         // ---- питомец Claude Code в капсуле: пиксельный зверёк, настроение зависит от того, чем занят Claude.
         // Работает — смотрит вниз и подпрыгивает; ждёт вас — глаза круглые и мигает «!»; закончил — довольный, с галочкой;
         // давно молчит — спит. Рисунок свой, из квадратиков; это не копия чужого персонажа.
-        static readonly Brush PetBody = new SolidColorBrush(Color.FromRgb(0xF0, 0x8A, 0x4B));
+        static readonly Brush PetBody = new SolidColorBrush(Tokens.Palette.Brand);
         static readonly string[] PetShape =
         {
             ".B.......B.",
@@ -8800,7 +8801,7 @@ namespace Kapsula
                 t.Tick += delegate
                 {
                     t.Stop();
-                    if (TestDemoCard == "message") SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0");
+                    if (TestDemoCard == "message") SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple), delegate { }, "0");
                     else if (TestDemoCard == "invite") SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", "");
                     else if (TestDemoCard == "discord") DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8)));
                     else if (TestDemoCard == "achievement") { steamCupNext = true; SteamNotify("Первые шаги", "Достижение · Пиксельный поход", DemoAvatar("★", Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0xE0, 0x8A, 0x1E)), delegate { }, null); }
@@ -10833,7 +10834,7 @@ namespace Kapsula
                 bool cam = Store.Get("camDot") == "1" && CamBusy();
                 if (cam != camInUse) { camInUse = cam; if (cam && !StartingUp()) Toast(((char)0xE714).ToString(), "Камера включена", null, -1, ClaudeGreen); RenderCompact(); }
                 bool mic = Store.Get("micDot") == "1" && MicBusy();
-                if (mic != micInUse) { micInUse = mic; if (mic && !StartingUp()) Toast("", "Микрофон используется", null, -1, new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A))); }
+                if (mic != micInUse) { micInUse = mic; if (mic && !StartingUp()) Toast("", "Микрофон используется", null, -1, new SolidColorBrush(Tokens.Palette.Orange)); }
             }
 
             if (timerEnd != DateTime.MinValue && timerEnd <= DateTime.Now && PomodoroNext()) { }

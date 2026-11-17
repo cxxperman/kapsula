@@ -3,6 +3,7 @@
 // снимает видео в выбранном качестве и шлёт кадры сюда. Kapsula кладёт их в общую память, а драйвер «Kapsula Camera»
 // (отдельная библиотека из папки cam) отдаёт их Discord, Zoom, браузерам и OBS как обычная камера.
 // Драйвер ставится один раз с правами администратора: Windows не загружает такие камеры, записанные только для одного пользователя.
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -594,7 +595,7 @@ namespace Kapsula
                 {
                     var g = new Grid { Width = 1280, Height = 720, Background = new LinearGradientBrush(Color.FromRgb(0x15, 0x15, 0x1A), Color.FromRgb(0x0B, 0x0B, 0x0E), 90) };
                     var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                    sp.Children.Add(new TextBlock { Text = ((char)0xE722).ToString(), FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 64, Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A)), HorizontalAlignment = HorizontalAlignment.Center });
+                    sp.Children.Add(new TextBlock { Text = ((char)0xE722).ToString(), FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 64, Foreground = new SolidColorBrush(Tokens.Palette.Orange), HorizontalAlignment = HorizontalAlignment.Center });
                     sp.Children.Add(new TextBlock { Text = "Kapsula Camera", Foreground = Brushes.White, FontSize = 40, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 18, 0, 0) });
                     sp.Children.Add(new TextBlock { Text = "Телефон не подключён · кнопка камеры слева в раскрытом острове Kapsula", Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0xA3)), FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
                     g.Children.Add(sp);

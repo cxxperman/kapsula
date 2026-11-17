@@ -8,6 +8,7 @@
 //  • Светлая кромка и мягкая тень острова; блоки страниц появляются по очереди.
 //  • Зоны сброса: файл над островом — «На полку», «В ярлыки», «В чат».
 //  • Экономный опрос: свёрнутый остров вдали от курсора проверяет его реже.
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -711,7 +712,7 @@ namespace Kapsula
                 for (int i = 0; i < 5; i++)
                 {
                     int k = i;
-                    ClaudeAfter(3000 + i * 1300, delegate { DiscordNotify(who[k], "сообщение " + (k + 1), DemoAvatar(who[k].Substring(0, 1), Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6))); });
+                    ClaudeAfter(3000 + i * 1300, delegate { DiscordNotify(who[k], "сообщение " + (k + 1), DemoAvatar(who[k].Substring(0, 1), Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple)); });
                 }
                 return;
             }
@@ -721,7 +722,7 @@ namespace Kapsula
             // и надпись в капсуле, потом все вкладки, списки Wi-Fi и Bluetooth, мини-плеер и командная строка
             if (rp == "11")
             {
-                ClaudeAfter(3000, delegate { SteamNotify("Александр Константинопольский", "го вечером в кооп, только сначала обнови игру и скачай все DLC, которые вышли на прошлой неделе", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                ClaudeAfter(3000, delegate { SteamNotify("Александр Константинопольский", "го вечером в кооп, только сначала обнови игру и скачай все DLC, которые вышли на прошлой неделе", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple), delegate { }, "0"); });
                 ClaudeAfter(7000, delegate { DiscordNotify("Екатерина Великолепная · #общий-чат-сервера", "скинула скрин, глянь — там очень длинное сообщение, которое точно не влезет в карточку острова", DemoAvatar("Е", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
                 ClaudeAfter(11000, delegate { SteamInvite("Максимилиан Длиннофамильный", "Зовёт в Counter-Strike 2: Global Offensive Remastered Edition", DemoAvatar("М", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
                 ClaudeAfter(15000, delegate { SetState(0); Toast("", "Очень длинная надпись в капсуле, которая не должна вылезать за края острова", null, -1, null); });
@@ -746,12 +747,12 @@ namespace Kapsula
                 int t = 3000;
                 if (edge)
                 {
-                    ClaudeAfter(3000, delegate { SteamNotify("Я", "ок", DemoAvatar("Я", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                    ClaudeAfter(3000, delegate { SteamNotify("Я", "ок", DemoAvatar("Я", Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple), delegate { }, "0"); });
                     ClaudeAfter(7000, delegate { DiscordNotify("🎮 Геймеры 🔥 · #мемы", "🔥🔥🔥", DemoAvatar("Г", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
                     ClaudeAfter(11000, delegate { SteamInvite("xX_Дима_Xx", "Зовёт в Dota 2", DemoAvatar("X", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
                     ClaudeAfter(15000, delegate
                     {
-                        DiscordNotify("Аня", "", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)));   // картинка без подписи
+                        DiscordNotify("Аня", "", DemoAvatar("А", Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple));   // картинка без подписи
                         // остальные — в историю без карточек (раньше пришедших), чтобы в «Уведомлениях» было ровно двадцать одно
                         for (int i = 0; seenNotes.Count < 21; i++)
                             seenNotes.Insert(0, new Seen { At = DateTime.Now.AddMinutes(-(i + 1) * 7), Source = i % 2 == 0 ? "Discord" : "Steam", Title = i % 3 == 0 ? "Я" : "Саша", Text = i % 4 == 0 ? "👍" : "сообщение " + (i + 1) });
@@ -782,7 +783,7 @@ namespace Kapsula
                 ClaudeAfter(t, delegate { SetState(0); });
                 ClaudeAfter(t + 1200, delegate { ForceOpen = -2; SetState(1); });   // мини-плеер (без курсора — держим его открытым)
                 ClaudeAfter(t + 4200, delegate { ForceOpen = -1; pinned = false; SetState(0); });
-                ClaudeAfter(t + 5400, delegate { SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Color.FromRgb(0x8A, 0x5C, 0xF6)), delegate { }, "0"); });
+                ClaudeAfter(t + 5400, delegate { SteamNotify("Марк", "го вечером в кооп?", DemoAvatar("М", Color.FromRgb(0x4F, 0x8D, 0xF7), Tokens.Palette.Purple), delegate { }, "0"); });
                 ClaudeAfter(t + 10400, delegate { DiscordNotify("Саша", "скинул скрин, глянь", DemoAvatar("С", Color.FromRgb(0x34, 0xC7, 0x8A), Color.FromRgb(0x2A, 0x8F, 0xD8))); });
                 ClaudeAfter(t + 15400, delegate { SteamInvite("Лена", "Зовёт в игру", DemoAvatar("Л", Color.FromRgb(0xF2, 0x8B, 0x52), Color.FromRgb(0xE8, 0x4A, 0x7A)), "", ""); });
                 ClaudeAfter(t + 20400, delegate { SetState(0); ToggleCommand(); cmdBox.Text = "2400 * 15%"; });

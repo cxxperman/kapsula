@@ -5,6 +5,7 @@
 // «кофе 30 мин») и в меню значка у часов. Пока режим включён, в капсуле стоит маленькая чашка с паром.
 // Сам выключается, когда выйдет время, и на батарее ниже 10% — чтобы ноутбук не сел. После перезапуска
 // Kapsula режим не возвращается: компьютер не должен незаметно остаться без сна навсегда.
+using DevTxt;
 using System;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -25,7 +26,7 @@ namespace Kapsula
         DateTime awakeUntil = DateTime.MinValue;   // MinValue — пока не выключат
         FrameworkElement awakeDot;                  // чашка в капсуле
         Action awakeRepaint;                        // кнопка на вкладке «Система»
-        static readonly Brush AwakeOnBrush = Glass.Tinted(Color.FromRgb(0xFF, 0x9F, 0x0A));
+        static readonly Brush AwakeOnBrush = Glass.Tinted(Tokens.Palette.Orange);
 
         // Чашка с паром — свой рисунок из простых линий
         static readonly Geometry CupGeometry = Geometry.Parse("M3,7 H12 V10.5 A3.5,3.5 0 0 1 8.5,14 H6.5 A3.5,3.5 0 0 1 3,10.5 Z M12,8 H13 A1.75,1.75 0 0 1 13,11.5 H12 M6,1.5 C7,2.6 5,3.6 6,4.8 M9,1.5 C10,2.6 8,3.6 9,4.8");

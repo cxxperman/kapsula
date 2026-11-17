@@ -5,6 +5,7 @@
 // выбора в Discord), настройки звука и красная «отключиться»; включённая кнопка становится белой, а значок —
 // красным и перечёркнутым, как в Discord. Когда вы показываете экран или включили камеру — у таймера метки «LIVE»
 // и камеры. Если играет музыка, внизу тонкая строка плеера: обложка, трек, «назад / пауза / вперёд».
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -20,13 +21,13 @@ namespace Kapsula
 {
     partial class IslandWindow
     {
-        static readonly SolidColorBrush AppleGreen = new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58));
-        static readonly SolidColorBrush AppleRed = new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A));
+        static readonly SolidColorBrush AppleGreen = new SolidColorBrush(Tokens.Palette.Green);
+        static readonly SolidColorBrush AppleRed = new SolidColorBrush(Tokens.Palette.Red);
         static readonly SolidColorBrush Secondary = new SolidColorBrush(Color.FromArgb(0x9E, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush Hairline = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
         static readonly SolidColorBrush BadgeBack = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1E));
         // нет аватарки — буква на цветном круге, как в контактах iPhone
-        static readonly Brush[] FaceTones = { new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A)), new SolidColorBrush(Color.FromRgb(0x30, 0xB0, 0x50)), new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)), new SolidColorBrush(Color.FromRgb(0xBF, 0x5A, 0xF2)), new SolidColorBrush(Color.FromRgb(0xFF, 0x37, 0x5F)), new SolidColorBrush(Color.FromRgb(0x40, 0xA8, 0xD8)), new SolidColorBrush(Color.FromRgb(0x5E, 0x5C, 0xE6)) };
+        static readonly Brush[] FaceTones = { new SolidColorBrush(Tokens.Palette.Orange), new SolidColorBrush(Color.FromRgb(0x30, 0xB0, 0x50)), new SolidColorBrush(Tokens.Palette.Blue), new SolidColorBrush(Color.FromRgb(0xBF, 0x5A, 0xF2)), new SolidColorBrush(Tokens.Palette.Pink), new SolidColorBrush(Color.FromRgb(0x40, 0xA8, 0xD8)), new SolidColorBrush(Color.FromRgb(0x5E, 0x5C, 0xE6)) };
 
         const int Faces = 6;   // аватарок в ряд, остальные — «+N»
         TextBlock callTitle, callMusicTitle, callMusicArtist, callMore;
@@ -101,7 +102,7 @@ namespace Kapsula
                 int k = i;
                 var g = callKeyGlyphs[i] = new TextBlock { Text = glyphs[i], FontFamily = Icons, FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 UIElement face = i < 2 ? Strike(g, 18, 1.8, Brushes.White, out keyStrike[i]) : (UIElement)g;   // микрофон и наушники перечёркиваются, как в Discord
-                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? Glass.Tinted(Color.FromRgb(0xFF, 0x45, 0x3A)) : (Brush)Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i == 2 || i == 3 ? 0 : 10, 0) };
+                var key = callKeys[i] = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = i == 3 ? Glass.Tinted(Tokens.Palette.Red) : (Brush)Glass.Fill, BorderBrush = Glass.Rim, BorderThickness = new Thickness(1), Child = face, Cursor = Cursors.Hand, ToolTip = tips[i], Margin = new Thickness(0, 0, i == 2 || i == 3 ? 0 : 10, 0) };
                 key.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; CallKey(k); };
                 Fx.Press(key, 0.9);
             }

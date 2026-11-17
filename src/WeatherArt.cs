@@ -1,5 +1,6 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: WeatherArt.cs
 // Цветные значки погоды, нарисованные фигурами: солнце, луна, облака, дождь, снег, гроза, туман.
+using DevTxt;
 using System;
 using System.Windows;
 using System.Windows.Controls;
@@ -15,7 +16,7 @@ namespace Kapsula
         static readonly Brush Moon = new LinearGradientBrush(Color.FromRgb(0xFB, 0xF1, 0xC6), Color.FromRgb(0xE2, 0xD0, 0x8E), 90);
         static readonly Brush Drop = new SolidColorBrush(Color.FromRgb(0x4D, 0xA8, 0xFF));
         static readonly Brush Flake = new SolidColorBrush(Color.FromRgb(0xEA, 0xF4, 0xFF));
-        static readonly Brush Bolt = new LinearGradientBrush(Color.FromRgb(0xFF, 0xE0, 0x4A), Color.FromRgb(0xFF, 0x9F, 0x0A), 90);
+        static readonly Brush Bolt = new LinearGradientBrush(Color.FromRgb(0xFF, 0xE0, 0x4A), Tokens.Palette.Orange, 90);
         static readonly Brush Fog = new SolidColorBrush(Color.FromRgb(0xC2, 0xCB, 0xD6));
 
         // Значок размером size×size. code — код погоды WMO, как в данных Open-Meteo.

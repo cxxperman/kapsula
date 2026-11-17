@@ -1,6 +1,7 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Pet.cs
 // Зверёк — пиксельный питомец Kapsula. Этот класс рисует его в любом месте интерфейса и сам оживляет:
 // настроение задаётся одним словом, движение идёт только пока зверёк виден на экране.
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -13,9 +14,9 @@ namespace Kapsula
 {
     class PetView
     {
-        static readonly Brush Body = new SolidColorBrush(Color.FromRgb(0xF0, 0x8A, 0x4B));
-        static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
-        static readonly Brush Orange = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x0A));
+        static readonly Brush Body = new SolidColorBrush(Tokens.Palette.Brand);
+        static readonly Brush Green = new SolidColorBrush(Tokens.Palette.Green);
+        static readonly Brush Orange = new SolidColorBrush(Tokens.Palette.Orange);
         static readonly Brush Grey = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
         static readonly Brush Paper = new SolidColorBrush(Color.FromRgb(0xF4, 0xEF, 0xE2));   // конверт, который зверёк приносит с уведомлением
         static readonly string[] Shape =
@@ -53,7 +54,7 @@ namespace Kapsula
             new int[][] { new int[] { 1, 0, 9, 2 }, new int[] { 3, -1, 5, 3 }, new int[] { 3, -2, 5, 2 }, new int[] { 4, -3, 3, 2 }, new int[] { 5, -4, 1, 2 } },
             new int[][] { new int[] { 1, 7, 9, 4 }, new int[] { 7, 8, 2, 4 } }
         };
-        static readonly Color[] OutfitColors = { Color.FromRgb(0xE5, 0x48, 0x4D), Color.FromRgb(0xF4, 0xF4, 0xF6), Color.FromRgb(0x7B, 0x4F, 0xBF), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x4F, 0x8F, 0xE0), Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0x3A, 0x3A, 0x42) };
+        static readonly Color[] OutfitColors = { Color.FromRgb(0xE5, 0x48, 0x4D), Color.FromRgb(0xF4, 0xF4, 0xF6), Color.FromRgb(0x7B, 0x4F, 0xBF), Tokens.Palette.Orange, Color.FromRgb(0x4F, 0x8F, 0xE0), Color.FromRgb(0xF7, 0xC9, 0x48), Color.FromRgb(0x3A, 0x3A, 0x42) };
 
         // ---- наряды за привычки (их выдаёт остров, см. Habits.cs). Глаза открыты: зверёк в них по-прежнему всё показывает.
         public static readonly string[] HabitIds = { "band", "bow", "phones", "crown" };

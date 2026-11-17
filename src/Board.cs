@@ -4,6 +4,7 @@
 // красным — нет. Задетые блоки сначала пробуют встать туда, откуда взяли перетаскиваемый, а если не выходит — каждый
 // ищет ближайшее свободное место. «−» прячет блок, спрятанные лежат в полоске снизу; щелчок возвращает их.
 // Раскладка запоминается. Esc или «Готово» заканчивает правку.
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -40,7 +41,7 @@ namespace Kapsula
         public Action Done;             // правка закончилась
         public Action<string> Event;    // для зверька-прораба: grab — взяли блок, ok — встал, bad — не помещается, hide, restore, reset
         void Fire(string e) { if (Event != null) Event(e); }
-        public Brush Accent = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));
+        public Brush Accent = new SolidColorBrush(Tokens.Palette.Blue);
         readonly Canvas overlayLayer = new Canvas();
         readonly Border tray, target;
         readonly WrapPanel trayItems;
@@ -87,7 +88,7 @@ namespace Kapsula
             var b = new Border
             {
                 Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(13, 0, 13, 1), Cursor = Cursors.Hand,
-                Background = main ? new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)) : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
+                Background = main ? new SolidColorBrush(Tokens.Palette.Blue) : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
                 Child = new TextBlock { Text = text, Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center }
             };
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };

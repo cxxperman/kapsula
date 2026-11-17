@@ -1,4 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: SettingsWindow.cs
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -161,7 +162,7 @@ namespace Kapsula
                 new string[] { "E713", "Настройки", "Значок шестерёнки в панели или правый клик по значку Kapsula возле часов. Там же — выход." }
             };
             // у каждой подсказки — белый значок на цветном скруглённом квадрате, как у разделов настроек
-            Color[] tipTints = { Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x63, 0x66, 0xF1) };
+            Color[] tipTints = { Tokens.Palette.Blue, Color.FromRgb(0x8E, 0x8E, 0x93), Tokens.Palette.Pink, Tokens.Palette.Orange, Color.FromRgb(0x63, 0x66, 0xF1) };
             int tipN = 0;
             foreach (string[] t in tips)
             {
@@ -193,7 +194,7 @@ namespace Kapsula
         {
             var b = new Border { Background = main ? Sel : ChipBg, CornerRadius = new CornerRadius(15), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
                 Child = new TextBlock { Text = text, Foreground = main ? Brushes.White : Txt, FontSize = 13, FontWeight = FontWeights.SemiBold } };
-            if (main) b.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF)); else Glass.DarkButton(b);   // как кнопки острова: главная залита синим, остальные — стекло
+            if (main) b.Background = Glass.Tinted(Tokens.Palette.Blue); else Glass.DarkButton(b);   // как кнопки острова: главная залита синим, остальные — стекло
             Fx.Press(b, 0.95);
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             return b;
@@ -229,7 +230,7 @@ namespace Kapsula
         static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
         static readonly Brush OnBg = new SolidColorBrush(Color.FromRgb(0x52, 0x52, 0x5C));    // включённые плашки и главные кнопки — светлее фона, без цвета
         static readonly Brush OnTxt = Brushes.White;
-        static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x34, 0xC7, 0x59));
+        static readonly Brush Green = new SolidColorBrush(Tokens.Palette.Green);
         static readonly Color[] Palette =
         {
             Colors.Black, Color.FromRgb(0x1C, 0x1C, 0x1E), Color.FromRgb(0x0B, 0x1B, 0x33), Color.FromRgb(0x0C, 0x26, 0x1C),
@@ -852,8 +853,8 @@ namespace Kapsula
         static readonly Color[] SectionColors =
         {
             Ui.PetColor,
-            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x64, 0xD2, 0xFF), Color.FromRgb(0xFF, 0x37, 0x5F), Color.FromRgb(0xFF, 0x45, 0x3A),
-            Color.FromRgb(0x30, 0xD1, 0x58), Color.FromRgb(0xE0, 0x7B, 0x45), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xFF, 0x9F, 0x0A), Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
+            Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Tokens.Palette.Green, Color.FromRgb(0x64, 0xD2, 0xFF), Tokens.Palette.Pink, Tokens.Palette.Red,
+            Tokens.Palette.Green, Color.FromRgb(0xE0, 0x7B, 0x45), Tokens.Palette.Green, Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Tokens.Palette.Orange, Tokens.Palette.Blue, Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
         static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x2A));
@@ -1146,7 +1147,7 @@ namespace Kapsula
             if (title.EndsWith(betaMark) || alpha)
             {
                 string mark = alpha ? alphaMark : betaMark;
-                Color mc = alpha ? Color.FromRgb(0x40, 0xB4, 0xFF) : Color.FromRgb(0xFF, 0x9F, 0x0A);
+                Color mc = alpha ? Color.FromRgb(0x40, 0xB4, 0xFF) : Tokens.Palette.Orange;
                 var head = new WrapPanel();
                 var headTb = new TextBlock { Text = title.Substring(0, title.Length - mark.Length), Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), ToolTip = title.Substring(0, title.Length - mark.Length) };
                 Ui.Lines(headTb, 2);
@@ -1241,7 +1242,7 @@ namespace Kapsula
         FrameworkElement Toggle(bool on, Action<bool> changed)
         {
             Switch.Reduced = island.ReducedMotion;
-            return new Switch(on, Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;
+            return new Switch(on, Tokens.Palette.Green, Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;
         }
 
         // Ползунок: live вызывается при каждом движении (без записи в настройки), done — когда отпустили.
@@ -1624,7 +1625,7 @@ namespace Kapsula
                 Child = new TextBlock { Text = text, Foreground = main ? OnTxt : Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             // обычная кнопка — стекло; главная — залита синим, как в iOS, с тем же бликом сверху
             Glass.DarkButton(b);
-            if (main) b.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));
+            if (main) b.Background = Glass.Tinted(Tokens.Palette.Blue);
             b.MouseLeftButtonDown += delegate(object o, MouseButtonEventArgs e) { e.Handled = true; click(); };
             Fx.Press(b, 0.95);
             return b;
@@ -1739,7 +1740,7 @@ namespace Kapsula
                 status.Text = Secrets.IsSaved("geminiKey") ? "Ключ сохранён." : (Secrets.GetKey("geminiKey", "GEMINI_API_KEY") != "" ? "Используется ключ из переменной среды GEMINI_API_KEY." : "Ключ не задан.");
             };
             var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
-            save.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));   // главная кнопка — синяя, как везде
+            save.Background = Glass.Tinted(Tokens.Palette.Blue);   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate { if (pw.Password.Trim().Length == 0) return; Secrets.SetKey("geminiKey", pw.Password); pw.Clear(); paint(); };
             row.Children.Add(save);
             var del = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
@@ -1768,7 +1769,7 @@ namespace Kapsula
                 status.Text = Secrets.Saved ? "Ключ сохранён." : (Secrets.GetKey() != "" ? "Используется ключ из переменной среды ANTHROPIC_API_KEY." : "Ключ не задан — Claude не ответит.");
             };
             var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
-            save.Background = Glass.Tinted(Color.FromRgb(0x0A, 0x84, 0xFF));   // главная кнопка — синяя, как везде
+            save.Background = Glass.Tinted(Tokens.Palette.Blue);   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate
             {
                 if (pw.Password.Trim().Length == 0) return;

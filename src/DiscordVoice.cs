@@ -4,6 +4,7 @@
 // микрофон выключен, полный мут, идёт демонстрация экрана, включена камера, говорит ли кто-нибудь. В ответ остров
 // отдаёт ему команды: выключить микрофон, полный мут, выйти из звонка. Канал только для этого компьютера
 // (127.0.0.1:42073), и только для самого Discord: страницы в браузере сюда не пускаются.
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -359,7 +360,7 @@ namespace Kapsula
             var b = FaceImage(dvRingAvatar, 128) as ImageBrush;
             if (b != null) return b.ImageSource;
             string who = dvRingCaller.Length > 0 ? dvRingCaller : RingTitle();
-            return ImageFrom(DemoAvatar(FaceLetter(who), Color.FromRgb(0x58, 0x65, 0xF2), Color.FromRgb(0x8A, 0x5C, 0xF6)));   // та же буква, что в карточке звонка
+            return ImageFrom(DemoAvatar(FaceLetter(who), Color.FromRgb(0x58, 0x65, 0xF2), Tokens.Palette.Purple));   // та же буква, что в карточке звонка
         }
 
         // Аватарка догрузилась, а карточка звонка ещё на острове — поставить её вместо буквы

@@ -1,4 +1,5 @@
 ﻿// Kapsula — «остров» для Windows. Часть исходного кода: SnipWindow.cs
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -41,7 +42,7 @@ namespace Kapsula
         List<UIElement> items = new List<UIElement>();
         List<Border> toolBtns = new List<Border>();
         List<Border> colorBtns = new List<Border>();
-        static readonly Color[] Palette = { Color.FromRgb(0xFF, 0x3B, 0x30), Color.FromRgb(0xFF, 0xCC, 0x00), Color.FromRgb(0x34, 0xC7, 0x59), Color.FromRgb(0x0A, 0x84, 0xFF), Colors.White, Colors.Black };
+        static readonly Color[] Palette = { Color.FromRgb(0xFF, 0x3B, 0x30), Color.FromRgb(0xFF, 0xCC, 0x00), Tokens.Palette.Green, Tokens.Palette.Blue, Colors.White, Colors.Black };
         UIElement cur;
         Point inkStart;
         Int32Rect selPx;

@@ -1,4 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Controls.cs
+using DevTxt;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -234,7 +235,7 @@ namespace Kapsula
         public static readonly SolidColorBrush Light = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF4));
         public static readonly SolidColorBrush Line = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF));    // тонкая обводка
         public static readonly SolidColorBrush Badge = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));   // кружок под значком
-        public static readonly SolidColorBrush Accent = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));         // включено
+        public static readonly SolidColorBrush Accent = new SolidColorBrush(Tokens.Palette.Blue);         // включено
 
         // Плитка: значок в кружке и подпись. Включённая — кружок заливается цветом, сама плитка остаётся тёмной.
         public Tile(string glyph, string label, Action click)

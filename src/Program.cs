@@ -170,6 +170,8 @@ namespace Kapsula
             w.Plain = plain;
             w.Show();
             if (plain) { Updater.Start(w); System.Threading.ThreadPool.QueueUserWorkItem(delegate { Takeover.FixAutostart(); }); }
+            // Связь с core.txt (общие настройки dev.txt). В проверочных запусках — только если задан порт проверочного хаба.
+            if (plain || CoreHub.TestPort > 0) CoreHub.Start(w);
             if (updated)
             {
                 var hello = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1800) };

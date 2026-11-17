@@ -3,6 +3,7 @@
 // Полупрозрачная заливка чуть светлее сверху, тонкая светлая кромка с бликом в верхнем левом углу и едва заметным
 // отсветом снизу; под курсором стекло светлеет, выбранное — плотнее остальных. Это только приём оформления:
 // ни шрифтов, ни значков, ни картинок Apple в Kapsula нет.
+using DevTxt;
 using System;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,7 +13,9 @@ using System.Windows.Media.Animation;
 
 namespace Kapsula
 {
-    // Единые правила оформления — один язык для острова, карточек, мини-плеера и настроек:
+    // Единые правила оформления — один язык для острова, карточек, мини-плеера и настроек.
+    // Сами числа (цвета, стекло, радиусы, шрифты, длительности) — в Tokens.cs: это общие токены dev.txt, файл
+    // собирается в kit.txt и руками не правится. Здесь — как из них получается оформление Kapsula:
     //   • блок (плитка, плеер, громкость, календарь, прибор погоды, карточка) — стекло, углы 18;
     //   • строка списка (уведомление, задача, сеть Wi-Fi, строка буфера) — стекло, углы 14;
     //   • кнопка — стекло-капсула; главная — залита цветом; значок — без подложки, под курсором стекло;
@@ -23,7 +26,7 @@ namespace Kapsula
     //     и подсказки — с ним; его цвет (PetColor) — только для того, что про него.
     static class Ui
     {
-        public const double BlockR = 18, RowR = 14;
+        public const double BlockR = Tokens.Radius.Block, RowR = Tokens.Radius.Row;
         public static readonly CornerRadius Block = new CornerRadius(BlockR), Row = new CornerRadius(RowR);
 
         // Переключатель из нескольких вариантов (вкладки, режимы): выбранный — плотное стекло с кромкой
@@ -78,7 +81,7 @@ namespace Kapsula
         }
 
         // Цвет зверька — им же помечено всё, что про него (раздел настроек, вкладка)
-        public static readonly Color PetColor = Color.FromRgb(0xF0, 0x8A, 0x4B);
+        public static readonly Color PetColor = Tokens.Palette.Brand;
 
         // Пиксельная лапка — значок зверька во вкладке острова и в разделе настроек. Рисунок свой.
         static readonly string[] PawMap = { "..XX.XX..", "..XX.XX..", "XX.....XX", "XX.XXX.XX", "..XXXXX..", ".XXXXXXX.", ".XXXXXXX.", "..XX.XX.." };
@@ -128,7 +131,7 @@ namespace Kapsula
         static LinearGradientBrush Diagonal()
         {
             var b = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0.7, 1) };
-            foreach (double o in new double[] { 0, 0.32, 0.68, 1 }) b.GradientStops.Add(new GradientStop(Colors.Transparent, o));
+            foreach (double o in Tokens.GlassDark.RimOffsets) b.GradientStops.Add(new GradientStop(Colors.Transparent, o));
             return b;
         }
 
@@ -138,24 +141,25 @@ namespace Kapsula
         static void Paint(LinearGradientBrush b, bool light, int level)
         {
             double top, bottom;
-            if (light) { top = new double[] { 0.86, 0.96, 1.0 }[level]; bottom = new double[] { 0.66, 0.80, 0.90 }[level]; }
-            else { top = new double[] { 0.15, 0.22, 0.27 }[level]; bottom = new double[] { 0.075, 0.12, 0.16 }[level]; }
+            // Плотность стекла — из общих токенов (kit.txt): обычное, под курсором, выбранное
+            if (light)
+            {
+                top = new double[] { Tokens.GlassLight.FillTop, Tokens.GlassLight.HoverTop, Tokens.GlassLight.StrongTop }[level];
+                bottom = new double[] { Tokens.GlassLight.FillBottom, Tokens.GlassLight.HoverBottom, Tokens.GlassLight.StrongBottom }[level];
+            }
+            else
+            {
+                top = new double[] { Tokens.GlassDark.FillTop, Tokens.GlassDark.HoverTop, Tokens.GlassDark.StrongTop }[level];
+                bottom = new double[] { Tokens.GlassDark.FillBottom, Tokens.GlassDark.HoverBottom, Tokens.GlassDark.StrongBottom }[level];
+            }
             b.GradientStops[0].Color = A(Colors.White, top);
             b.GradientStops[1].Color = A(Colors.White, bottom);
         }
 
         static void PaintRim(LinearGradientBrush b, bool light)
         {
-            if (light)
-            {
-                b.GradientStops[0].Color = A(Colors.White, 1); b.GradientStops[1].Color = A(Colors.Black, 0.07);
-                b.GradientStops[2].Color = A(Colors.Black, 0.06); b.GradientStops[3].Color = A(Colors.Black, 0.12);
-            }
-            else
-            {
-                b.GradientStops[0].Color = A(Colors.White, 0.5); b.GradientStops[1].Color = A(Colors.White, 0.13);
-                b.GradientStops[2].Color = A(Colors.White, 0.05); b.GradientStops[3].Color = A(Colors.White, 0.17);
-            }
+            Color[] rim = light ? Tokens.GlassLight.RimColors : Tokens.GlassDark.RimColors;
+            for (int i = 0; i < rim.Length; i++) b.GradientStops[i].Color = rim[i];
         }
 
         static Brush Frozen(LinearGradientBrush b, bool light, int level) { Paint(b, light, level); b.Freeze(); return b; }
@@ -193,10 +197,10 @@ namespace Kapsula
                     "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ToolTip'>" +
                     "<Setter Property='OverridesDefaultStyle' Value='True'/><Setter Property='HasDropShadow' Value='False'/>" +
                     "<Setter Property='Foreground' Value='#F5F5F7'/><Setter Property='FontSize' Value='12'/>" +
-                    "<Setter Property='FontFamily' Value='Segoe UI Variable Text, Segoe UI'/>" +
+                    "<Setter Property='FontFamily' Value='" + Tokens.Font.Text + "'/>" +
                     "<Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToolTip'><Grid Margin='8,4,8,12'>" +
-                    "<Border CornerRadius='9' Background='#F2242427'><Border.Effect><DropShadowEffect BlurRadius='14' ShadowDepth='3' Direction='270' Opacity='0.42' Color='Black'/></Border.Effect></Border>" +
-                    "<Border CornerRadius='9' BorderThickness='1' Padding='9,5,9,6' MaxWidth='300'><Border.BorderBrush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'>" +
+                    "<Border CornerRadius='" + Tokens.Radius.Tip + "' Background='#F2242427'><Border.Effect><DropShadowEffect BlurRadius='14' ShadowDepth='3' Direction='270' Opacity='0.42' Color='Black'/></Border.Effect></Border>" +
+                    "<Border CornerRadius='" + Tokens.Radius.Tip + "' BorderThickness='1' Padding='9,5,9,6' MaxWidth='300'><Border.BorderBrush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'>" +
                     "<GradientStop Color='#47FFFFFF' Offset='0'/><GradientStop Color='#14FFFFFF' Offset='1'/></LinearGradientBrush></Border.BorderBrush>" +
                     "<ContentPresenter><ContentPresenter.Resources><Style TargetType='TextBlock'><Setter Property='TextWrapping' Value='Wrap'/></Style></ContentPresenter.Resources></ContentPresenter>" +
                     "</Border></Grid></ControlTemplate></Setter.Value></Setter></Style>");
@@ -255,8 +259,8 @@ namespace Kapsula
             Color c = on ? onColor : offColor;
             if (Reduced) { knobX.BeginAnimation(TranslateTransform.XProperty, null); knobX.X = to; track.BeginAnimation(SolidColorBrush.ColorProperty, null); track.Color = c; return; }
             var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
-            knobX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
-            track.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(230)) { EasingFunction = ease });
+            knobX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs)) { EasingFunction = ease });
+            track.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs)) { EasingFunction = ease });
         }
     }
 
