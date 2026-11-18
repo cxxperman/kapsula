@@ -23,13 +23,33 @@ namespace Kapsula
     static class Store
     {
         // KAPSULA_TEST_STORE — для проверок: своя папка настроек с выдуманными задачами, настоящие не трогаются
-        public static readonly string Dir = Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "kapsula.txt");
+        public static readonly string Dir = Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Kapsula");
         public static bool Test { get { return Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") != null; } }
         static Dictionary<string, string> data = new Dictionary<string, string>();
         public static bool Fresh;   // настроек ещё не было: программа запущена на этом компьютере впервые
 
+        // 0.8.2 по ошибке держала настройки в соседней папке «kapsula.txt». Забираем оттуда только то, чего нет
+        // в настоящей папке: ничего не перезаписываем и ничего не удаляем.
+        static void Rescue082()
+        {
+            try
+            {
+                if (Test) return;
+                string stray = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "kapsula.txt");
+                if (!System.IO.Directory.Exists(stray)) return;
+                System.IO.Directory.CreateDirectory(Dir);
+                foreach (string from in System.IO.Directory.GetFiles(stray))
+                {
+                    string to = System.IO.Path.Combine(Dir, System.IO.Path.GetFileName(from));
+                    if (!System.IO.File.Exists(to)) System.IO.File.Copy(from, to);
+                }
+            }
+            catch { }
+        }
+
         public static void Load()
         {
+            Rescue082();
             try
             {
                 System.IO.Directory.CreateDirectory(Dir);

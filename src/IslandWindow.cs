@@ -10341,7 +10341,7 @@ namespace Kapsula
         // ------------------------------------------------------------ снимки
         static string ShotDir()
         {
-            string d = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "kapsula.txt");
+            string d = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Kapsula");
             System.IO.Directory.CreateDirectory(d);
             return d;
         }
@@ -10511,7 +10511,7 @@ namespace Kapsula
                 bool ok = false;
                 if (ff != null)
                 {
-                    string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "kapsula.txt");
+                    string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Kapsula");
                     System.IO.Directory.CreateDirectory(dir);
                     string path = System.IO.Path.Combine(dir, "Запись " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + ".mp4");
                     // Пробуем кодировщики по очереди: не в каждой сборке ffmpeg есть libx264.
