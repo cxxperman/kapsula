@@ -1,8 +1,7 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: Design.cs
-// Оформление в духе Apple: кнопки, плитки и вкладки — «жидкое стекло», как в iOS и macOS последних лет.
-// Полупрозрачная заливка чуть светлее сверху, тонкая светлая кромка с бликом в верхнем левом углу и едва заметным
-// отсветом снизу; под курсором стекло светлеет, выбранное — плотнее остальных. Это только приём оформления:
-// ни шрифтов, ни значков, ни картинок Apple в Kapsula нет.
+// Оформление Windows 11, как во всех приложениях dev.txt: ровные заливки чуть светлее фона, обводка в одну точку,
+// скругления 8 у панелей и 4 у кнопок и строк; под курсором заливка светлеет, выбранное — плотнее остальных.
+// Числа — в общих токенах dev.txt (Tokens.cs).
 using DevTxt;
 using System;
 using System.Windows;
@@ -187,8 +186,8 @@ namespace Kapsula
             b.MouseLeave += delegate { if (b.Background == DarkHover) b.Background = DarkFill; };
         }
 
-        // Подсказки во всей программе — тёмное стекло со скруглёнными углами, тонкой светлой кромкой и мягкой тенью,
-        // как в macOS; длинный текст переносится, а не тянется во всю ширину экрана.
+        // Подсказки во всей программе — как в Windows 11: тёмная панель, углы 4, обводка в одну точку и лёгкая тень;
+        // длинный текст переносится, а не тянется во всю ширину экрана.
         public static void Tooltips(ResourceDictionary res)
         {
             try
@@ -199,9 +198,9 @@ namespace Kapsula
                     "<Setter Property='Foreground' Value='#F5F5F7'/><Setter Property='FontSize' Value='12'/>" +
                     "<Setter Property='FontFamily' Value='" + Tokens.Font.Text + "'/>" +
                     "<Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToolTip'><Grid Margin='8,4,8,12'>" +
-                    "<Border CornerRadius='" + Tokens.Radius.Tip + "' Background='#F2242427'><Border.Effect><DropShadowEffect BlurRadius='14' ShadowDepth='3' Direction='270' Opacity='0.42' Color='Black'/></Border.Effect></Border>" +
+                    "<Border CornerRadius='" + Tokens.Radius.Tip + "' Background='#FF2C2C2C'><Border.Effect><DropShadowEffect BlurRadius='8' ShadowDepth='2' Direction='270' Opacity='0.3' Color='Black'/></Border.Effect></Border>" +
                     "<Border CornerRadius='" + Tokens.Radius.Tip + "' BorderThickness='1' Padding='9,5,9,6' MaxWidth='300'><Border.BorderBrush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'>" +
-                    "<GradientStop Color='#47FFFFFF' Offset='0'/><GradientStop Color='#14FFFFFF' Offset='1'/></LinearGradientBrush></Border.BorderBrush>" +
+                    "<GradientStop Color='#18FFFFFF' Offset='0'/><GradientStop Color='#12FFFFFF' Offset='1'/></LinearGradientBrush></Border.BorderBrush>" +
                     "<ContentPresenter><ContentPresenter.Resources><Style TargetType='TextBlock'><Setter Property='TextWrapping' Value='Wrap'/></Style></ContentPresenter.Resources></ContentPresenter>" +
                     "</Border></Grid></ControlTemplate></Setter.Value></Setter></Style>");
                 res[typeof(ToolTip)] = style;
@@ -209,58 +208,73 @@ namespace Kapsula
             catch { }
         }
 
-        // Главная кнопка, как в iOS: залита цветом, с тем же бликом сверху
+        // Главная кнопка, как в Windows 11: ровная заливка цветом акцента
         public static Brush Tinted(Color c)
         {
-            var b = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
-            b.GradientStops.Add(new GradientStop(Color.FromRgb((byte)Math.Min(255, c.R + 26), (byte)Math.Min(255, c.G + 26), (byte)Math.Min(255, c.B + 26)), 0));
-            b.GradientStops.Add(new GradientStop(c, 1));
+            var b = new SolidColorBrush(c);
             b.Freeze();
             return b;
         }
     }
 
-    // Переключатель как в iOS: бегунок скользит с мягким разгоном и торможением, дорожка плавно наливается
-    // зелёным; у бегунка лёгкая тень. При «Меньше движения» — сразу на месте.
+    // Переключатель Windows 11: 40×20. Выключен — пустая дорожка с обводкой и серым бегунком; включён — дорожка
+    // цвета акцента (onC) и тёмный или белый бегунок по яркости цвета. Под курсором бегунок чуть крупнее.
+    // offC оставлен для совместимости. При «Меньше движения» — сразу на месте.
     class Switch
     {
         public readonly Border Root;
+        readonly Border knob;
         readonly TranslateTransform knobX = new TranslateTransform();
-        readonly SolidColorBrush track;
-        readonly Color onColor, offColor;
+        readonly ScaleTransform knobScale = new ScaleTransform(1, 1);
+        readonly Color onColor;
         bool on;
         public static bool Reduced;   // «Меньше движения»
-        const double W = 46, H = 28, Knob = 24;
+        const double W = 40, H = 20, Knob = 12;
+        static double Travel { get { return W - 2 - 6 - Knob; } }
 
         public Switch(bool state, Color onC, Color offC, Action<bool> changed)
         {
-            on = state; onColor = onC; offColor = offC;
-            track = new SolidColorBrush(on ? onC : offC);
-            var knob = new Border
+            on = state; onColor = onC;
+            var move = new TransformGroup();
+            move.Children.Add(knobScale);
+            move.Children.Add(knobX);
+            knob = new Border
             {
-                Width = Knob, Height = Knob, CornerRadius = new CornerRadius(Knob / 2), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(2, 0, 0, 0), RenderTransform = knobX,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 1.5, Direction = 270, Opacity = 0.28, Color = Colors.Black }
+                Width = Knob, Height = Knob, CornerRadius = new CornerRadius(Knob / 2), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(3, 0, 0, 0), RenderTransform = move, RenderTransformOrigin = new Point(0.5, 0.5)
             };
-            knobX.X = on ? W - Knob - 4 : 0;
-            Root = new Border { Width = W, Height = H, CornerRadius = new CornerRadius(H / 2), Background = track, Child = knob, Cursor = Cursors.Hand };
-            Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
-            {
-                e.Handled = true;
-                on = !on;
-                Move();
-                changed(on);
-            };
+            knobX.X = on ? Travel : 0;
+            Root = new Border { Width = W, Height = H, CornerRadius = new CornerRadius(H / 2), BorderThickness = new Thickness(1), Child = knob, Focusable = true, SnapsToDevicePixels = true };
+            Paint();
+            Action toggle = delegate { on = !on; Paint(); Move(); changed(on); };
+            Root.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; toggle(); };
+            Root.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Space || e.Key == Key.Enter) { e.Handled = true; toggle(); } };
+            Root.MouseEnter += delegate { Grow(1.17); };
+            Root.MouseLeave += delegate { Grow(1); };
+        }
+
+        void Paint()
+        {
+            double l = (0.2126 * onColor.R + 0.7152 * onColor.G + 0.0722 * onColor.B) / 255;
+            var dim = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF));
+            Root.Background = on ? new SolidColorBrush(onColor) : new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF));
+            Root.BorderBrush = on ? new SolidColorBrush(onColor) : dim;
+            knob.Background = on ? new SolidColorBrush(l > 0.55 ? Color.FromArgb(0xE4, 0, 0, 0) : Colors.White) : dim;
+        }
+
+        void Grow(double k)
+        {
+            if (Reduced) { knobScale.ScaleX = knobScale.ScaleY = k; return; }
+            var a = new DoubleAnimation(k, TimeSpan.FromMilliseconds(Tokens.Motion.FastMs)) { EasingFunction = new ExponentialEase { EasingMode = EasingMode.EaseOut, Exponent = 7 } };
+            knobScale.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+            knobScale.BeginAnimation(ScaleTransform.ScaleYProperty, a);
         }
 
         void Move()
         {
-            double to = on ? W - Knob - 4 : 0;
-            Color c = on ? onColor : offColor;
-            if (Reduced) { knobX.BeginAnimation(TranslateTransform.XProperty, null); knobX.X = to; track.BeginAnimation(SolidColorBrush.ColorProperty, null); track.Color = c; return; }
-            var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
-            knobX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs)) { EasingFunction = ease });
-            track.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs)) { EasingFunction = ease });
+            double to = on ? Travel : 0;
+            if (Reduced) { knobX.BeginAnimation(TranslateTransform.XProperty, null); knobX.X = to; return; }
+            knobX.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(Tokens.Motion.FastMs)) { EasingFunction = new ExponentialEase { EasingMode = EasingMode.EaseOut, Exponent = 7 } });
         }
     }
 

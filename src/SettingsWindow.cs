@@ -90,7 +90,7 @@ namespace Kapsula
             flag.Margin = new Thickness(2, 2, 20, 0); flag.VerticalAlignment = VerticalAlignment.Center;
             g.Children.Add(flag);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            texts.Children.Add(new TextBlock { Text = "Український проєкт", Foreground = Brushes.White, FontSize = 17, FontWeight = FontWeights.Bold });
+            texts.Children.Add(new TextBlock { Text = "Український проєкт", Foreground = Brushes.White, FontSize = 20, FontWeight = FontWeights.Bold });
             texts.Children.Add(new TextBlock { Text = "kapsula.txt делают в Украине. Программа бесплатная, исходный код открыт — его можно посмотреть и проверить.", Foreground = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)), FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
             button.HorizontalAlignment = HorizontalAlignment.Left;
             texts.Children.Add(button);
@@ -102,15 +102,15 @@ namespace Kapsula
             bg.GradientStops.Add(new GradientStop(Color.FromRgb(0x3A, 0x33, 0x12), 1));
             return new Border
             {
-                Child = g, Background = bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(20, 16, 20, 16), Margin = new Thickness(0, 0, 0, 16),
+                Child = g, Background = bg, CornerRadius = new CornerRadius(8), Padding = new Thickness(20, 16, 20, 16), Margin = new Thickness(0, 0, 0, 16),
                 BorderBrush = new LinearGradientBrush(Color.FromArgb(0x70, Blue.R, Blue.G, Blue.B), Color.FromArgb(0x70, Yellow.R, Yellow.G, Yellow.B), 0), BorderThickness = new Thickness(1)
             };
         }
     }
     class WelcomeWindow : Window
     {
-        static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
-        static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
+        static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20));
+        static readonly Brush Sel = new SolidColorBrush(Color.FromArgb(0x15, 0xFF, 0xFF, 0xFF));          // выбранный раздел — спокойная серая подложка
 
         // ---- фон окна — сплошной тёмный: полупрозрачный материал Windows (Mica) убран — на некоторых системах окно рисовалось белым
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -128,9 +128,9 @@ namespace Kapsula
             }
             catch { Background = Bg; }
         }
-        static readonly Brush Txt = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
-        static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
-        static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
+        static readonly Brush Txt = new SolidColorBrush(Colors.White);
+        static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0xC5, 0xC5, 0xC5));
+        static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x37, 0x37, 0x37));
 
         public WelcomeWindow(IslandWindow island)
         {
@@ -152,7 +152,7 @@ namespace Kapsula
             hello.Children.Add(greeter.Root);
             hello.Children.Add(new TextBlock { Text = "kapsula.txt запущена", Foreground = Txt, FontSize = 21, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             sp.Children.Add(hello);
-            sp.Children.Add(new TextBlock { Text = "Это капсула у верхнего края экрана. Вот с чего начать:", Foreground = Sub, FontSize = 12.5, Margin = new Thickness(0, 4, 0, 14) });
+            sp.Children.Add(new TextBlock { Text = "Это капсула у верхнего края экрана. Вот с чего начать:", Foreground = Sub, FontSize = 14, Margin = new Thickness(0, 4, 0, 14) });
             string[][] tips =
             {
                 new string[] { "E8B0", "Наведите курсор на капсулу", "Она раскроется в панель: музыка, буфер обмена, заметки, погода и другое. Уберите курсор — свернётся." },
@@ -172,17 +172,17 @@ namespace Kapsula
                 Color tint = tipTints[tipN++ % tipTints.Length];
                 row.Children.Add(new Border
                 {
-                    Width = 32, Height = 32, CornerRadius = new CornerRadius(9), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+                    Width = 32, Height = 32, CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
                     Background = new LinearGradientBrush(Color.FromRgb((byte)Math.Min(255, tint.R + 22), (byte)Math.Min(255, tint.G + 22), (byte)Math.Min(255, tint.B + 22)), tint, 90),
                     Child = new TextBlock { Text = ((char)Convert.ToInt32(t[0], 16)).ToString(), FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 15, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
                 var texts = new StackPanel();
                 texts.Children.Add(new TextBlock { Text = t[1], Foreground = Txt, FontSize = 13.5, FontWeight = FontWeights.SemiBold });
-                texts.Children.Add(new TextBlock { Text = t[2], Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
+                texts.Children.Add(new TextBlock { Text = t[2], Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
-                sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1F, 0x1F, 0x23)), BorderBrush = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 11, 14, 12), Margin = new Thickness(0, 0, 0, 8), Child = row });
+                sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1F, 0x1F, 0x23)), BorderBrush = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 11, 14, 12), Margin = new Thickness(0, 0, 0, 8), Child = row });
             }
-            sp.Children.Add(new TextBlock { Text = "kapsula.txt обновляется сама и ничего о вас не собирает. Это ранняя версия: что-то может работать не так.", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 4, 0, 14) });
+            sp.Children.Add(new TextBlock { Text = "kapsula.txt обновляется сама и ничего о вас не собирает. Это ранняя версия: что-то может работать не так.", Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 4, 0, 14) });
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             buttons.Children.Add(Button("Открыть настройки", false, delegate { Close(); island.OpenSettings(); }));
             buttons.Children.Add(Button("Понятно", true, delegate { Close(); }));
@@ -192,9 +192,9 @@ namespace Kapsula
 
         static FrameworkElement Button(string text, bool main, Action click)
         {
-            var b = new Border { Background = main ? Sel : ChipBg, CornerRadius = new CornerRadius(15), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
-                Child = new TextBlock { Text = text, Foreground = main ? Brushes.White : Txt, FontSize = 13, FontWeight = FontWeights.SemiBold } };
-            if (main) b.Background = Glass.Tinted(Tokens.Palette.Blue); else Glass.DarkButton(b);   // как кнопки острова: главная залита синим, остальные — стекло
+            var b = new Border { Background = main ? Sel : ChipBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(18, 7, 18, 8), Margin = new Thickness(8, 0, 0, 0), Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = text, Foreground = main ? new SolidColorBrush(Color.FromArgb(0xE4, 0, 0, 0)) : Txt, FontSize = 14, FontWeight = FontWeights.SemiBold } };
+            if (main) b.Background = Glass.Tinted(Tokens.Palette.Brand); else Glass.DarkButton(b);   // как в Windows 11: главная — цветом акцента, остальные — ровная заливка
             Fx.Press(b, 0.95);
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; click(); };
             return b;
@@ -205,8 +205,8 @@ namespace Kapsula
     class SettingsWindow : Window
     {
         IslandWindow island;
-        static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x15, 0x15, 0x18));
-        static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
+        static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20));
+        static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF));
 
         // ---- фон окна — сплошной тёмный: полупрозрачный материал Windows (Mica) убран — на некоторых системах окно рисовалось белым
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -224,10 +224,10 @@ namespace Kapsula
             }
             catch { Background = Bg; }
         }
-        static readonly Brush RowBg = new SolidColorBrush(Color.FromRgb(0x1F, 0x1F, 0x23));
-        static readonly Brush Txt = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
-        static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
-        static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x31));
+        static readonly Brush RowBg = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
+        static readonly Brush Txt = new SolidColorBrush(Colors.White);
+        static readonly Brush Sub = new SolidColorBrush(Color.FromRgb(0xC5, 0xC5, 0xC5));
+        static readonly Brush ChipBg = new SolidColorBrush(Color.FromRgb(0x37, 0x37, 0x37));
         static readonly Brush OnBg = new SolidColorBrush(Color.FromRgb(0x52, 0x52, 0x5C));    // включённые плашки и главные кнопки — светлее фона, без цвета
         static readonly Brush OnTxt = Brushes.White;
         static readonly Brush Green = new SolidColorBrush(Tokens.Palette.Green);
@@ -270,8 +270,8 @@ namespace Kapsula
             // Настройки разложены по разделам: слева список, справа — только выбранный раздел.
             StackPanel sp = Sec("Общее");
             // Версия и обновление — первой строкой, чтобы не искать
-            var checkLabel = new TextBlock { Text = "Проверить обновления", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
-            var checkBtn = new Border { Background = OnBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = checkLabel };
+            var checkLabel = new TextBlock { Text = "Проверить обновления", Foreground = OnTxt, FontSize = 14, FontWeight = FontWeights.SemiBold };
+            var checkBtn = new Border { Background = OnBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = checkLabel };
             Glass.DarkButton(checkBtn);
             var verRow = Row("Kapsula " + Updater.CurrentText, "—", checkBtn, false);
             TextBlock verStatus = ((StackPanel)((Grid)((Border)verRow).Child).Children[0]).Children[1] as TextBlock;
@@ -295,7 +295,7 @@ namespace Kapsula
             {
                 // свой стикер: выбор картинки и сброс
                 var stRow = new StackPanel { Orientation = Orientation.Horizontal };
-                var stNote = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+                var stNote = new TextBlock { Foreground = Sub, FontSize = 12, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
                 var stCol = new StackPanel(); stCol.Children.Add(stRow); stCol.Children.Add(stNote);
                 Action stPaint = null;
                 stPaint = delegate
@@ -661,7 +661,7 @@ namespace Kapsula
             BuildSecuritySection(Sec("Безопасность"));
 
             sp = Sec("Клавиши");
-            sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Нажмите на сочетание и введите новое. Backspace отключает, правый клик возвращает исходное. Красным отмечены сочетания, занятые другой программой." });
+            sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Нажмите на сочетание и введите новое. Backspace отключает, правый клик возвращает исходное. Красным отмечены сочетания, занятые другой программой." });
             foreach (Hot hk in island.Hots) sp.Children.Add(Row(hk.Name, null, HotChip(hk), false));
             PreviewKeyDown += OnCaptureKey;
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
@@ -831,7 +831,7 @@ namespace Kapsula
                     found++;
                 }
             }
-            if (found == 0) searchPage.Children.Add(new TextBlock { Text = "Ничего не нашлось. Попробуйте другое слово — например, «звук», «телефон» или «игры».", Foreground = Sub, FontSize = 13, Margin = new Thickness(4, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
+            if (found == 0) searchPage.Children.Add(new TextBlock { Text = "Ничего не нашлось. Попробуйте другое слово — например, «звук», «телефон» или «игры».", Foreground = Sub, FontSize = 14, Margin = new Thickness(4, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
             GroupRows(searchPage);
             paneTitle.Text = "Поиск";
             if (pvBox != null) pvBox.Visibility = Visibility.Visible;
@@ -856,8 +856,8 @@ namespace Kapsula
             Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Tokens.Palette.Green, Color.FromRgb(0x64, 0xD2, 0xFF), Tokens.Palette.Pink, Tokens.Palette.Red,
             Tokens.Palette.Green, Color.FromRgb(0xE0, 0x7B, 0x45), Tokens.Palette.Green, Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Tokens.Palette.Orange, Tokens.Palette.Blue, Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
-        static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x33));
-        static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x2A));
+        static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x1D, 0x1D, 0x1D));
+        static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x32, 0x32, 0x32));
 
         // Строки настроек, идущие подряд, собираются в одну карточку: скруглены только её внешние углы,
         // между строками — тонкая линия. Так раздел читается как несколько понятных групп, а не россыпь плашек.
@@ -889,11 +889,11 @@ namespace Kapsula
             int pets;
             int.TryParse(Store.Get("petPets"), out pets);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            texts.Children.Add(new TextBlock { Text = "Зверёк — душа kapsula.txt", Foreground = Txt, FontSize = 17, FontWeight = FontWeights.SemiBold });
-            texts.Children.Add(new TextBlock { Text = "Живёт в капсуле, переходит туда, куда вы смотрите, гуляет по окнам, приносит уведомления и получает наряды за привычки.", Foreground = Sub, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+            texts.Children.Add(new TextBlock { Text = "Зверёк — душа kapsula.txt", Foreground = Txt, FontSize = 20, FontWeight = FontWeights.SemiBold });
+            texts.Children.Add(new TextBlock { Text = "Живёт в капсуле, переходит туда, куда вы смотрите, гуляет по окнам, приносит уведомления и получает наряды за привычки.", Foreground = Sub, FontSize = 14, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
             // «1 284 раза» — тысячи, как «Гладили 1 284 раза» на странице «Зверёк»; число не отрывается от «раза»,
             // а в узком окне строка переносится, а не обрезается краем
-            texts.Children.Add(new TextBlock { Text = pets > 0 ? "Вы погладили его " + TextTools.Thousands(pets) + (char)0xA0 + Times(pets) + " — поводите по нему курсором ещё" : "Поводите по нему курсором туда-сюда — он это любит", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+            texts.Children.Add(new TextBlock { Text = pets > 0 ? "Вы погладили его " + TextTools.Thousands(pets) + (char)0xA0 + Times(pets) + " — поводите по нему курсором ещё" : "Поводите по нему курсором туда-сюда — он это любит", Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
             var row = new DockPanel();
             DockPanel.SetDock(pet.Root, Dock.Left);
             row.Children.Add(pet.Root); row.Children.Add(texts);
@@ -930,15 +930,20 @@ namespace Kapsula
             navPet.Context = "nav";   // зверёк рядом с названием: моргает и поглядывает по сторонам
             navPet.Root.Margin = new Thickness(0, 0, 2, 0);
             brand.Children.Add(navPet.Root);
-            brand.Children.Add(new TextBlock { Text = "Kapsula", Foreground = Txt, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            var brandName = new TextBlock { Foreground = Txt, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            // имя продукта dev.txt: «kapsula» ярко, подпись «.txt™» приглушена — как во всех приложениях экосистемы
+            brandName.Inlines.Add(new System.Windows.Documents.Run("kapsula"));
+            brandName.Inlines.Add(new System.Windows.Documents.Run(".txt") { Foreground = Sub });
+            brandName.Inlines.Add(new System.Windows.Documents.Run("™") { Foreground = Sub, FontSize = 9, FontWeight = FontWeights.Normal, BaselineAlignment = BaselineAlignment.TextTop });
+            brand.Children.Add(brandName);
             nav.Children.Add(brand);
-            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 11.5, Margin = new Thickness(12, 1, 0, 8) });
+            nav.Children.Add(new TextBlock { Text = "версия " + Updater.CurrentText, Foreground = Sub, FontSize = 12, Margin = new Thickness(12, 1, 0, 8) });
             // поиск по всем настройкам
             var sGrid = new Grid { Margin = new Thickness(2, 0, 2, 12) };
-            searchBox = new TextBox { Height = 32, Background = Brushes.Transparent, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 13 };
+            searchBox = new TextBox { Height = 32, Background = Brushes.Transparent, Foreground = Txt, CaretBrush = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(30, 7, 10, 0), FontSize = 14 };
             var sIcon = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Sub, Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-            var sHint = new TextBlock { Text = "Поиск настроек", Foreground = Sub, FontSize = 13, Margin = new Thickness(32, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
-            var sClip = new Border { CornerRadius = new CornerRadius(16), Background = ChipBg, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), Child = searchBox, ClipToBounds = true };   // поле поиска — капсула, как поля острова
+            var sHint = new TextBlock { Text = "Поиск настроек", Foreground = Sub, FontSize = 14, Margin = new Thickness(32, 0, 0, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+            var sClip = new Border { CornerRadius = new CornerRadius(4), Background = ChipBg, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), Child = searchBox, ClipToBounds = true };   // поле поиска — капсула, как поля острова
             sGrid.Children.Add(sClip); sGrid.Children.Add(sIcon); sGrid.Children.Add(sHint);
             searchBox.TextChanged += delegate { sHint.Visibility = searchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; if (!searchMuted) RunSearch(searchBox.Text); };
             searchBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Escape) { searchBox.Text = ""; e.Handled = true; } };
@@ -957,8 +962,8 @@ namespace Kapsula
                     Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
                     Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.35, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
-                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 13, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 30, CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
+                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
+                var item = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
                 item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
                 Fx.Press(item, 0.97);
@@ -967,7 +972,7 @@ namespace Kapsula
                 nav.Children.Add(item);
             }
             var navDock = new DockPanel();
-            var saved = new TextBlock { Text = "Изменения сохраняются сразу", Foreground = Sub, FontSize = 11, Margin = new Thickness(24, 8, 12, 14) };
+            var saved = new TextBlock { Text = "Изменения сохраняются сразу", Foreground = Sub, FontSize = 12, Margin = new Thickness(24, 8, 12, 14) };
             DockPanel.SetDock(saved, Dock.Bottom);
             navDock.Children.Add(saved);
             navDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = nav });
@@ -976,7 +981,7 @@ namespace Kapsula
             var pane = new DockPanel { Margin = new Thickness(28, 22, 10, 0) };
             var head = new StackPanel { Margin = new Thickness(4, 0, 0, 12) };
             paneTitle = new TextBlock { Foreground = Txt, FontSize = 25, FontWeight = FontWeights.Bold };
-            paneHint = new TextBlock { Foreground = Sub, FontSize = 12.5, Margin = new Thickness(0, 3, 0, 0) };
+            paneHint = new TextBlock { Foreground = Sub, FontSize = 14, Margin = new Thickness(0, 3, 0, 0) };
             head.Children.Add(paneTitle); head.Children.Add(paneHint);
             DockPanel.SetDock(head, Dock.Top);
             pane.Children.Add(head);
@@ -1028,14 +1033,14 @@ namespace Kapsula
             pvMini = new Viewbox { Height = PvH - 40, Child = miniBox, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             grid.Children.Add(pvMini);
 
-            pvCaption = new TextBlock { Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), FontSize = 11, Margin = new Thickness(12, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
+            pvCaption = new TextBlock { Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), FontSize = 12, Margin = new Thickness(12, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false };
             grid.Children.Add(pvCaption);
 
             pvTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             pvTimer.Tick += delegate { UpdatePreview(); };
             pvTimer.Start();
             Closed += delegate { pvTimer.Stop(); };
-            pvBox = new Border { Height = PvH, CornerRadius = new CornerRadius(18), Background = bg, Margin = new Thickness(0, 0, 16, 18), Child = grid, ClipToBounds = true, BorderBrush = Divider, BorderThickness = new Thickness(1) };
+            pvBox = new Border { Height = PvH, CornerRadius = new CornerRadius(8), Background = bg, Margin = new Thickness(0, 0, 16, 18), Child = grid, ClipToBounds = true, BorderBrush = Divider, BorderThickness = new Thickness(1) };
             return pvBox;
         }
 
@@ -1125,7 +1130,7 @@ namespace Kapsula
         // Кнопка, открывающая страницу в браузере. Сама Kapsula ничего оттуда не скачивает и не ставит.
         FrameworkElement LinkButton(string text, string url)
         {
-            var b = new Border { Background = ChipBg, CornerRadius = new CornerRadius(13), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = new TextBlock { Text = text, Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold } };
+            var b = new Border { Background = ChipBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = new TextBlock { Text = text, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold } };
             Glass.DarkButton(b);   // кнопки-ссылки — то же стекло, что и остальные
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; try { System.Diagnostics.Process.Start(url); } catch { } };
             return b;
@@ -1188,7 +1193,7 @@ namespace Kapsula
                 g.Children.Add(control);
                 body = g;
             }
-            var rowBox = new Border { Background = RowBg, CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 13, 18, 14), Margin = new Thickness(0, 0, 0, 8), Child = body, Tag = "row" };
+            var rowBox = new Border { Background = RowBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(18, 13, 18, 14), Margin = new Thickness(0, 0, 0, 8), Child = body, Tag = "row" };
             string baseTitle = title.Replace(" · бета", "").Replace(" · альфа", "");
             if (!rowsByTitle.ContainsKey(baseTitle)) rowsByTitle[baseTitle] = rowBox;
             rowText[rowBox] = (baseTitle + " " + (desc ?? "")).ToLowerInvariant();
@@ -1226,7 +1231,7 @@ namespace Kapsula
         {
             bool state = on;
             var knob = new Ellipse { Width = 18, Height = 18, Fill = Brushes.White, Margin = new Thickness(3), HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-            var b = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(12), Background = state ? Green : ChipBg, Child = knob, Cursor = Cursors.Hand };
+            var b = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(4), Background = state ? Green : ChipBg, Child = knob, Cursor = Cursors.Hand };
             Action<bool> show = delegate(bool v)
             {
                 state = v;
@@ -1242,7 +1247,7 @@ namespace Kapsula
         FrameworkElement Toggle(bool on, Action<bool> changed)
         {
             Switch.Reduced = island.ReducedMotion;
-            return new Switch(on, Tokens.Palette.Green, Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;
+            return new Switch(on, Tokens.Palette.Brand, Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;   // переключатель Windows 11 в цвете акцента
         }
 
         // Ползунок: live вызывается при каждом движении (без записи в настройки), done — когда отпустили.
@@ -1255,7 +1260,7 @@ namespace Kapsula
             var thumb = new Ellipse { Width = T, Height = T, Fill = Brushes.White, Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 1, Direction = 270, Opacity = 0.35, Color = Colors.Black }, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
             var area = new Grid { Width = W, Height = 28, Background = Brushes.Transparent, Cursor = Cursors.Hand };
             area.Children.Add(track); area.Children.Add(fill); area.Children.Add(thumb);
-            var label = new TextBlock { Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 1), Width = 56 };
+            var label = new TextBlock { Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 1), Width = 56 };
             Action paint = delegate
             {
                 double f = (cur - min) / (max - min);
@@ -1293,7 +1298,7 @@ namespace Kapsula
             var row = new WrapPanel();
             var items = new List<Border>();
             var tx = new TranslateTransform();
-            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(14), Background = Glass.DarkStrong, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
+            var thumb = new Border { Height = 28, CornerRadius = new CornerRadius(4), Background = Glass.DarkStrong, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, RenderTransform = tx, Width = 0, IsHitTestVisible = false };
             int cur = selected;
             var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
             Action<bool> move = delegate(bool animate)
@@ -1321,7 +1326,7 @@ namespace Kapsula
             for (int i = 0; i < labels.Length; i++)
             {
                 int idx = i;
-                var c = new Border { Height = 28, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 0, 14, 1), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+                var c = new Border { Height = 28, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = new TextBlock { Text = labels[i], FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
                 c.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
                     e.Handled = true;
@@ -1334,9 +1339,9 @@ namespace Kapsula
             }
             var grid = new Grid();
             grid.Children.Add(thumb); grid.Children.Add(row);
-            var track = new Border { Background = Glass.DarkFill, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
+            var track = new Border { Background = Glass.DarkFill, BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(2), HorizontalAlignment = HorizontalAlignment.Left, Child = grid };
             // в одну строку — капсула; перенеслось на вторую — скругление как у строк списка
-            row.SizeChanged += delegate { track.CornerRadius = row.ActualHeight > 34 ? new CornerRadius(Ui.RowR) : new CornerRadius(17); move(false); };
+            row.SizeChanged += delegate { track.CornerRadius = row.ActualHeight > 34 ? new CornerRadius(Ui.RowR) : new CornerRadius(4); move(false); };
             track.Loaded += delegate { move(false); };
             return track;
         }
@@ -1371,8 +1376,8 @@ namespace Kapsula
             for (int i = 0; i < ids.Count; i++)
             {
                 int idx = i;
-                var tb = new TextBlock { Text = labels[i], FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-                var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(1), Child = tb };
+                var tb = new TextBlock { Text = labels[i], FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                var c = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), BorderThickness = new Thickness(1), Child = tb };
                 if (locked[i] != null) { c.Opacity = 0.45; c.ToolTip = locked[i]; }
                 else
                 {
@@ -1398,13 +1403,13 @@ namespace Kapsula
                 foreach (string a in apps)
                 {
                     string name = a;
-                    var tb = new TextBlock { Text = name + "  ✕", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = OnTxt, VerticalAlignment = VerticalAlignment.Center };
-                    var c = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 12, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = OnBg, Child = tb, ToolTip = "Убрать из списка" };
+                    var tb = new TextBlock { Text = name + "  ✕", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = OnTxt, VerticalAlignment = VerticalAlignment.Center };
+                    var c = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 12, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = OnBg, Child = tb, ToolTip = "Убрать из списка" };
                     c.MouseLeftButtonDown += delegate { List<string> cur = IslandWindow.HideApps(); cur.RemoveAll(delegate(string x) { return string.Equals(x, name, StringComparison.OrdinalIgnoreCase); }); IslandWindow.SetHideApps(cur); fill(); };
                     wrap.Children.Add(c);
                 }
-                var addText = new TextBlock { Text = "+ Добавить программу", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Txt, VerticalAlignment = VerticalAlignment.Center };
-                var add = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = ChipBg, Child = addText };
+                var addText = new TextBlock { Text = "+ Добавить программу", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = Txt, VerticalAlignment = VerticalAlignment.Center };
+                var add = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand, Background = ChipBg, Child = addText };
                 Glass.DarkButton(add);
                 add.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
@@ -1460,9 +1465,9 @@ namespace Kapsula
 
         FrameworkElement HotChip(Hot h)
         {
-            var tb = new TextBlock { FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            var tb = new TextBlock { FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
             hotLabels[h] = tb;
-            var chip = new Border { Height = 30, MinWidth = 120, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Background = ChipBg, Cursor = Cursors.Hand, Child = tb };
+            var chip = new Border { Height = 30, MinWidth = 120, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Background = ChipBg, Cursor = Cursors.Hand, Child = tb };
             Glass.DarkButton(chip);
             tb.HorizontalAlignment = HorizontalAlignment.Center;
             chip.MouseLeftButtonDown += delegate
@@ -1538,7 +1543,7 @@ namespace Kapsula
             // то же в самой капсуле, без отдельного окна: только когда остров остаётся поверх игры («Показывать в играх»)
             sp.Children.Add(Row("Нагрузка в капсуле во время игры", "Пока остров показан поверх игры на весь экран («Показывать в играх»), свёрнутая капсула вместо часов показывает одну строку: процессор, видеокарта и память. Обновляется раз в две секунды, без анимаций.", Toggle(Store.Get("gameLoad") == "1", delegate(bool v) { island.SetFlag("gameLoad", v); }), false));
             sp.Children.Add(Row("Чат Twitch поверх игры · бета","Сообщения чата выбранного канала справа поверх игры. Читаются анонимно — входить в Twitch не нужно, писать в чат отсюда нельзя. Чат YouTube так показать нельзя: YouTube требует ключ разработчика.", Toggle(Store.Get("twitchOverlay") == "1", delegate(bool v) { Store.Set("twitchOverlay", v ? "1" : "0"); island.TwitchSync(); }), false));
-            var chan = new TextBox { Width = 220, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13, Text = Store.Get("twitchChannel") };
+            var chan = new TextBox { Width = 220, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 14, Text = Store.Get("twitchChannel") };
             chan.LostFocus += delegate { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); };
             chan.KeyDown += delegate(object o, KeyEventArgs e) { if (e.Key == Key.Enter) { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); } };
             sp.Children.Add(Row("Канал Twitch", "Имя канала из адреса: twitch.tv/имя.", chan, false));
@@ -1547,7 +1552,7 @@ namespace Kapsula
             sp = Sec("Телефон");
             sp.Children.Add(Header("Камера телефона"));
             var camRow = new StackPanel { Orientation = Orientation.Horizontal };
-            var camStatus = new TextBlock { Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+            var camStatus = new TextBlock { Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
             var camCol = new StackPanel();
             camCol.Children.Add(camRow); camCol.Children.Add(camStatus);
             Action camPaint = null;
@@ -1630,8 +1635,8 @@ namespace Kapsula
         }
         Border PillBtn(string text, bool main, Action click)
         {
-            var b = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Cursor = Cursors.Hand,
-                Child = new TextBlock { Text = text, Foreground = main ? OnTxt : Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var b = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = text, Foreground = main ? OnTxt : Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             // обычная кнопка — стекло; главная — залита синим, как в iOS, с тем же бликом сверху
             Glass.DarkButton(b);
             if (main) b.Background = Glass.Tinted(Tokens.Palette.Blue);
@@ -1645,7 +1650,7 @@ namespace Kapsula
         {
             var col = new StackPanel();
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var status = new TextBlock { Foreground = Sub, FontSize = 12, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
             var bar = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = ChipBg, Margin = new Thickness(0, 8, 0, 0), Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
             var fill = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = OnBg, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
             bar.Child = fill;
@@ -1724,9 +1729,9 @@ namespace Kapsula
         {
             var col = new StackPanel();
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13 };
+            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 14 };
             row.Children.Add(pw);
-            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var status = new TextBlock { Foreground = Sub, FontSize = 12, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
             Action paint = delegate { status.Text = Secrets.IsSaved(name) ? "Ключ сохранён." : "Ключ не задан."; };
             var save = PillBtn("Сохранить", true, delegate { if (pw.Password.Trim().Length == 0) return; Secrets.SetKey(name, pw.Password.Trim()); pw.Clear(); paint(); });
             save.Margin = new Thickness(8, 0, 0, 0); row.Children.Add(save);
@@ -1741,18 +1746,18 @@ namespace Kapsula
         {
             var col = new StackPanel();
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13 };
+            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 14 };
             row.Children.Add(pw);
-            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var status = new TextBlock { Foreground = Sub, FontSize = 12, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
             Action paint = delegate
             {
                 status.Text = Secrets.IsSaved("geminiKey") ? "Ключ сохранён." : (Secrets.GetKey("geminiKey", "GEMINI_API_KEY") != "" ? "Используется ключ из переменной среды GEMINI_API_KEY." : "Ключ не задан.");
             };
-            var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var save = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             save.Background = Glass.Tinted(Tokens.Palette.Blue);   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate { if (pw.Password.Trim().Length == 0) return; Secrets.SetKey("geminiKey", pw.Password); pw.Clear(); paint(); };
             row.Children.Add(save);
-            var del = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var del = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             Glass.DarkButton(del);
             del.MouseLeftButtonDown += delegate { Secrets.SetKey("geminiKey", ""); pw.Clear(); paint(); };
             row.Children.Add(del);
@@ -1769,15 +1774,15 @@ namespace Kapsula
         {
             var col = new StackPanel();
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 13 };
+            var pw = new PasswordBox { Width = 250, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 14 };
             row.Children.Add(pw);
-            var status = new TextBlock { Foreground = Sub, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var status = new TextBlock { Foreground = Sub, FontSize = 12, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
             Action paint = delegate
             {
                 // без ключа Claude чат всё равно отвечает — через сайты без ключа, Qwen или Gemini; не отвечает только сам Claude
                 status.Text = Secrets.Saved ? "Ключ сохранён." : (Secrets.GetKey() != "" ? "Используется ключ из переменной среды ANTHROPIC_API_KEY." : "Ключ не задан — Claude не ответит.");
             };
-            var save = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var save = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = OnBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Сохранить", Foreground = OnTxt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             save.Background = Glass.Tinted(Tokens.Palette.Blue);   // главная кнопка — синяя, как везде
             save.MouseLeftButtonDown += delegate
             {
@@ -1787,7 +1792,7 @@ namespace Kapsula
                 paint();
             };
             row.Children.Add(save);
-            var del = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var del = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(6, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, Child = new TextBlock { Text = "Удалить", Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             Glass.DarkButton(del);
             del.MouseLeftButtonDown += delegate { island.SaveClaudeKey(""); pw.Clear(); paint(); };
             row.Children.Add(del);
@@ -1809,8 +1814,8 @@ namespace Kapsula
             foreach (Color pc in Palette)
             {
                 Color c = pc;
-                var dot = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Background = new SolidColorBrush(c), BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x50)), BorderThickness = new Thickness(1) };
-                var ring = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), BorderThickness = new Thickness(2), BorderBrush = Brushes.Transparent, Background = Brushes.Transparent, Child = dot, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 4, 0), Tag = c };
+                var dot = new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(c), BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x50)), BorderThickness = new Thickness(1) };
+                var ring = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(2), BorderBrush = Brushes.Transparent, Background = Brushes.Transparent, Child = dot, Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 4, 0), Tag = c };
                 // Наведение показывает цвет на самом острове, уход курсора возвращает сохранённый.
                 ring.MouseEnter += delegate { island.ApplyTheme(c); };
                 ring.MouseLeave += delegate { island.ApplyEffectiveTheme(); };
@@ -1818,7 +1823,7 @@ namespace Kapsula
                 swatches.Add(ring);
                 row.Children.Add(ring);
             }
-            var custom = new Border { Height = 30, CornerRadius = new CornerRadius(15), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "Свой…", Foreground = Txt, FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
+            var custom = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 0, 14, 1), Margin = new Thickness(8, 0, 0, 0), Background = ChipBg, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "Свой…", Foreground = Txt, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center } };
             Glass.DarkButton(custom);
             custom.MouseLeftButtonDown += delegate
             {

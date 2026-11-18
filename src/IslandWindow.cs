@@ -24,9 +24,10 @@ namespace Kapsula
     partial class IslandWindow : Window
     {
         // Размеры (в независимых от DPI пикселях)
-        const double CH = 34, CR = 15, Ear = 10;
-        const double MW = 440, MH = 162, MR = 28;
-        const double EW = 584, EH = 370, ER = 34;
+        // Скругления как у панелей Windows 11: 8 у всего, что открывается; свёрнутый остров — тоже 8
+        const double CH = 34, CR = 8, Ear = 8;
+        const double MW = 440, MH = 162, MR = 8;
+        const double EW = 584, EH = 370, ER = 8;
         const double CardW = 390, CardH = 80, CmdW = 580;
         const int PHome = 0, PClip = 1, PShelf = 2, PText = 3, PChat = 4, PNote = 5, PWeather = 6, PSystem = 7, PClaude = 8, PToday = 9, PNotif = 10, PPet = 11;
 
@@ -67,7 +68,7 @@ namespace Kapsula
         const double PageW = 548, PageH = 300;
 
         // Кисти темы общие для всего интерфейса: ApplyTheme меняет их цвет, и остров перекрашивается целиком.
-        static readonly SolidColorBrush Ink = new SolidColorBrush(Colors.Black);
+        static readonly SolidColorBrush Ink = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x2C));
         static readonly SolidColorBrush Fg = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF6));
         static readonly SolidColorBrush Dim = new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x96));
         static readonly SolidColorBrush Faint = new SolidColorBrush(Color.FromRgb(0x5A, 0x5A, 0x62));
@@ -80,8 +81,9 @@ namespace Kapsula
         // Настройки вида и поведения
         const double ChatGrowMax = 260;   // на сколько чат может вытянуть панель вниз под длинный разговор
         const double BaseW = EW + 120, BaseH = EH + 90 + ChatGrowMax;
-        public static readonly Color LightIsland = Color.FromRgb(0xF4, 0xF4, 0xF6);
-        public Color IslandColor = Colors.Black, DarkColor = Colors.Black;
+        // Цвета панелей Windows 11: тёмная — как меню и всплывающие панели, светлая — как они же в светлой теме
+        public static readonly Color LightIsland = Color.FromRgb(0xF9, 0xF9, 0xF9), WinDark = Color.FromRgb(0x2C, 0x2C, 0x2C);
+        public Color IslandColor = WinDark, DarkColor = WinDark;
         public bool FollowWindows, PillTitle, HoverMini = true, LiquidOn = true, ShowSeconds, ShowInCapture;
         public int PillMode, PlayerStyle;
         string currentLyric = "";
@@ -146,6 +148,23 @@ namespace Kapsula
                 if (Store.Get("autoHide") == "1") Store.Set("autoHide", "0");
                 Store.Set("petMigrated", "1");
             }
+            // Разовый переход на вид Windows 11 (один раз; дальше выбор человека не трогаем): тема как в Windows,
+            // матовое стекло вместо сплошной заливки, спокойный край без всплесков, тонкая кромка и тень, как у панелей Windows.
+            // Прежний чёрный по умолчанию становится цветом панелей Windows.
+            if (Store.Get("win11Migrated") != "1")
+            {
+                Store.Set("followWin", "1");
+                Store.Set("glass", "1");
+                Store.Set("liquid", "0");
+                Store.Set("rim", "1");
+                Store.Set("shadow", "1");
+                if (Store.Get("color") == "000000") Store.Set("color", Hex(WinDark));
+                if (Store.Get("darkColor") == "000000") Store.Set("darkColor", Hex(WinDark));
+                Store.Set("win11Migrated", "1");
+                FollowWindows = true;
+                if (Store.Get("color") == Hex(WinDark)) IslandColor = WinDark;
+                if (DarkColor == Colors.Black) DarkColor = WinDark;
+            }
             LiquidOn = Store.Get("liquid") != "0";
             ShowSeconds = Store.Get("seconds") == "1";
             AutoHide = Store.Get("autoHide") == "1";
@@ -174,19 +193,20 @@ namespace Kapsula
         public void ApplyTheme(Color island)
         {
             bool light = IsLight(island);
-            Color text = light ? Color.FromRgb(0x11, 0x11, 0x14) : Color.FromRgb(0xF4, 0xF4, 0xF6);
+            // Текст и заливки — по правилам Windows 11: основной, вторичный (78%) и третичный (54%) текст,
+            // карточки и кнопки чуть светлее фона, обводка в одну точку
+            Color text = light ? Color.FromRgb(0x1B, 0x1B, 0x1B) : Colors.White;
             Ink.Color = island;
             Fg.Color = text;
-            // На «матовом стекле» под текстом не ровный чёрный, а размытый фон: серые подписи делаем заметно светлее
-            Dim.Color = Mix(text, island, GlassOn ? 0.22 : 0.42);
-            Faint.Color = Mix(text, island, GlassOn ? 0.38 : 0.64);
-            Card.Color = Mix(island, text, light ? 0.06 : 0.1);   // как карточки iOS на чёрном: чуть светлее фона
-            Glass.Theme(light);   // стекло кнопок, плиток и вкладок — под тему острова
-            Chip.Color = Mix(island, text, light ? 0.09 : 0.115);
-            ChipHover.Color = Mix(island, text, 0.18);
-            TabOn.Color = Mix(island, text, 0.16);
-            Bar.TrackBrush.Color = Mix(island, text, 0.2);
-            Tile.Line.Color = Color.FromArgb((byte)(light ? 0x1C : 0x17), text.R, text.G, text.B);
+            Dim.Color = Mix(text, island, light ? 0.38 : 0.214);
+            Faint.Color = Mix(text, island, light ? 0.554 : 0.456);
+            Card.Color = light ? Mix(island, Colors.White, 0.7) : Mix(island, Colors.White, 0.05);
+            Glass.Theme(light);   // заливки кнопок, плиток и вкладок — под тему острова
+            Chip.Color = light ? Mix(island, Colors.White, 0.7) : Mix(island, Colors.White, 0.0605);
+            ChipHover.Color = light ? Mix(island, Colors.Black, 0.03) : Mix(island, Colors.White, 0.0837);
+            TabOn.Color = light ? Colors.White : Mix(island, Colors.White, 0.0837);
+            Bar.TrackBrush.Color = Mix(island, text, 0.5);
+            Tile.Line.Color = light ? Color.FromArgb(0x0F, 0, 0, 0) : Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF);
             Tile.Badge.Color = Color.FromArgb((byte)(light ? 0x1A : 0x1F), text.R, text.G, text.B);
             Tile.Light.Color = text;
             if (glowTop != null) UpdateAccent(rawAccent);
@@ -9052,7 +9072,7 @@ namespace Kapsula
         {
             sw.Target = StateW();
             sh.Target = StateH();
-            sr.Target = state == 2 ? ER : (state == 1 ? MR : (state == 0 ? CR * pillH / CH : 28));
+            sr.Target = state == 2 ? ER : (state == 1 ? MR : (state == 0 ? CR * pillH / CH : 8));
             for (int i = 0; i < so.Length; i++) so[i].Target = state == i ? 1 : 0;
             // В полноэкранной программе остров спрятан, но выглядывает на несколько секунд при смене трека (fsPeekUntil).
             bool fsHide = hiddenFs && unchecked(Environment.TickCount - fsPeekUntil) >= 0;
