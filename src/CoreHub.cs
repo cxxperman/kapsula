@@ -185,6 +185,10 @@ namespace Kapsula
         // уходит только когда изменилось, а когда показывать нечего (или показывать запретили) — null.
 
         public static bool On { get { return link != null; } }
+        // core.txt сейчас запущен и на связи
+        public static bool Online { get { return link != null && link.Online; } }
+        // Просьба к core.txt показать своё окно
+        public static void ShowCore() { if (link != null) link.Command("core", "show", null); }
         public static bool ShareOn { get { return Store.Get("hubShare") != "0"; } }
         public static bool ShareUnreadOn { get { return Store.Get("hubUnread") != "0"; } }
 
