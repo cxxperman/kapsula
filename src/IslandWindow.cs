@@ -1218,7 +1218,7 @@ namespace Kapsula
             SetTargets();
             cardUntil = Environment.TickCount + 7000;
 
-            var pop = new DoubleAnimation(0.5, 1, TimeSpan.FromMilliseconds(700)) { EasingFunction = new BackEase { Amplitude = 0.45, EasingMode = EasingMode.EaseOut } };
+            var pop = new DoubleAnimation(0.5, 1, TimeSpan.FromMilliseconds(Tokens.Motion.SlowMs)) { EasingFunction = new ExponentialEase { Exponent = 7, EasingMode = EasingMode.EaseOut } };   // быстрый вход Windows 11, без отскока
             budsScale.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
             budsScale.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
             budsPanel.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(320)));
@@ -10046,7 +10046,7 @@ namespace Kapsula
             {
                 apply();
                 b.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
-                var pop = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(320)) { EasingFunction = new BackEase { Amplitude = 0.3, EasingMode = EasingMode.EaseOut } };
+                var pop = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs)) { EasingFunction = new ExponentialEase { Exponent = 7, EasingMode = EasingMode.EaseOut } };   // быстрый вход Windows 11, без отскока
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
                 st.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
             };

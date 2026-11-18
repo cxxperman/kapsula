@@ -35,7 +35,7 @@ namespace Kapsula
             try
             {
                 if (Test) return;
-                string stray = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "kapsula.txt");
+                string stray = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "kapsula.txt");   // audit:ok — это и есть ошибочная папка 0.8.2
                 if (!System.IO.Directory.Exists(stray)) return;
                 System.IO.Directory.CreateDirectory(Dir);
                 foreach (string from in System.IO.Directory.GetFiles(stray))
