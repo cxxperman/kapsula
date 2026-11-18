@@ -109,14 +109,15 @@ namespace Kapsula
         public double ValueAt(Point p) { return knob == null ? Clamp(p.X / w) : Clamp((p.X - kd / 2) / Math.Max(1, w - kd)); }
     }
 
-    // Меню значка у часов в стиле Kapsula: тёмное, со скруглённой подсветкой строки и своей галочкой
+    // Меню Kapsula — того же вида, что системные меню Windows 11 в остальных приложениях dev.txt (kit.txt, NativeMenu):
+    // фон #2C2C2C, углы 8, строки 32 с мягкой подсветкой и углами 4, шрифт 14, галочка — белая
     class DarkMenuRenderer : System.Windows.Forms.ToolStripProfessionalRenderer
     {
-        static readonly System.Drawing.Color Back = System.Drawing.Color.FromArgb(0x1F, 0x1F, 0x23);
-        static readonly System.Drawing.Color Hover = System.Drawing.Color.FromArgb(0x0A, 0x84, 0xFF);
-        static readonly System.Drawing.Color Text = System.Drawing.Color.FromArgb(0xF4, 0xF4, 0xF6);
-        static readonly System.Drawing.Color Off = System.Drawing.Color.FromArgb(0x6E, 0x6E, 0x76);
-        static readonly System.Drawing.Color Line = System.Drawing.Color.FromArgb(0x3A, 0x3A, 0x40);
+        static readonly System.Drawing.Color Back = System.Drawing.Color.FromArgb(0x2C, 0x2C, 0x2C);
+        static readonly System.Drawing.Color Hover = System.Drawing.Color.FromArgb(0x38, 0x38, 0x38);
+        static readonly System.Drawing.Color Text = System.Drawing.Color.White;
+        static readonly System.Drawing.Color Off = System.Drawing.Color.FromArgb(0x78, 0x78, 0x78);
+        static readonly System.Drawing.Color Line = System.Drawing.Color.FromArgb(0x3D, 0x3D, 0x3D);
 
         public static void Apply(System.Windows.Forms.ContextMenuStrip menu) { Apply(menu, 290, true); }
 
@@ -127,7 +128,7 @@ namespace Kapsula
             menu.Renderer = new DarkMenuRenderer();
             menu.BackColor = Back; menu.ForeColor = Text;
             menu.ShowImageMargin = false; menu.ShowCheckMargin = checks;
-            menu.Font = new System.Drawing.Font("Segoe UI", 9.75f);
+            menu.Font = new System.Drawing.Font("Segoe UI Variable Text", 10.5f);   // 14 точек, как текст Windows 11
             menu.Padding = new System.Windows.Forms.Padding(4, 6, 4, 6);
             Action fit = delegate
             {
@@ -146,7 +147,7 @@ namespace Kapsula
                 foreach (System.Windows.Forms.ToolStripItem it in menu.Items)
                 {
                     if (it is System.Windows.Forms.ToolStripSeparator) continue;
-                    it.AutoSize = false; it.Height = (int)Math.Ceiling(30 * k); it.Width = w;
+                    it.AutoSize = false; it.Height = (int)Math.Ceiling(32 * k); it.Width = w;
                 }
                 menu.MinimumSize = new System.Drawing.Size(w, 0);
             };
@@ -180,12 +181,12 @@ namespace Kapsula
             if (!e.Item.Selected || !e.Item.Enabled) return;
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var r = new System.Drawing.Rectangle(2, 1, e.Item.Width - 5, e.Item.Height - 2);
-            using (var path = Round(r, 7)) using (var b = new System.Drawing.SolidBrush(Hover)) e.Graphics.FillPath(b, path);
+            using (var path = Round(r, 4)) using (var b = new System.Drawing.SolidBrush(Hover)) e.Graphics.FillPath(b, path);
         }
 
         protected override void OnRenderItemText(System.Windows.Forms.ToolStripItemTextRenderEventArgs e)
         {
-            e.TextColor = !e.Item.Enabled ? Off : e.Item.Selected ? System.Drawing.Color.White : Text;
+            e.TextColor = !e.Item.Enabled ? Off : Text;
             base.OnRenderItemText(e);
         }
 
@@ -193,7 +194,7 @@ namespace Kapsula
         {
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             int cx = e.ImageRectangle.X + e.ImageRectangle.Width / 2 + 1, cy = e.Item.Height / 2;
-            using (var pen = new System.Drawing.Pen(e.Item.Selected ? System.Drawing.Color.White : Hover, 1.8f) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+            using (var pen = new System.Drawing.Pen(Text, 1.6f) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
                 e.Graphics.DrawLines(pen, new System.Drawing.Point[] { new System.Drawing.Point(cx - 5, cy), new System.Drawing.Point(cx - 1, cy + 4), new System.Drawing.Point(cx + 5, cy - 4) });
         }
 

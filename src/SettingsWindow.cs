@@ -207,6 +207,8 @@ namespace Kapsula
         IslandWindow island;
         static readonly Brush Bg = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20));
         static readonly Brush NavHover = new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF));
+        static readonly Brush NavSel = new SolidColorBrush(Color.FromArgb(0x15, 0xFF, 0xFF, 0xFF));   // выбранный раздел: заливка и полоска акцента
+        readonly System.Collections.Generic.List<Border> navPills = new System.Collections.Generic.List<Border>();
 
         // ---- фон окна — сплошной тёмный: полупрозрачный материал Windows (Mica) убран — на некоторых системах окно рисовалось белым
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -918,8 +920,20 @@ namespace Kapsula
         void BuildLayout()
         {
             foreach (StackPanel sec in sections.Values) GroupRows(sec);
-            var root = new Grid();
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(232) });
+            // Каркас как у всех окон dev.txt (kit.txt, NavShell): разделы слева на общем фоне, тёплое свечение
+            // dev.txt в левом верхнем углу, у выбранного раздела — полоска цвета акцента
+            var root = new Grid { Background = Bg };
+            var glowFill = new RadialGradientBrush();
+            glowFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x33, Tokens.Palette.Brand.R, Tokens.Palette.Brand.G, Tokens.Palette.Brand.B), 0));
+            glowFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x12, Tokens.Palette.Brand.R, Tokens.Palette.Brand.G, Tokens.Palette.Brand.B), 0.5));
+            glowFill.GradientStops.Add(new GradientStop(Color.FromArgb(0, Tokens.Palette.Brand.R, Tokens.Palette.Brand.G, Tokens.Palette.Brand.B), 1));
+            var glowHost = new Canvas { IsHitTestVisible = false, ClipToBounds = true };
+            var glowDot = new System.Windows.Shapes.Ellipse { Width = 1100, Height = 900, Fill = glowFill };
+            Canvas.SetLeft(glowDot, -520); Canvas.SetTop(glowDot, -520);
+            glowHost.Children.Add(glowDot);
+            Grid.SetColumnSpan(glowHost, 2);
+            root.Children.Add(glowHost);
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             // поля поскромнее: при окне в 700 точек все 16 разделов помещаются без прокрутки (а на экранах поменьше
@@ -956,14 +970,17 @@ namespace Kapsula
                 // значок раздела — белый на цветном скруглённом квадрате, у каждого раздела свой цвет
                 Color tint = SectionColors[i % SectionColors.Length];
                 // как в настройках macOS: белый значок на цветной скруглённой плитке с бликом сверху
+                // значок раздела — как во всех окнах dev.txt: значок Segoe Fluent Icons без плитки, у зверька — его лапка
                 row.Children.Add(new Border
                 {
-                    Width = 22, Height = 22, CornerRadius = new CornerRadius(6.5), Background = Glass.Tinted(tint), BorderBrush = Glass.DarkRim, BorderThickness = new Thickness(0.8),
-                    Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
-                    Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.35, Brushes.White) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    Width = 20, Height = 20, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Child = name == "Зверёк" ? (UIElement)Ui.Paw(1.4, Txt) : new TextBlock { Text = SectionGlyphs[i], FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 16, Foreground = Txt, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
                 });
-                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 14, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
-                var item = new Border { Height = 30, CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 0, 10, 0), Margin = new Thickness(0, 0, 0, 1),   /* компактно, как в macOS */ Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = row, Tag = name };
+                row.Children.Add(new TextBlock { Text = name, Foreground = Txt, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+                row.Margin = new Thickness(14, 0, 8, 0);
+                var pill = new Border { Width = 3, Height = 16, CornerRadius = new CornerRadius(1.5), Background = new SolidColorBrush(Tokens.Palette.Brand), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Hidden };
+                navPills.Add(pill);
+                var item = new Border { Height = 38, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 1, 0, 1), Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(0), Child = new Grid { Children = { row, pill } }, Tag = name };
                 item.MouseLeftButtonDown += delegate { ShowSection(name); };
                 item.MouseEnter += delegate { if ((string)item.Tag != currentSection) item.Background = NavHover; };
                 Fx.Press(item, 0.97);
@@ -975,12 +992,12 @@ namespace Kapsula
             var saved = new TextBlock { Text = "Изменения сохраняются сразу", Foreground = Sub, FontSize = 12, Margin = new Thickness(24, 8, 12, 14) };
             DockPanel.SetDock(saved, Dock.Bottom);
             navDock.Children.Add(saved);
-            navDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = nav });
-            root.Children.Add(new Border { Background = RowBg, Child = navDock });
+            navDock.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Content = nav });   // колесо мыши листает, толстой полосы Windows 7 нет
+            root.Children.Add(new Border { Background = Brushes.Transparent, Child = navDock });
 
             var pane = new DockPanel { Margin = new Thickness(28, 22, 10, 0) };
             var head = new StackPanel { Margin = new Thickness(4, 0, 0, 12) };
-            paneTitle = new TextBlock { Foreground = Txt, FontSize = 25, FontWeight = FontWeights.Bold };
+            paneTitle = new TextBlock { Foreground = Txt, FontSize = 28, FontWeight = FontWeights.SemiBold };
             paneHint = new TextBlock { Foreground = Sub, FontSize = 14, Margin = new Thickness(0, 3, 0, 0) };
             head.Children.Add(paneTitle); head.Children.Add(paneHint);
             DockPanel.SetDock(head, Dock.Top);
@@ -991,7 +1008,7 @@ namespace Kapsula
             scroller =new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 16, 16) };
             pane.Children.Add(scroller);
             // правая часть — плотнее боковой панели, с тонкой линией-разделителем слева
-            var paneBack = new Border { Background = Bg, BorderBrush = Divider, BorderThickness = new Thickness(1, 0, 0, 0) };
+            var paneBack = new Border { Background = Brushes.Transparent };
             Grid.SetColumn(paneBack, 1);
             root.Children.Add(paneBack);
             Grid.SetColumn(pane, 1);
@@ -1108,7 +1125,12 @@ namespace Kapsula
             scroller.Content = sections[name];
             scroller.ScrollToTop();
             // выбранный раздел — плотное стекло с бликом, остальные — без подложки
-            foreach (Border b in navItems) { bool on = (string)b.Tag == name; b.Background = on ? Glass.DarkStrong : Brushes.Transparent; b.BorderBrush = on ? Glass.DarkRim : Brushes.Transparent; }
+            for (int k = 0; k < navItems.Count; k++)
+            {
+                Border b = navItems[k]; bool on = (string)b.Tag == name;
+                b.Background = on ? NavSel : Brushes.Transparent;
+                if (k < navPills.Count) navPills[k].Visibility = on ? Visibility.Visible : Visibility.Hidden;
+            }
             // на невысоком экране список разделов прокручивается: выбранный (из поиска, с прошлого раза, по ссылке с острова)
             // показываем целиком, а не спрятанным за краем или под надписью внизу
             foreach (Border b in navItems)
