@@ -3,6 +3,8 @@
 // приложения видят друг друга. Kapsula отдаёт туда свои повседневные настройки — они появляются на общей
 // странице настроек в core.txt рядом с настройками остальных приложений — и принимает оттуда изменения.
 // Оттуда же приходит общий вид: «Меньше движения» для всех приложений разом.
+// И туда же Kapsula рассказывает то, что и так знает: какой трек играет, какая погода, что сегодня в календаре,
+// сколько непрочитанного и насколько загружен компьютер, — чтобы остальным приложениям dev.txt не узнавать это заново.
 // core.txt может быть не запущен — это нормально: Kapsula работает сама по себе и тихо пробует подключиться снова.
 // Протокол описан в kit.txt (hub/PROTOCOL.md); HubLink.cs скопирован оттуда как есть.
 using System;
@@ -60,6 +62,10 @@ namespace Kapsula
             Add("Музыка", "liquid", "Жидкий край", "Нижний край пляшет под звук", delegate { return island.LiquidOn; });
             Add("Музыка", "lyrics", "Тексты песен", "Загружаются с lrclib.net для играющего трека", delegate { return island.LyricsEnabled; });
 
+            // Чем Kapsula делится с остальными приложениями dev.txt. Выключено — соответствующие состояния уходят как null
+            Add("Связь с другими приложениями", "hubShare", "Показывать музыку, погоду и события другим приложениям dev.txt", "Трек, который сейчас играет, погода и сегодняшние события календаря — только название и время. Дальше этого компьютера не уходит", delegate { return ShareOn; });
+            Add("Связь с другими приложениями", "hubUnread", "Показывать счётчик непрочитанного", "Сколько сообщений из Discord и Steam вы ещё не видели — только числа, без текста", delegate { return ShareUnreadOn; });
+
             Add("Запуск и обновления", "autostart", "Запускать вместе с Windows", null, delegate { return Autostart.IsOn(); }, delegate(bool v) { Autostart.Set(v); });
             Add("Запуск и обновления", "autoUpdate", "Автообновление", "Kapsula сама скачивает новые версии с GitHub и сверяет контрольную сумму файла", delegate { return Store.Get("autoUpdate") != "0"; }, delegate(bool v) { Store.Set("autoUpdate", v ? "1" : "0"); });
         }
@@ -71,7 +77,7 @@ namespace Kapsula
             Describe();
             link = new HubLink("kapsula", "Kapsula", Updater.CurrentText, TestPort > 0 ? TestPort : HubLink.DefaultPort);
             link.Topics = new string[] { "hub.theme" };
-            link.Commands = new string[] { "settings.set", "show" };
+            link.Commands = new string[] { "settings.set", "show", "media.toggle", "media.prev", "media.next" };
             link.OnCommand = Command;
             link.OnState = delegate(string topic, object data, string from)
             {
@@ -84,9 +90,10 @@ namespace Kapsula
             link.Start();
             // Настройки меняют и в окне Kapsula, и горячими клавишами — проще сверяться раз в пару секунд, чем ловить каждое место
             timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            timer.Tick += delegate { Publish(false); };
+            timer.Tick += delegate { Publish(false); island.HubShareAll(); };
             timer.Start();
             Publish(true);
+            island.HubShareAll();
         }
 
         public static void Stop()
@@ -147,6 +154,7 @@ namespace Kapsula
             {
                 try
                 {
+                    if (name.StartsWith("media.")) { island.HubMediaCommand(name); return; }   // настройки тут ни при чём — заново их не шлём
                     if (name == "show") island.OpenSettings();
                     else
                     {
@@ -158,9 +166,125 @@ namespace Kapsula
                 }
                 catch (Exception e) { failed = e; }
                 Publish(true);   // core.txt ждёт полную картину, даже если ничего не изменилось
+                island.HubShareAll();   // выключили «Показывать…» — состояния сразу уходят как null, а не через пару секунд
             }));
             if (failed != null) throw failed;
             return null;
+        }
+
+        // ------------------------------------------------------------------ чем Kapsula делится с другими приложениями
+        // Состояния kapsula.media, kapsula.weather, kapsula.calendar, kapsula.unread и kapsula.system. Каждое — всегда целиком,
+        // уходит только когда изменилось, а когда показывать нечего (или показывать запретили) — null.
+
+        public static bool On { get { return link != null; } }
+        public static bool ShareOn { get { return Store.Get("hubShare") != "0"; } }
+        public static bool ShareUnreadOn { get { return Store.Get("hubUnread") != "0"; } }
+
+        static readonly Dictionary<string, string> shared = new Dictionary<string, string>();
+
+        // Отправляет состояние, только если оно не такое, как в прошлый раз. Вызывается в потоке окна.
+        public static void Share(string topic, object data)
+        {
+            if (link == null) return;
+            string text = data == null ? "null" : new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(data);
+            string was;
+            if (shared.TryGetValue(topic, out was) && was == text) return;
+            shared[topic] = text;
+            link.State(topic, data);
+        }
+
+        // Трек, который показывает остров. Нет трека или делиться запретили — null
+        public static Dictionary<string, object> MediaState(bool share, bool has, bool playing, string title, string artist, string app)
+        {
+            if (!share || !has) return null;
+            return HubLink.Msg("playing", playing, "title", title ?? "", "artist", artist ?? "", "app", app ?? "");
+        }
+
+        // Значок погоды для других приложений — по тем же кодам (WMO, как у Open-Meteo), по которым остров выбирает свой:
+        // см. Weather.Describe и Weather.Symbol. Прогноз MET Norway приводится к ним же в Weather.MetCode.
+        public static string WeatherIcon(int c)
+        {
+            if (c == 0 || c == 1) return "clear";
+            if (c == 45 || c == 48) return "fog";
+            if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82)) return "rain";
+            if ((c >= 71 && c <= 77) || c == 85 || c == 86) return "snow";
+            if (c >= 95) return "storm";
+            return "cloudy";   // 2, 3 и всё незнакомое — как у Weather.Symbol
+        }
+
+        // Погода: температура — целые градусы Цельсия, text — та же короткая подпись, что на острове («Пасмурно»)
+        public static Dictionary<string, object> WeatherState(bool share, WeatherData w)
+        {
+            if (!share || w == null || w.Error != null) return null;
+            return HubLink.Msg("temp", (int)Math.Round(w.Temp), "text", Weather.Describe(w.Code), "icon", WeatherIcon(w.Code), "city", w.City ?? "");
+        }
+
+        // Когда событие кончается. У событий из проверок конца нет: тогда «весь день» длится до полуночи, остальные — миг
+        static DateTime EndOf(CalEvent e)
+        {
+            if (e.End > e.Start) return e.End;
+            return e.AllDay ? e.Start.Date.AddDays(1) : e.Start;
+        }
+
+        // Сегодняшние события, которые ещё не кончились: по порядку, не больше пяти, только название и время.
+        // Прошедшие дни и завтрашний день сюда не попадают; место, участники и описание — тоже.
+        // Событие началось вчера или идёт весь день — start «00:00»; кончается ровно в полночь или тянется дольше суток — end «23:59».
+        public static Dictionary<string, object>[] TodayEvents(List<CalEvent> all, DateTime now)
+        {
+            var list = new List<CalEvent>();
+            DateTime today = now.Date, tomorrow = today.AddDays(1);
+            foreach (CalEvent e in all)
+            {
+                DateTime end = EndOf(e);
+                if (e.Start >= tomorrow) continue;                            // завтра и дальше
+                bool ended = end > e.Start ? end <= now : e.Start < now;       // событие без длительности «кончается» в своё начало
+                if (ended) continue;
+                list.Add(e);
+            }
+            list.Sort(delegate(CalEvent x, CalEvent y) { return x.Start.CompareTo(y.Start); });
+            if (list.Count > 5) list.RemoveRange(5, list.Count - 5);
+            var res = new Dictionary<string, object>[list.Count];
+            for (int i = 0; i < list.Count; i++)
+            {
+                CalEvent e = list[i];
+                DateTime end = EndOf(e);
+                string from = e.AllDay || e.Start < today ? "00:00" : e.Start.ToString("HH:mm");
+                string to = e.AllDay || end == tomorrow || end >= tomorrow.AddDays(1) ? "23:59" : end.ToString("HH:mm");
+                res[i] = HubLink.Msg("title", e.Subject ?? "", "start", from, "end", to);
+                if (e.AllDay) res[i]["allDay"] = true;
+            }
+            return res;
+        }
+
+        // Календарь: access — удалось ли вообще прочитать календарь Windows. Не удалось — null, а не пустой список
+        public static Dictionary<string, object> CalendarState(bool share, bool access, List<CalEvent> all, DateTime now)
+        {
+            if (!share || !access) return null;
+            return HubLink.Msg("events", TodayEvents(all ?? new List<CalEvent>(), now));
+        }
+
+        // Счётчик непрочитанного — тот же, что красный кружок в капсуле. counter — включён ли сам счётчик в настройках Kapsula
+        public static Dictionary<string, object> UnreadState(bool share, bool counter, int discord, int steam)
+        {
+            if (!share || !counter) return null;
+            return HubLink.Msg("total", discord + steam, "apps", HubLink.Msg("discord", discord, "steam", steam));
+        }
+
+        // Нагрузка: проценты — целые. Видеокарту измерить не удалось — gpu: null; скорость сети ещё не посчитана — полей down и up нет
+        public static Dictionary<string, object> SystemState(double cpu, int ram, int gpu, double down, double up)
+        {
+            var d = HubLink.Msg("cpu", Pct(cpu * 100), "ram", Pct(ram), "gpu", gpu >= 0 ? (object)Pct(gpu) : null);
+            if (down >= 0 && up >= 0) { d["down"] = (long)Math.Round(down); d["up"] = (long)Math.Round(up); }
+            return d;
+        }
+
+        static int Pct(double v) { return (int)Math.Max(0, Math.Min(100, Math.Round(v))); }
+
+        // Строка нагрузки для капсулы в игре: «ЦП 35% · ГП 66% · ОЗУ 48%» — те же сокращения, что у полоски «Нагрузка в играх».
+        // Видеокарту измерить не удалось (gpu < 0) — без неё
+        public static string LoadLine(double cpu, int gpu, int ram)
+        {
+            return "ЦП " + Pct(cpu * 100) + "% · " + (gpu >= 0 ? "ГП " + Pct(gpu) + "% · " : "") + "ОЗУ " + Pct(ram) + "%";
         }
     }
 
@@ -178,6 +302,149 @@ namespace Kapsula
             if (!int.TryParse(Store.Get("motion"), out own) || own < 0 || own >= MotionNames.Length) own = System.Windows.SystemParameters.ClientAreaAnimation ? 0 : 5;   // своего выбора нет — как при первом запуске
             if (on) ApplyMotion(5);
             else ApplyMotion(own);
+        }
+
+        // ---- что остров рассказывает хабу. Каждое состояние уходит оттуда, где значение меняется (RenderMedia, пришёл прогноз,
+        // вырос или сбросился счётчик), а раз в пару секунд всё сверяется заново вместе с настройками: так ловятся и
+        // переключатели «Показывать…», и события календаря, которые просто кончаются со временем.
+
+        public void HubShareAll()
+        {
+            if (!CoreHub.On) return;
+            HubShareMedia();
+            HubShareWeather();
+            HubShareCalendar();
+            HubShareUnread();
+        }
+
+        void HubShareMedia()
+        {
+            if (!CoreHub.On) return;
+            CoreHub.Share("kapsula.media", CoreHub.MediaState(CoreHub.ShareOn, media.Has, media.Playing, media.Title, media.Artist, media.Has ? MediaWatcher.DisplayName(media.Source) : ""));
+        }
+
+        void HubShareWeather()
+        {
+            if (!CoreHub.On) return;
+            CoreHub.Share("kapsula.weather", CoreHub.WeatherState(CoreHub.ShareOn, weather));
+        }
+
+        int hubCalVersion = -1, hubCalMinute = -1;
+        bool hubCalShare;
+
+        // Календарь остров и так перечитывает сам (CalendarTick); здесь список пересчитывается, только когда он дочитался
+        // заново или сменилась минута (событие могло кончиться), — а не каждые две секунды
+        void HubShareCalendar()
+        {
+            if (!CoreHub.On) return;
+            DateTime now = DateTime.Now;
+            int minute = now.Hour * 60 + now.Minute;
+            bool share = CoreHub.ShareOn;
+            if (Calendar.Version == hubCalVersion && minute == hubCalMinute && share == hubCalShare) return;
+            hubCalVersion = Calendar.Version; hubCalMinute = minute; hubCalShare = share;
+            bool access = Calendar.Loaded && !Calendar.Failed;
+            CoreHub.Share("kapsula.calendar", CoreHub.CalendarState(share, access, share && access ? Calendar.Events() : null, now));
+        }
+
+        void HubShareUnread()
+        {
+            if (!CoreHub.On) return;
+            CoreHub.Share("kapsula.unread", CoreHub.UnreadState(CoreHub.ShareUnreadOn, Store.Get("unread") != "0", unreadDiscord, unreadSteam));
+        }
+
+        // Команды media.toggle, media.prev и media.next — то же, что кнопки плеера на острове (RoundPlay, MediaBtn)
+        public void HubMediaCommand(string name)
+        {
+            if (Demo)
+            {
+                // в демо трек выдуманный: команды меняют его, а настоящий плеер на этом компьютере не трогают
+                if (!media.Has) return;
+                if (name == "media.toggle") { media.Pos = media.Now(); media.PosAt = DateTime.UtcNow; media.Playing = !media.Playing; }
+                else
+                {
+                    bool first = media.Title == "Ночной маршрут";
+                    media = new MediaInfo { Has = true, Playing = true, Title = first ? "Утренний перегон" : "Ночной маршрут", Artist = first ? "Другой исполнитель" : "Kapsula Demo", Cover = media.Cover, Pos = 0, Dur = 204, PosAt = DateTime.UtcNow };
+                }
+                RenderMedia();
+                return;
+            }
+            if (name == "media.toggle")
+            {
+                // значок меняется сразу, как при нажатии: следующий опрос плеера поправит, если тот не послушался
+                playClickWant = !(media.Has && media.Playing); playClickAt = Environment.TickCount;
+                watcher.Command(0xB3);
+                RenderMedia();
+            }
+            else if (name == "media.prev") { trackDir = -1; trackDirAt = Environment.TickCount; watcher.Command(0xB1); }
+            else if (name == "media.next") { trackDir = 1; trackDirAt = Environment.TickCount; watcher.Command(0xB0); }
+        }
+
+        // ---- нагрузка: процессор, память, видеокарта, сеть. Измеряется раз в две секунды и только пока это кому-то видно:
+        // открыта вкладка «Система» или в игре показана строка «Нагрузка в игре». Иначе в хаб один раз уходит null, и всё стихает.
+        bool sysOn;
+        int sysRam, sysSentAt;
+        double netDown = -1, netUp = -1;   // байты в секунду; считает NetSample (HomeBlocks.cs)
+
+        // «Нагрузка в игре»: поверх игры на весь экран свёрнутая капсула показывает «ЦП 35% · ГП 66% · ОЗУ 48%».
+        // В игровом режиме острова на экране нет, а когда он спрятан от полноэкранной программы — показывать некому.
+        bool GameLoadLine() { return gameLite && !GamerMode && !hiddenFs && Store.Get("gameLoad") == "1"; }
+
+        // Раз в две секунды из OnTick
+        void SystemTick()
+        {
+            bool want = expanded && page == PSystem || GameLoadLine();
+            if (!want)
+            {
+                if (sysOn) { sysOn = false; netDown = -1; netUp = -1; CoreHub.Share("kapsula.system", null); }
+                return;
+            }
+            if (!sysOn)
+            {
+                sysOn = true;
+                // прошлые замеры устарели: видеокарту меряем заново, скорость сети — от этой секунды, а не среднюю за весь перерыв
+                if (stripWin == null) gpuLoad = -1;
+                if (unchecked(Environment.TickCount - netAt) > 5000) netRx = -1;
+            }
+            // процессор остров и так замеряет каждую секунду (SampleCpu); память — один быстрый вызов
+            var m = new Native.MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(Native.MEMORYSTATUSEX)) };
+            if (Native.GlobalMemoryStatusEx(ref m)) sysRam = (int)m.dwMemoryLoad;
+            // видеокарта — тем же способом и в том же фоновом потоке, что у полоски «Нагрузка в играх» (Overlays.cs)
+            if (System.Threading.Interlocked.CompareExchange(ref gpuBusy, 1, 0) == 0)
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate { try { gpuLoad = GpuLoad(); } catch { gpuLoad = -1; } finally { gpuBusy = 0; } });
+            NetSample();
+            // в хаб — не чаще раза в две секунды, даже если замер попросили вне очереди (вошли в игру, щёлкнули переключатель)
+            if (!CoreHub.On || sysSentAt != 0 && unchecked(Environment.TickCount - sysSentAt) < 1900) return;
+            sysSentAt = Environment.TickCount | 1;
+            CoreHub.Share("kapsula.system", CoreHub.SystemState(cpu, sysRam, gpuLoad, netDown, netUp));
+        }
+
+        // Ширина строки нагрузки при самых длинных числах: капсула держит её и не дёргается, когда 9% сменяется на 10%
+        // (каждое изменение ширины — перерисовка окна поверх игры). Меряется отдельной надписью тем же шрифтом, один раз на шрифт.
+        System.Windows.Controls.TextBlock loadProbe;
+        string loadProbeKey;
+        double loadProbeW;
+
+        double GameLoadWidth()
+        {
+            string wide = CoreHub.LoadLine(1, gpuLoad >= 0 ? 100 : -1, 100);
+            string key = wide + "|" + cText.FontFamily + "|" + cText.FontWeight + "|" + cText.FontSize;
+            if (key == loadProbeKey) return loadProbeW;
+            if (loadProbe == null) loadProbe = new System.Windows.Controls.TextBlock();
+            loadProbe.FontFamily = cText.FontFamily; loadProbe.FontWeight = cText.FontWeight; loadProbe.FontSize = cText.FontSize; loadProbe.Text = wide;
+            loadProbe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            loadProbeKey = key; loadProbeW = loadProbe.DesiredSize.Width;
+            return loadProbeW;
+        }
+
+        // Ветка RenderCompactCore: строка нагрузки по центру вместо часов и названия трека; обложки, эквалайзера и погоды нет
+        void RenderGameLoad()
+        {
+            cCover.Visibility = System.Windows.Visibility.Collapsed; eq.Visibility = System.Windows.Visibility.Collapsed;
+            cRight.Visibility = System.Windows.Visibility.Collapsed;
+            double side = CompactSide();
+            cText.Text = CoreHub.LoadLine(cpu, gpuLoad, sysRam);
+            compactW = Math.Min(420, Math.Ceiling(GameLoadWidth() + 2 * side + 12) - pillExtraW);
+            cText.MaxWidth = Math.Max(40, CompactWidth() - 2 * side - 12);
         }
     }
 }

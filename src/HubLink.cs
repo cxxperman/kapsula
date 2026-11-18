@@ -31,14 +31,17 @@ namespace DevTxt
         readonly int port;
         readonly object gate = new object();
         readonly Dictionary<string, object> own = new Dictionary<string, object>();   // что это приложение сказало последним — повторяется после переподключения
+        // Отправка — своим потоком: вызывающий (обычно поток окна) только кладёт сообщение в очередь и идёт дальше
+        readonly Queue<byte[]> outbox = new Queue<byte[]>();
+        readonly AutoResetEvent outboxSignal = new AutoResetEvent(false);
         ClientWebSocket socket;
-        Thread thread;
+        Thread thread, sender;
         volatile bool stopped, online;
 
         public string[] Topics = new string[0], Commands = new string[0];
-        public Func<string, Dictionary<string, object>, string, object> OnCommand;   // (команда, аргументы, от кого) → данные ответа
-        public Action<string, object, string> OnState, OnEvent;                      // (тема, данные, от кого)
-        public Action<bool> OnStatus;
+        public Func<string, Dictionary<string, object>, string, object> OnCommand = null;   // (команда, аргументы, от кого) → данные ответа
+        public Action<string, object, string> OnState = null, OnEvent = null;                      // (тема, данные, от кого)
+        public Action<bool> OnStatus = null;
 
         public HubLink(string app, string name, string version) : this(app, name, version, DefaultPort) { }
         public HubLink(string app, string name, string version, int port) { this.app = app; this.name = name; this.version = version; this.port = port; }
@@ -59,12 +62,16 @@ namespace DevTxt
             if (thread != null) return;
             thread = new Thread(Loop) { IsBackground = true, Name = "dev.txt hub" };
             thread.Start();
+            sender = new Thread(SendLoop) { IsBackground = true, Name = "dev.txt hub send" };
+            sender.Start();
         }
 
         public void Stop()
         {
-            stopped = true;
             Send(Msg("type", "bye"));
+            stopped = true;
+            outboxSignal.Set();
+            if (sender != null) sender.Join(1500);   // дать «до свидания» уйти
             ClientWebSocket s;
             lock (gate) { s = socket; socket = null; }
             try { if (s != null) s.Abort(); } catch { }
@@ -88,17 +95,35 @@ namespace DevTxt
 
         void Send(Dictionary<string, object> m)
         {
-            try
+            byte[] bytes;
+            try { bytes = Encoding.UTF8.GetBytes(Json().Serialize(m)); } catch { return; }
+            lock (outbox)
             {
-                byte[] bytes = Encoding.UTF8.GetBytes(Json().Serialize(m));
-                lock (gate)
-                {
-                    if (socket == null || socket.State != WebSocketState.Open) return;
-                    socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait(5000);
-                }
+                if (outbox.Count > 500) return;   // хаб давно не принимает — не копим без конца; состояния всё равно повторятся после переподключения
+                outbox.Enqueue(bytes);
             }
-            catch { }
+            outboxSignal.Set();
         }
+
+        void SendLoop()
+        {
+            while (!stopped || OutboxCount() > 0)
+            {
+                byte[] bytes = null;
+                lock (outbox) { if (outbox.Count > 0) bytes = outbox.Dequeue(); }
+                if (bytes == null) { outboxSignal.WaitOne(1000); continue; }
+                ClientWebSocket s;
+                lock (gate) s = socket;
+                if (s == null || s.State != WebSocketState.Open) continue;   // связи нет — сообщение пропадает, как и раньше
+                try
+                {
+                    if (!s.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait(5000)) s.Abort();
+                }
+                catch { }
+            }
+        }
+
+        int OutboxCount() { lock (outbox) return outbox.Count; }
 
         void SetOnline(bool on)
         {
@@ -117,6 +142,7 @@ namespace DevTxt
                 {
                     s.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
                     if (!s.ConnectAsync(new Uri("ws://127.0.0.1:" + port + "/hub"), CancellationToken.None).Wait(4000)) throw new TimeoutException();
+                    lock (outbox) outbox.Clear();   // что писалось прежнему подключению, новому не нужно: первым должно уйти hello
                     lock (gate) socket = s;
                     wait = 1000;
                     Send(Msg("type", "hello", "v", Protocol, "app", app, "name", name, "version", version, "commands", Commands));

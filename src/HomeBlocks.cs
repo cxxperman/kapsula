@@ -132,8 +132,11 @@ namespace Kapsula
                     double sec = unchecked(at - netAt) / 1000.0;
                     // неразрывные пробелы внутри «↓ 112,4 МБ/с»: в две строки строка делится только между стрелками
                     if (netRx >= 0 && sec > 0.2 && rx >= netRx && tx >= netTx) speed = "↓ " + Rate((rx - netRx) / sec).Replace(' ', ' ') + "  ↑ " + Rate((tx - netTx) / sec).Replace(' ', ' ');
+                    // те же числа — байтами в секунду: их остров отдаёт хабу в kapsula.system (CoreHub.cs)
+                    if (netRx >= 0 && sec > 0.2 && rx >= netRx && tx >= netTx) { netDown = (rx - netRx) / sec; netUp = (tx - netTx) / sec; }
                     netRx = rx; netTx = tx; netAt = at;
-                    hbNetGlyph.Text = ((char)(name == null ? 0xF384 : wifi ? 0xE701 : 0xE839)).ToString();
+                    if (hbNetName == null) return;   // замер шёл для хаба, а блока «Сеть» на «Главной» ещё нет
+                    hbNetGlyph.Text =((char)(name == null ? 0xF384 : wifi ? 0xE701 : 0xE839)).ToString();
                     hbNetName.Text = name ?? "Нет сети";
                     hbNetSpeed.Text = name == null ? "нет подключения" : speed.Length > 0 ? speed : "считаю скорость…";
                 }));

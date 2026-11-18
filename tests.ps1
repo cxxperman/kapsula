@@ -870,5 +870,92 @@ T 'напомни: каждый день' ($rw.Invoke($null, @([DateTime]::Today
 $far = [DateTime]::Today.AddDays(3).AddHours(9)
 T 'напомни: дальше — с датой' ($rw.Invoke($null, @($far, $false))) ($far.ToString('d MMMM', [Globalization.CultureInfo]::GetCultureInfo('ru-RU')) + ' в 9:00')
 
+# --- Хаб dev.txt: что Kapsula рассказывает другим приложениям (CoreHub.cs) — музыка, погода, календарь, непрочитанное, нагрузка
+Add-Type -AssemblyName System.Web.Extensions
+$chT = $asm.GetType('Kapsula.CoreHub')
+$hubJs = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+function HubJson($o) { if ($null -eq $o) { 'null' } else { $hubJs.Serialize($o) } }
+
+# значок погоды: все коды, которые понимает сам остров (Weather.Describe), и незнакомые
+$wi = $chT.GetMethod('WeatherIcon')
+foreach ($c in @(@(0, 'clear'), @(1, 'clear'), @(2, 'cloudy'), @(3, 'cloudy'), @(45, 'fog'), @(48, 'fog'), @(51, 'rain'), @(57, 'rain'), @(61, 'rain'), @(67, 'rain'),
+                 @(71, 'snow'), @(77, 'snow'), @(80, 'rain'), @(82, 'rain'), @(85, 'snow'), @(86, 'snow'), @(95, 'storm'), @(99, 'storm'), @(-1, 'cloudy'), @(42, 'cloudy'))) {
+    T "хаб: значок погоды для кода $($c[0])" ($wi.Invoke($null, @([int]$c[0]))) $c[1]
+}
+$wdT = $asm.GetType('Kapsula.WeatherData')
+$wd = [Activator]::CreateInstance($wdT)
+$wdT.GetField('City').SetValue($wd, 'Киев'); $wdT.GetField('Temp').SetValue($wd, [double]-3.6); $wdT.GetField('Code').SetValue($wd, [int]71)
+$ws2 = $chT.GetMethod('WeatherState')
+T 'хаб: погода — градусы целые, подпись и значок' (HubJson $ws2.Invoke($null, @($true, $wd))) '{"temp":-4,"text":"Снег","icon":"snow","city":"Киев"}'
+T 'хаб: погода — показывать запретили' (HubJson $ws2.Invoke($null, @($false, $wd))) 'null'
+T 'хаб: погода — не загружена' (HubJson $ws2.Invoke($null, @($true, $null))) 'null'
+$wdT.GetField('Error').SetValue($wd, 'нет связи')
+T 'хаб: погода — вместо прогноза ошибка' (HubJson $ws2.Invoke($null, @($true, $wd))) 'null'
+
+# музыка
+$ms = $chT.GetMethod('MediaState')
+T 'хаб: музыка — трек' (HubJson $ms.Invoke($null, @($true, $true, $false, 'Ночной маршрут', 'Kapsula Demo', 'Spotify'))) '{"playing":false,"title":"Ночной маршрут","artist":"Kapsula Demo","app":"Spotify"}'
+T 'хаб: музыка — трека нет' (HubJson $ms.Invoke($null, @($true, $false, $false, '', '', ''))) 'null'
+T 'хаб: музыка — показывать запретили' (HubJson $ms.Invoke($null, @($false, $true, $true, 'А', 'Б', 'В'))) 'null'
+
+# календарь: сегодняшние события, которые ещё не кончились, по порядку, не больше пяти
+$ceT = $asm.GetType('Kapsula.CalEvent')
+$evList = [Activator]::CreateInstance(([System.Collections.Generic.List`1]).MakeGenericType($ceT))
+function HubEv($title, $start, $end, $allDay) {
+    $e = [Activator]::CreateInstance($ceT)
+    $ceT.GetField('Subject').SetValue($e, $title); $ceT.GetField('Location').SetValue($e, 'тайное место'); $ceT.GetField('Start').SetValue($e, [datetime]$start)
+    if ($end) { $ceT.GetField('End').SetValue($e, [datetime]$end) }
+    $ceT.GetField('AllDay').SetValue($e, [bool]$allDay)
+    $evList.Add($e)
+}
+HubEv 'Завтра' '2026-11-19 09:00' '2026-11-19 10:00' $false
+HubEv 'Поздний' '2026-11-18 23:00' '2026-11-19 01:00' $false
+HubEv 'В' '2026-11-18 17:00' '2026-11-18 18:00' $false
+HubEv 'Б' '2026-11-18 16:00' '2026-11-18 17:00' $false
+HubEv 'А' '2026-11-18 15:00' '2026-11-18 16:00' $false
+HubEv 'Сейчас' '2026-11-18 14:00' $null $false
+HubEv 'Минуту назад' '2026-11-18 13:59' $null $false
+HubEv 'Идёт' '2026-11-18 13:30' '2026-11-18 14:30' $false
+HubEv 'Кончилось' '2026-11-18 09:00' '2026-11-18 10:00' $false
+HubEv 'Весь день' '2026-11-18 00:00' '2026-11-19 00:00' $true
+HubEv 'Ночная смена' '2026-11-17 22:00' '2026-11-18 15:00' $false
+HubEv 'Вчера' '2026-11-17 10:00' '2026-11-17 11:00' $false
+HubEv 'Вчера весь день' '2026-11-17 00:00' '2026-11-18 00:00' $true
+$te = $chT.GetMethod('TodayEvents')
+$hubNow = [datetime]'2026-11-18 14:00'
+$got = $te.Invoke($null, [object[]]@($evList, $hubNow))
+T 'хаб: события — не больше пяти' $got.Length 5
+T 'хаб: события — сегодняшние и не кончившиеся, по порядку' (($got | ForEach-Object { $_['title'] + ' ' + $_['start'] + '-' + $_['end'] }) -join '|') 'Ночная смена 00:00-15:00|Весь день 00:00-23:59|Идёт 13:30-14:30|Сейчас 14:00-14:00|А 15:00-16:00'
+T 'хаб: события — только название и время' (($got[2].Keys | Sort-Object) -join ',') 'end,start,title'
+T 'хаб: события — «весь день» помечен' (($got[1].Keys | Sort-Object) -join ',') 'allDay,end,start,title'
+$got = $te.Invoke($null, [object[]]@($evList, [datetime]'2026-11-18 23:30'))
+T 'хаб: события — поздним вечером остаётся то, что идёт' (($got | ForEach-Object { $_['title'] + ' ' + $_['start'] + '-' + $_['end'] }) -join '|') 'Весь день 00:00-23:59|Поздний 23:00-01:00'
+$cs = $chT.GetMethod('CalendarState')
+T 'хаб: календарь — событий нет, но доступ есть' (HubJson $cs.Invoke($null, [object[]]@($true, $true, $evList, [datetime]'2026-11-20 12:00'))) '{"events":[]}'
+T 'хаб: календарь — доступа нет' (HubJson $cs.Invoke($null, [object[]]@($true, $false, $evList, $hubNow))) 'null'
+T 'хаб: календарь — показывать запретили' (HubJson $cs.Invoke($null, [object[]]@($false, $true, $evList, $hubNow))) 'null'
+
+# непрочитанное
+$us = $chT.GetMethod('UnreadState')
+T 'хаб: непрочитанное — сумма и по программам' (HubJson $us.Invoke($null, @($true, $true, 2, 3))) '{"total":5,"apps":{"discord":2,"steam":3}}'
+T 'хаб: непрочитанное — ничего нет' (HubJson $us.Invoke($null, @($true, $true, 0, 0))) '{"total":0,"apps":{"discord":0,"steam":0}}'
+T 'хаб: непрочитанное — показывать запретили' (HubJson $us.Invoke($null, @($false, $true, 2, 3))) 'null'
+T 'хаб: непрочитанное — счётчик выключен в Kapsula' (HubJson $us.Invoke($null, @($true, $false, 2, 3))) 'null'
+
+# нагрузка
+$ss = $chT.GetMethod('SystemState')
+T 'хаб: нагрузка — всё измерено' (HubJson $ss.Invoke($null, @([double]0.354, 48, 66, [double]1536.4, [double]200))) '{"cpu":35,"ram":48,"gpu":66,"down":1536,"up":200}'
+T 'хаб: нагрузка — без видеокарты и пока без сети' (HubJson $ss.Invoke($null, @([double]1.2, 48, -1, [double]-1, [double]-1))) '{"cpu":100,"ram":48,"gpu":null}'
+$ll = $chT.GetMethod('LoadLine')
+T 'нагрузка в игре: строка' ($ll.Invoke($null, @([double]0.35, 66, 48))) 'ЦП 35% · ГП 66% · ОЗУ 48%'
+T 'нагрузка в игре: без видеокарты' ($ll.Invoke($null, @([double]0.05, -1, 100))) 'ЦП 5% · ОЗУ 100%'
+
+# оба переключателя «Показывать…» и строка «Нагрузка в игре» лежат в своих разделах окна настроек
+$lay = $asm.GetType('Kapsula.SettingsWindow').GetField('Layout', $sf).GetValue($null)
+$secOf = @{}; foreach ($l in $lay) { foreach ($t in $l) { $secOf[$t] = $l[0] } }
+T 'настройки: «Показывать музыку…» — в «Безопасности»' $secOf['Показывать музыку, погоду и события другим приложениям dev.txt'] 'Безопасность'
+T 'настройки: «Показывать счётчик непрочитанного» — в «Безопасности»' $secOf['Показывать счётчик непрочитанного'] 'Безопасность'
+T 'настройки: «Нагрузка в капсуле во время игры» — в «Играх»' $secOf['Нагрузка в капсуле во время игры'] 'Игры'
+
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

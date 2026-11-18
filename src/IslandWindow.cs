@@ -265,6 +265,8 @@ namespace Kapsula
                 case "walk": WalkOn = v; if (!v) WalkHome(); break;
                 case "notifications": ShowNotifications = v; if (v) StartNotifications(); else notifStop = true; break;
                 case "lyrics": Store.Set("lyrics", v ? "on" : "off"); lyricsKey = null; SetLyrics(null); RenderMedia(); break;
+                case "gameLoad": SystemTick(); RenderCompact(); SetTargets(); break;   // строка нагрузки в игре появляется и пропадает сразу
+                case "hubShare": case "hubUnread": HubShareAll(); break;               // запретили показывать — состояния в хабе сразу пустеют
             }
         }
 
@@ -5404,6 +5406,7 @@ namespace Kapsula
                         return;
                     }
                     weather = w; if (w != null && w.Error == null) weatherSearchOpen = false; RenderWeather(); RenderCompact();
+                    HubShareWeather();   // новый прогноз — и для других приложений dev.txt (CoreHub.cs)
                 }));
             });
         }
@@ -7971,6 +7974,7 @@ namespace Kapsula
             petNotifyUntil = Environment.TickCount + 7000;   // зверёк удивляется новому сообщению
             if (Store.Get("unread") == "0") return;
             if (discord) unreadDiscord++; else unreadSteam++;
+            HubShareUnread();   // счётчик — и для других приложений dev.txt (CoreHub.cs)
             if (!toastOn) RenderCompact();
             SetTargets();
         }
@@ -7987,7 +7991,7 @@ namespace Kapsula
             bool changed = false;
             if (unreadDiscord > 0 && (n.StartsWith("discord") || n == "vesktop")) { unreadDiscord = 0; changed = true; }
             if (unreadSteam > 0 && n.StartsWith("steam")) { unreadSteam = 0; changed = true; }
-            if (changed) { if (!toastOn) RenderCompact(); SetTargets(); }
+            if (changed) { HubShareUnread(); if (!toastOn) RenderCompact(); SetTargets(); }
         }
 
         // ---- помодоро: 25 минут работы, 5 отдыха; после четырёх кругов — длинный перерыв
@@ -9038,6 +9042,7 @@ namespace Kapsula
             double sec = (ShowSeconds ? 24 : 0) + (claudeState != 0 && !PetIsCharacter() && !PetDancing() ? 36 : 0) +(unreadDiscord + unreadSteam > 0 ? 26 : 0);   // место под значок Claude Code и счётчик непрочитанного
             if (CallVisible()) return Math.Max(330, compactW);   // имя или канал — до 440
             if (soonNow != null && timerEnd <= DateTime.Now) return Math.Max(330, compactW);   // «Созвон с командой … 12 мин» — до 460
+            if (GameLoadLine() && timerEnd <= DateTime.Now) return Math.Max(190 + sec, compactW);   // строка нагрузки в игре: ширину посчитала RenderGameLoad
             if (media.Has && media.Playing) return Math.Max((PillTitle || timerEnd > DateTime.Now ? 350 : (w ? 310 : 270)) + sec, compactW);   // строка песни — до 440
             if (timerEnd > DateTime.Now) return 240 + sec;
             return (w ? 220 : 190) + sec;
@@ -9842,6 +9847,9 @@ namespace Kapsula
                 CompactFitTitle(soonNow.Title, soonNow.Title + " · " + SoonWhen(soonNow), 460);
                 return;
             }
+            // «Нагрузка в игре»: поверх игры вместо часов и трека — процессор, видеокарта и память одной строкой (CoreHub.cs).
+            // Надпись, запись, загрузка, звонок, встреча и таймер важнее — они выше и показываются как обычно
+            if (GameLoadLine() && !timing) { RenderGameLoad(); return; }
             // Без музыки и таймера: часы по центру, погода — справа, а не одной строкой посередине
             bool weatherRight = !playing && !timing && weather != null && weather.Error == null;
             if (weatherRight) cText.Text = DateTime.Now.ToString(ShowSeconds ? "HH:mm:ss" : "HH:mm"); else SetClock(cText);
@@ -10027,6 +10035,7 @@ namespace Kapsula
 
         void RenderMedia()
         {
+            HubShareMedia();   // трек сменился, встал на паузу или пропал — об этом узнают и другие приложения dev.txt (CoreHub.cs)
             playerBody.Visibility = media.Has ? Visibility.Visible : Visibility.Collapsed;
             UpdateRateButtons();
             playerEmpty.Visibility = media.Has ? Visibility.Collapsed : Visibility.Visible;
@@ -10791,6 +10800,7 @@ namespace Kapsula
             if (lite != gameLite)
             {
                 gameLite = lite;
+                SystemTick();   // строка «Нагрузка в игре» — сразу с числами, не дожидаясь следующего замера
                 RenderCompact(); Wake();
             }
             if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
@@ -10821,6 +10831,7 @@ namespace Kapsula
 
             if (tick % 4 == 1) PollSteam();
             if (tick % 2 == 0) SampleCpu();
+            if (tick % 4 == 0) SystemTick();   // нагрузка для хаба и для строки в игре — только пока она кому-то видна (CoreHub.cs)
             if (tick % 2 == 1) PollDownloads();
             if (tick % 2 == 0) CheckReminders();
             if (FollowWindows && tick % 4 == 0)

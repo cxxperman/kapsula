@@ -8,7 +8,8 @@ using Windows.ApplicationModel.Appointments;
 namespace Kapsula
 {
     // название и место — не null: без места (событие из проверки, день рождения) подсказки и список дня не падают
-    class CalEvent { public string Subject = "", Location = ""; public DateTime Start; public bool AllDay; }
+    // End — когда событие кончается; у выдуманных событий из проверок его нет (значение по умолчанию)
+    class CalEvent { public string Subject = "", Location = ""; public DateTime Start, End; public bool AllDay; }
 
     // Читается только то, что уже лежит в календаре Windows на этом компьютере; в сеть Kapsula за ним не ходит.
     static class Calendar
@@ -16,6 +17,9 @@ namespace Kapsula
         static List<CalEvent> events = new List<CalEvent>();
         static int loadedAt, running;
         public static volatile bool Failed;
+        // Календарь прочитан: Windows дала к нему доступ (или события подставлены проверкой). Без этого остров не говорит
+        // другим приложениям «событий нет» — он просто не знает
+        public static volatile bool Loaded;
         // Растёт после каждой удачной загрузки: открытая вкладка «Сегодня» по нему видит, что события дочитались
         public static int Version;
         static readonly System.Globalization.CultureInfo Ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
@@ -31,7 +35,7 @@ namespace Kapsula
         public static List<CalEvent> Events() { lock (typeof(Calendar)) return new List<CalEvent>(events); }
 
         // Только для проверок (отдельная папка настроек): выдуманные события вместо настоящего календаря
-        public static void TestSet(List<CalEvent> list) { if (!Store.Test) return; lock (typeof(Calendar)) events = new List<CalEvent>(list); }
+        public static void TestSet(List<CalEvent> list) { if (!Store.Test) return; lock (typeof(Calendar)) events = new List<CalEvent>(list); Loaded = true; Interlocked.Increment(ref Version); }
 
         // Перечитать события — с запасом на месяц назад и три вперёд, для календаря во вкладке «Сегодня» (не чаще раза в пять минут)
         public static void Refresh(bool force)
@@ -55,10 +59,11 @@ namespace Kapsula
                             // без пустой строки под названием и без висячего «·» в подсказках; пустое название — «Без названия»
                             string subj = System.Text.RegularExpressions.Regex.Replace(a.Subject ?? "", "\\s+", " ").Trim();
                             string loc = System.Text.RegularExpressions.Regex.Replace(a.Location ?? "", "\\s+", " ").Trim();
-                            list.Add(new CalEvent { Subject = subj.Length > 0 ? subj : "Без названия", Location = loc, Start = a.StartTime.LocalDateTime, AllDay = a.AllDay });
+                            list.Add(new CalEvent { Subject = subj.Length > 0 ? subj : "Без названия", Location = loc, Start = a.StartTime.LocalDateTime, End = a.StartTime.LocalDateTime + a.Duration, AllDay = a.AllDay });
                         }
                     list.Sort(delegate(CalEvent x, CalEvent y) { return x.Start.CompareTo(y.Start); });
                     lock (typeof(Calendar)) events = list;
+                    Loaded = store != null;
                     Interlocked.Increment(ref Version);
                     Failed = false;
                 }
