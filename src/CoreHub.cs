@@ -77,7 +77,7 @@ namespace Kapsula
             Describe();
             link = new HubLink("kapsula", "Kapsula", Updater.CurrentText, TestPort > 0 ? TestPort : HubLink.DefaultPort);
             link.Topics = new string[] { "hub.theme" };
-            link.Commands = new string[] { "settings.set", "show", "media.toggle", "media.prev", "media.next" };
+            link.Commands = new string[] { "settings.set", "show", "media.toggle", "media.prev", "media.next", "discord.connect" };
             link.OnCommand = Command;
             link.OnState = delegate(string topic, object data, string from)
             {
@@ -149,6 +149,14 @@ namespace Kapsula
         // Приходит в фоновом потоке
         static object Command(string name, Dictionary<string, object> args, string from)
         {
+            if (name == "discord.connect")
+            {
+                // «Подключить Discord» с карточки Maska в core.txt — то же, что кнопка в настройках Kapsula.
+                // Скачивает сборку, поэтому не в потоке окна; пока Discord запущен, откажет и скажет, что его надо закрыть.
+                string error = DiscordInstall.Install();
+                if (error != null) throw new Exception(error);
+                return null;
+            }
             Exception failed = null;
             island.Dispatcher.Invoke(new Action(delegate
             {

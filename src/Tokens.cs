@@ -113,6 +113,7 @@ namespace DevTxt
             public const int BaseMs = 230;
             public const int SlowMs = 380;
             public const int RevealMs = 560;
+            public const int StaggerMs = 45;
             public const double SpringShapeStiffness = 250;
             public const double SpringShapeDamping = 23;
             public const double SpringFadeStiffness = 340;
