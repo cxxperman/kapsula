@@ -67,7 +67,7 @@ namespace Kapsula
             Add("Связь с другими приложениями", "hubUnread", "Показывать счётчик непрочитанного", "Сколько сообщений из Discord и Steam вы ещё не видели — только числа, без текста", delegate { return ShareUnreadOn; });
 
             Add("Запуск и обновления", "autostart", "Запускать вместе с Windows", null, delegate { return Autostart.IsOn(); }, delegate(bool v) { Autostart.Set(v); });
-            Add("Запуск и обновления", "autoUpdate", "Автообновление", "Kapsula сама скачивает новые версии с GitHub и сверяет контрольную сумму файла", delegate { return Store.Get("autoUpdate") != "0"; }, delegate(bool v) { Store.Set("autoUpdate", v ? "1" : "0"); });
+            Add("Запуск и обновления", "autoUpdate", "Автообновление", "kapsula.txt сама скачивает новые версии с GitHub и сверяет контрольную сумму файла", delegate { return Store.Get("autoUpdate") != "0"; }, delegate(bool v) { Store.Set("autoUpdate", v ? "1" : "0"); });
         }
 
         public static void Start(IslandWindow w)
@@ -75,7 +75,7 @@ namespace Kapsula
             if (link != null) return;
             island = w;
             Describe();
-            link = new HubLink("kapsula", "Kapsula", Updater.CurrentText, TestPort > 0 ? TestPort : HubLink.DefaultPort);
+            link = new HubLink("kapsula", "kapsula.txt", Updater.CurrentText, TestPort > 0 ? TestPort : HubLink.DefaultPort);
             link.Topics = new string[] { "hub.theme" };
             link.Commands = new string[] { "settings.set", "show", "media.toggle", "media.prev", "media.next", "discord.connect" };
             link.OnCommand = Command;

@@ -311,7 +311,7 @@ namespace Kapsula
                         path = target.Substring(0, q);
                         foreach (string kv in target.Substring(q + 1).Split('&')) if (kv.StartsWith("k=")) key = Uri.UnescapeDataString(kv.Substring(2));
                     }
-                    if (key != Phone.Key) { Send(ssl, "403 Forbidden", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Нет доступа: откройте страницу по QR-коду из Kapsula")); return; }
+                    if (key != Phone.Key) { Send(ssl, "403 Forbidden", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Нет доступа: откройте страницу по QR-коду из kapsula.txt")); return; }
                     if (path == "/") { Send(ssl, "200 OK", "text/html; charset=utf-8", Encoding.UTF8.GetBytes(Page())); return; }
                     if (path == "/offer")
                     {
@@ -597,7 +597,7 @@ namespace Kapsula
                     var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                     sp.Children.Add(new TextBlock { Text = ((char)0xE722).ToString(), FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 64, Foreground = new SolidColorBrush(Tokens.Palette.Orange), HorizontalAlignment = HorizontalAlignment.Center });
                     sp.Children.Add(new TextBlock { Text = "Kapsula Camera", Foreground = Brushes.White, FontSize = 40, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 18, 0, 0) });
-                    sp.Children.Add(new TextBlock { Text = "Телефон не подключён · кнопка камеры слева в раскрытом острове Kapsula", Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0xA3)), FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
+                    sp.Children.Add(new TextBlock { Text = "Телефон не подключён · кнопка камеры слева в раскрытом острове kapsula.txt", Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0xA3)), FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
                     g.Children.Add(sp);
                     g.Measure(new Size(1280, 720)); g.Arrange(new Rect(0, 0, 1280, 720)); g.UpdateLayout();
                     var rtb = new RenderTargetBitmap(1280, 720, 96, 96, PixelFormats.Pbgra32);
@@ -830,7 +830,7 @@ run();
         public static void ShowQr()
         {
             string url = Url();
-            if (url == null) { MessageBox.Show("Компьютер не подключён к домашней сети — телефону не к чему подключиться.", "Kapsula"); return; }
+            if (url == null) { MessageBox.Show("Компьютер не подключён к домашней сети — телефону не к чему подключиться.", "kapsula.txt"); return; }
             if (island == null) return;
             PhoneRtc.Start();   // приёмник видео (~100 МБ памяти) запускаем, только когда камера понадобилась
             island.ShowQrInIsland(url, "Наведите камеру телефона", new string[]

@@ -93,7 +93,7 @@ namespace Kapsula
             win = new Window
             {
                 WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true,
-                ShowActivated = false, Owner = owner, Background = new SolidColorBrush(back), Title = "Kapsula — Duck.ai",
+                ShowActivated = false, Owner = owner, Background = new SolidColorBrush(back), Title = "kapsula.txt — Duck.ai",
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000, Width = 400, Height = 300
             };
             view = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, back.R, back.G, back.B), VerticalAlignment = VerticalAlignment.Top };

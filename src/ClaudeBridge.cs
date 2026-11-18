@@ -167,7 +167,7 @@ namespace Kapsula
                 if (Always == null) { Allow(); return; }
                 Finish(Json(Obj("hookSpecificOutput", Obj("hookEventName", "PermissionRequest", "decision", Obj("behavior", "allow", "updatedPermissions", new object[] { Always })))));
             }
-            public void Deny() { Finish(Json(Obj("hookSpecificOutput", Obj("hookEventName", "PermissionRequest", "decision", Obj("behavior", "deny", "message", "Отклонено пользователем на острове Kapsula"))))); }
+            public void Deny() { Finish(Json(Obj("hookSpecificOutput", Obj("hookEventName", "PermissionRequest", "decision", Obj("behavior", "deny", "message", "Отклонено пользователем на острове kapsula.txt"))))); }
         }
 
         // Вопрос с вариантами ответа, который Claude задаёт пользователю
@@ -320,7 +320,7 @@ namespace Kapsula
             public void Send(string message)
             {
                 if (string.IsNullOrEmpty(message)) { Pass(); return; }
-                Finish(Json(Obj("hookSpecificOutput", Obj("hookEventName", "Stop", "additionalContext", "Пользователь написал вам с острова Kapsula, не открывая окно Claude Code. Его сообщение: " + message))));
+                Finish(Json(Obj("hookSpecificOutput", Obj("hookEventName", "Stop", "additionalContext", "Пользователь написал вам с острова kapsula.txt, не открывая окно Claude Code. Его сообщение: " + message))));
             }
         }
 
@@ -478,7 +478,7 @@ namespace Kapsula
                 if (TakeStop(Str(d, "session_id")))
                 {
                     Touch(d, "остановлен", "");
-                    Reply(ctx, 200, "{\"continue\":false,\"stopReason\":\"Остановлено с острова Kapsula\"}");
+                    Reply(ctx, 200, "{\"continue\":false,\"stopReason\":\"Остановлено с острова kapsula.txt\"}");
                     return;
                 }
                 if (tool == "AskUserQuestion")
@@ -640,9 +640,9 @@ namespace Kapsula
             if (method == "ping") { Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj()))); return; }
             if (method == "tools/list")
             {
-                var notify = MObj("name", "notify", "description", "Показать человеку карточку на острове Kapsula вверху экрана: например, что задача готова. Используй, когда закончил долгую работу.",
+                var notify = MObj("name", "notify", "description", "Показать человеку карточку на острове kapsula.txt вверху экрана: например, что задача готова. Используй, когда закончил долгую работу.",
                     "inputSchema", MObj("type", "object", "properties", MObj("title", MObj("type", "string", "description", "Короткий заголовок"), "message", MObj("type", "string", "description", "Подробности в одну-две строки")), "required", new object[] { "title" }));
-                var ask = MObj("name", "ask", "description", "Задать человеку вопрос с вариантами ответа на острове Kapsula и дождаться выбора (до двух минут).",
+                var ask = MObj("name", "ask", "description", "Задать человеку вопрос с вариантами ответа на острове kapsula.txt и дождаться выбора (до двух минут).",
                     "inputSchema", MObj("type", "object", "properties", MObj("question", MObj("type", "string"), "options", MObj("type", "array", "items", MObj("type", "string"), "description", "От двух до трёх вариантов")), "required", new object[] { "question", "options" }));
                 Reply(ctx, 200, MJson(MObj("jsonrpc", "2.0", "id", id, "result", MObj("tools", new object[] { notify, ask }))));
                 return;

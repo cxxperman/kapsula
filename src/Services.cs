@@ -23,7 +23,7 @@ namespace Kapsula
     static class Store
     {
         // KAPSULA_TEST_STORE — для проверок: своя папка настроек с выдуманными задачами, настоящие не трогаются
-        public static readonly string Dir = Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Kapsula");
+        public static readonly string Dir = Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "kapsula.txt");
         public static bool Test { get { return Environment.GetEnvironmentVariable("KAPSULA_TEST_STORE") != null; } }
         static Dictionary<string, string> data = new Dictionary<string, string>();
         public static bool Fresh;   // настроек ещё не было: программа запущена на этом компьютере впервые

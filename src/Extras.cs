@@ -135,7 +135,7 @@ namespace Kapsula
             if (notifList == null) return;
             if (notifClearBtn != null) notifClearBtn.Visibility = seenNotes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;   // пустой истории стирать нечего
             notifList.Children.Clear();
-            notifCount.Text = seenNotes.Count == 0 ? "История хранится до закрытия Kapsula" : Plural(seenNotes.Count, "уведомление", "уведомления", "уведомлений") + " · история хранится до закрытия Kapsula";
+            notifCount.Text = seenNotes.Count == 0 ? "История хранится до закрытия kapsula.txt" : Plural(seenNotes.Count, "уведомление", "уведомления", "уведомлений") + " · история хранится до закрытия kapsula.txt";
             if (seenNotes.Count == 0)
             {
                 notifList.Children.Add(PetSpot("sleep", 50, 12, "notif"));
@@ -437,7 +437,7 @@ namespace Kapsula
         {
             bool wasPinned = pinned;
             SetPinned(true);
-            var win = new Window { Title = "Kapsula", Width = 380, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Topmost = true, ShowInTaskbar = false,
+            var win = new Window { Title = "kapsula.txt", Width = 380, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Topmost = true, ShowInTaskbar = false,
                 Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x19)) };
             var sp = new StackPanel { Margin = new Thickness(20) };
             sp.Children.Add(new TextBlock { Text = title, Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) });

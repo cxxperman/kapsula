@@ -134,7 +134,7 @@ namespace Kapsula
                     if (e > 0) args[kv.Substring(0, e)] = Uri.UnescapeDataString(kv.Substring(e + 1).Replace('+', ' '));
                 }
                 string key;
-                if (!args.TryGetValue("k", out key) || key != Token) { Send(s, 403, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Нет доступа: откройте страницу по QR-коду из Kapsula")); return; }
+                if (!args.TryGetValue("k", out key) || key != Token) { Send(s, 403, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Нет доступа: откройте страницу по QR-коду из kapsula.txt")); return; }
                 if (path == "/") { Send(s, 200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(Page())); var iw = island; if (iw != null) iw.Dispatcher.BeginInvoke(new Action(iw.HideQrInIsland)); return; }
                 if (path == "/stats") { Send(s, 200, "application/json", Encoding.UTF8.GetBytes(Stats())); return; }
                 if (path == "/file")
@@ -416,12 +416,12 @@ poll();setInterval(poll,2500);
         {
             if (!Running)
             {
-                if (MessageBox.Show("Включить пульт с телефона?\n\nKapsula откроет страницу только для устройств в вашей домашней сети и только по секретной ссылке из QR-кода. Windows может спросить разрешение для брандмауэра — разрешите доступ в частных сетях.\n\nВыключить можно в настройках → «Телефон».", "Kapsula", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                if (MessageBox.Show("Включить пульт с телефона?\n\nKapsula откроет страницу только для устройств в вашей домашней сети и только по секретной ссылке из QR-кода. Windows может спросить разрешение для брандмауэра — разрешите доступ в частных сетях.\n\nВыключить можно в настройках → «Телефон».", "kapsula.txt", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 Store.Set("phoneRemote", "1");
                 Start(w);
             }
             string url = Url();
-            if (url == null) { MessageBox.Show("Компьютер не подключён к домашней сети — телефону не к чему подключиться.", "Kapsula"); return; }
+            if (url == null) { MessageBox.Show("Компьютер не подключён к домашней сети — телефону не к чему подключиться.", "kapsula.txt"); return; }
             var lines = new List<string> { "Телефон — в той же сети Wi-Fi. Ссылка секретная — не пересылайте её; новую можно получить в настройках → «Телефон»." };
             lock (shared) if (shared.Count > 0) lines.Add("Файлов к передаче: " + shared.Count + " — вкладка «Файлы» на телефоне.");
             if (note != null) lines.Add(note);

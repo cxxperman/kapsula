@@ -29,7 +29,7 @@ namespace Kapsula
         {
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ShowActivated = false; ResizeMode = ResizeMode.NoResize; Focusable = false;
-            Width = W; Height = H; Title = "Kapsula — зверёк";
+            Width = W; Height = H; Title = "kapsula.txt — зверёк";
             Pet = new PetView(Px, eyes);
             Size.CenterX = 5.5 * Px; Size.CenterY = 8 * Px;   // растёт и сжимается от лап
             Pet.Root.RenderTransform = Size;

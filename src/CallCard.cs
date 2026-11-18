@@ -215,7 +215,7 @@ namespace Kapsula
                 if (dvSourcesWanted == 0 || unchecked(Environment.TickCount - dvSourcesWanted) < 0) return;
                 dvSourcesWanted = 0;
                 PaintMute();
-                CallNotice("Discord не ответил — обновите плагин Kapsula");
+                CallNotice("Discord не ответил — обновите плагин kapsula.txt");
             });
         }
 

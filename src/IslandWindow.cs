@@ -592,7 +592,7 @@ namespace Kapsula
                 d.TryGetValue("type", out type);
                 if ((type as string) == "hello")
                 {
-                    Dispatcher.BeginInvoke(new Action(delegate { if (StartingUp()) return; Toast("", "Steam подключён к Kapsula", null, -1, accent); }));
+                    Dispatcher.BeginInvoke(new Action(delegate { if (StartingUp()) return; Toast("", "Steam подключён к kapsula.txt", null, -1, accent); }));
                     SteamBridge.SendConfig();
                     // Проверочный режим: просим Steam показать его собственные образцы уведомлений.
                     if (TestSteam) SteamBridge.Send("{\"cmd\":\"test\",\"names\":[\"TestFriendMessage\",\"TestFriendOnline\",\"TestFriendIngame\",\"TestAchievement:550\",\"TestDownloadComplete:570\",\"TestKapsulaInvite\"]}");
@@ -1503,7 +1503,7 @@ namespace Kapsula
         // Новая версия уже лежит на месте старой. Kapsula перезапустится сама, когда это не помешает; кнопка — для нетерпеливых.
         public void UpdateInstalled(string version)
         {
-            ShowCardEx(null, "", "Kapsula обновлена до " + version, "Перезапустится сама, когда вы отойдёте", RestartForUpdate, "Перезапустить", RestartForUpdate, false);
+            ShowCardEx(null, "", "kapsula.txt обновлена до " + version, "Перезапустится сама, когда вы отойдёте", RestartForUpdate, "Перезапустить", RestartForUpdate, false);
             cardUntil = Environment.TickCount + 12000;
         }
 
@@ -1525,7 +1525,7 @@ namespace Kapsula
 
         public void NotifyUpdated()
         {
-            Toast("", "Kapsula обновлена до " + Updater.CurrentText, null, -1, null);
+            Toast("", "kapsula.txt обновлена до " + Updater.CurrentText, null, -1, null);
             petGiftUntil = Environment.TickCount + 9000;   // зверёк с подарком
         }
 
@@ -2127,7 +2127,7 @@ namespace Kapsula
                     if (HasKey(ql, "камера", "камеру", "вебкамера", "веб-камера", "webcam")) AddCmd("Телефон как веб-камера", PhoneCam.Installed ? "QR-код для телефона · камера «Kapsula Camera»" : "установить камеру и подключить телефон", ((char)0xE714).ToString(), null, delegate { OpenPhoneCam(); });
                     if (HasKey(ql, "заблокировать", "заблокируй", "блокировка", "блокировать", "lock")) AddCmd("Заблокировать компьютер", "Система", "", null, delegate { Native.LockWorkStation(); });
                     if (HasKey(ql, "тема", "тёмная тема", "темная тема", "тёмный режим", "темный режим", "theme")) AddCmd("Переключить тёмную тему", "Система", "", null, delegate { SetDarkTheme(!IsDarkTheme()); });
-                    if (HasKey(ql, "настройки", "настройка", "настроить", "settings", "цвет острова")) AddCmd("Настройки Kapsula", "Цвет, размер, поведение", "", null, delegate { OpenSettings(); });
+                    if (HasKey(ql, "настройки", "настройка", "настроить", "settings", "цвет острова")) AddCmd("Настройки kapsula.txt", "Цвет, размер, поведение", "", null, delegate { OpenSettings(); });
                     if (HasKey(ql, "светлая тема", "светлый режим", "light")) AddCmd("Светлая / тёмная тема острова", "Ctrl+Alt+T", "", null, delegate { ToggleLightDark(); });
                     if (HasKey(ql, "чат", "claude", "клод", "ии")) AddCmd("Открыть чат с нейросетью", "Ctrl+Alt+A", "", null, delegate { OpenChat(); });
                     if (!dictating && HasKey(ql, "диктовка", "диктовать", "голосовой ввод", "голос", "voice")) AddCmd("Диктовка: надиктовать и вставить", "Ctrl+Alt+D", "", null, delegate { Dictate(); });
@@ -7717,7 +7717,7 @@ namespace Kapsula
 
         void FillHistory()
         {
-            if (seenNotes.Count == 0) { AddCmd("Уведомлений пока не было", "история хранится до закрытия Kapsula", "", null, null); return; }
+            if (seenNotes.Count == 0) { AddCmd("Уведомлений пока не было", "история хранится до закрытия kapsula.txt", "", null, null); return; }
             for (int i = seenNotes.Count - 1; i >= 0 && cmdItems.Count < 6; i--)
             {
                 Seen s = seenNotes[i];
@@ -8944,7 +8944,7 @@ namespace Kapsula
                 tray.Icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hi).Clone();
                 Native.DestroyIcon(hi);
             }
-            tray.Text = "Kapsula " + Updater.CurrentText;
+            tray.Text = "kapsula.txt " + Updater.CurrentText;
             var menu = new WF.ContextMenuStrip();
             var auto = new WF.ToolStripMenuItem("Запускать вместе с Windows");
             menu.Opening += delegate { auto.Checked = Autostart.IsOn(); };
@@ -10341,7 +10341,7 @@ namespace Kapsula
         // ------------------------------------------------------------ снимки
         static string ShotDir()
         {
-            string d = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Kapsula");
+            string d = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "kapsula.txt");
             System.IO.Directory.CreateDirectory(d);
             return d;
         }
@@ -10511,7 +10511,7 @@ namespace Kapsula
                 bool ok = false;
                 if (ff != null)
                 {
-                    string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Kapsula");
+                    string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "kapsula.txt");
                     System.IO.Directory.CreateDirectory(dir);
                     string path = System.IO.Path.Combine(dir, "Запись " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + ".mp4");
                     // Пробуем кодировщики по очереди: не в каждой сборке ffmpeg есть libx264.

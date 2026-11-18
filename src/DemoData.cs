@@ -10,7 +10,7 @@ namespace Kapsula
 {
     partial class IslandWindow
     {
-        const string DemoText = "Kapsula — остров для Windows: музыка, заметки, буфер и зверёк в одной капсуле.";
+        const string DemoText = "kapsula.txt — остров для Windows: музыка, заметки, буфер и зверёк в одной капсуле.";
 
         // KAPSULA_DEMOLONG вместе с --demo — проверка вёрстки «неудобными» данными (по ним проходят проверки
         // KAPSULA_RIDEPET=11, 12 и 13): =1 — очень длинные тексты (трек, буфер, город, сети, устройства, события),

@@ -35,7 +35,7 @@ namespace Kapsula
             new ModelInfo { Id = "qwen3.5-35b-a3b", Name = "35B-A3B", Repo = "unsloth/Qwen3.5-35B-A3B-GGUF", File = "Qwen3.5-35B-A3B-Q4_K_M.gguf", Proj = "mmproj-F16.gguf", SizeGb = 21.4, RamGb = 32, Note = "большая, для мощных ПК с 32 ГБ памяти и больше; отвечает быстро для своего размера" },
         };
 
-        static string Root { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Kapsula", "ai"); } }
+        static string Root { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "kapsula.txt", "ai"); } }
         static string EngineDir { get { return Path.Combine(Root, "llama"); } }
         static string ModelsDir { get { return Path.Combine(Root, "models"); } }
         static string ServerExe { get { return Path.Combine(EngineDir, "llama-server.exe"); } }
@@ -432,7 +432,7 @@ namespace Kapsula
                         if (lean && log.IndexOf("invalid argument", StringComparison.OrdinalIgnoreCase) >= 0) return "args";
                         return log.IndexOf("out of memory", StringComparison.OrdinalIgnoreCase) >= 0 || log.IndexOf("failed to allocate", StringComparison.OrdinalIgnoreCase) >= 0
                             ? "Qwen " + m.Name + " не помещается в память этого ПК — выберите модель поменьше."
-                            : "llama.cpp закрылся при запуске (подробности — в qwen.log в папке настроек Kapsula).";
+                            : "llama.cpp закрылся при запуске (подробности — в qwen.log в папке настроек kapsula.txt).";
                     }
                     try
                     {

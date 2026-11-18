@@ -91,7 +91,7 @@ namespace Kapsula
             g.Children.Add(flag);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             texts.Children.Add(new TextBlock { Text = "Український проєкт", Foreground = Brushes.White, FontSize = 17, FontWeight = FontWeights.Bold });
-            texts.Children.Add(new TextBlock { Text = "Kapsula делают в Украине. Программа бесплатная, исходный код открыт — его можно посмотреть и проверить.", Foreground = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)), FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
+            texts.Children.Add(new TextBlock { Text = "kapsula.txt делают в Украине. Программа бесплатная, исходный код открыт — его можно посмотреть и проверить.", Foreground = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF)), FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
             button.HorizontalAlignment = HorizontalAlignment.Left;
             texts.Children.Add(button);
             Grid.SetColumn(texts, 1);
@@ -134,7 +134,7 @@ namespace Kapsula
 
         public WelcomeWindow(IslandWindow island)
         {
-            Title = "Kapsula";
+            Title = "kapsula.txt";
             Icon = PetView.WindowIcon();
             Width = 520; SizeToContent = SizeToContent.Height;
             Background = Bg;
@@ -150,7 +150,7 @@ namespace Kapsula
             greeter.Mood("hello");
             greeter.Root.Margin = new Thickness(0, 0, 4, 0);
             hello.Children.Add(greeter.Root);
-            hello.Children.Add(new TextBlock { Text = "Kapsula запущена", Foreground = Txt, FontSize = 21, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+            hello.Children.Add(new TextBlock { Text = "kapsula.txt запущена", Foreground = Txt, FontSize = 21, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
             sp.Children.Add(hello);
             sp.Children.Add(new TextBlock { Text = "Это капсула у верхнего края экрана. Вот с чего начать:", Foreground = Sub, FontSize = 12.5, Margin = new Thickness(0, 4, 0, 14) });
             string[][] tips =
@@ -159,7 +159,7 @@ namespace Kapsula
                 new string[] { "E721", "Строка команд", "Запуск программ, поиск файлов, калькулятор, таймеры. Открывается сочетанием клавиш: " + island.HotkeyText("cmd") + "." },
                 new string[] { "E8D6", "Музыка", "Включите что-нибудь в плеере или браузере — капсула покажет трек, обложку и текст песни." },
                 new string[] { "E722", "Снимки и запись экрана", "Плитки на главной вкладке: область, весь экран, запись, распознавание текста." },
-                new string[] { "E713", "Настройки", "Значок шестерёнки в панели или правый клик по значку Kapsula возле часов. Там же — выход." }
+                new string[] { "E713", "Настройки", "Значок шестерёнки в панели или правый клик по значку kapsula.txt возле часов. Там же — выход." }
             };
             // у каждой подсказки — белый значок на цветном скруглённом квадрате, как у разделов настроек
             Color[] tipTints = { Tokens.Palette.Blue, Color.FromRgb(0x8E, 0x8E, 0x93), Tokens.Palette.Pink, Tokens.Palette.Orange, Color.FromRgb(0x63, 0x66, 0xF1) };
@@ -182,7 +182,7 @@ namespace Kapsula
                 Grid.SetColumn(texts, 1); row.Children.Add(texts);
                 sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1F, 0x1F, 0x23)), BorderBrush = new SolidColorBrush(Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 11, 14, 12), Margin = new Thickness(0, 0, 0, 8), Child = row });
             }
-            sp.Children.Add(new TextBlock { Text = "Kapsula обновляется сама и ничего о вас не собирает. Это ранняя версия: что-то может работать не так.", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 4, 0, 14) });
+            sp.Children.Add(new TextBlock { Text = "kapsula.txt обновляется сама и ничего о вас не собирает. Это ранняя версия: что-то может работать не так.", Foreground = Sub, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 4, 0, 14) });
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             buttons.Children.Add(Button("Открыть настройки", false, delegate { Close(); island.OpenSettings(); }));
             buttons.Children.Add(Button("Понятно", true, delegate { Close(); }));
@@ -241,7 +241,7 @@ namespace Kapsula
         public SettingsWindow(IslandWindow owner)
         {
             island = owner;
-            Title = "Kapsula — настройки";
+            Title = "kapsula.txt — настройки";
             Icon = PetView.WindowIcon();
             Width = 840; Height = Math.Min(700, SystemParameters.WorkArea.Height - 16);   // на небольших экранах окно не должно уходить за край
             Background = Bg;
@@ -426,10 +426,10 @@ namespace Kapsula
             sp.Children.Add(Row("«В избранное» и «Не интересует»", "Когда играет Cider, по бокам кнопок плеера появляются звезда (в избранное Apple Music) и перечёркнутый круг (предлагать меньше такого и дальше). У других плееров Windows не даёт программам ставить оценки, поэтому там этих кнопок нет.", Toggle(Store.Get("ciderRate") != "0", delegate(bool v) { Store.Set("ciderRate", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Ключ Cider", "Cider пускает программы только по ключу. В Cider откройте настройки, раздел подключений (Connectivity), управление доступом внешних приложений — создайте ключ и вставьте сюда. Ключ хранится только на этом компьютере, зашифрованный Windows, и уходит только самому Cider на этом же компьютере.", BuildSecretEditor("ciderKey", "CIDER_TOKEN"), true));
 
-            sp.Children.Add(Row("Оценки в других плеерах · альфа", "Сырая функция, по умолчанию выключена. Звезда и «Не интересует» для Spotify, Яндекс Музыки, YouTube Music, SoundCloud и других — в браузере и в приложениях, без расширений и ключей. Kapsula находит кнопки «Нравится» и «Не нравится» в окне плеера через специальные возможности Windows и нажимает их, не трогая мышь. Вкладка с плеером должна быть выбранной в своём окне (окно может быть свёрнуто). Кнопки появляются, только если нашлись в плеере.", Toggle(Store.Get("uiaRate") == "1", delegate(bool v) { Store.Set("uiaRate", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Оценки в других плеерах · альфа", "Сырая функция, по умолчанию выключена. Звезда и «Не интересует» для Spotify, Яндекс Музыки, YouTube Music, SoundCloud и других — в браузере и в приложениях, без расширений и ключей. kapsula.txt находит кнопки «Нравится» и «Не нравится» в окне плеера через специальные возможности Windows и нажимает их, не трогая мышь. Вкладка с плеером должна быть выбранной в своём окне (окно может быть свёрнуто). Кнопки появляются, только если нашлись в плеере.", Toggle(Store.Get("uiaRate") == "1", delegate(bool v) { Store.Set("uiaRate", v ? "1" : "0"); }), false));
 
             sp = Sec("AirPods и Beats");
-            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — Kapsula только слушает. Команда «наушники» в строке команд покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
+            sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — kapsula.txt только слушает. Команда «наушники» в строке команд покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
             sp.Children.Add(Row("Пауза, когда сняли наушники", "Музыка встаёт на паузу, когда вы снимаете AirPods, и продолжается, когда надеваете обратно. Проба: на некоторых моделях может срабатывать неточно.", Toggle(Store.Get("earbudsPause") == "1", delegate(bool v) { Store.Set("earbudsPause", v ? "1" : "0"); }), false));
 
             sp = Sec("Нейросети");
@@ -448,11 +448,11 @@ namespace Kapsula
                 // строка с выбором под описанием — внутри StackPanel, а не Grid: Panel подходит к обеим раскладкам
                 try { desc = ((StackPanel)((Panel)((Border)modelRow).Child).Children[0]).Children[1] as TextBlock; } catch { }
                 sp.Children.Add(modelRow);
-                sp.Children.Add(Row("Скачать на компьютер", "Скачиваются движок llama.cpp (github.com/ggml-org/llama.cpp, " + QwenLocal.EngineSizeText + ") и выбранная модель (huggingface.co, сборка unsloth). Всё хранится в папке Kapsula и удаляется кнопкой «Удалить». Во время разговора интернет не нужен. Модель загружается при первом вопросе в чате и полностью выгружается из памяти кнопкой «Очистить» (и после 15 минут без вопросов). Работает на видеокарте: на NVIDIA — через CUDA (быстрее всего), на AMD и Intel — через Vulkan, а без видеокарты — на процессоре, медленнее.", BuildQwenEditor(), true));
+                sp.Children.Add(Row("Скачать на компьютер", "Скачиваются движок llama.cpp (github.com/ggml-org/llama.cpp, " + QwenLocal.EngineSizeText + ") и выбранная модель (huggingface.co, сборка unsloth). Всё хранится в папке kapsula.txt и удаляется кнопкой «Удалить». Во время разговора интернет не нужен. Модель загружается при первом вопросе в чате и полностью выгружается из памяти кнопкой «Очистить» (и после 15 минут без вопросов). Работает на видеокарте: на NVIDIA — через CUDA (быстрее всего), на AMD и Intel — через Vulkan, а без видеокарты — на процессоре, медленнее.", BuildQwenEditor(), true));
             }
             sp.Children.Add(Header("Gemini"));
             sp.Children.Add(Row("Ключ Gemini API", "Ключ создаётся в Google AI Studio под вашим аккаунтом Google; у Gemini есть бесплатный уровень с ограничением числа запросов. Ключ хранится только на этом компьютере, зашифрованный Windows, и отправляется только на generativelanguage.googleapis.com.", BuildGeminiKeyEditor(), true));
-            sp.Children.Add(Row("Модель Gemini", "Flash-Lite — самая быстрая, на бесплатном уровне отвечает стабильнее всех. Flash умнее, но часто перегружена; если она занята, Kapsula сама попробует другую модель.", Chips(GeminiChat.ModelNames, Array.IndexOf(GeminiChat.Models, GeminiChat.Model()), delegate(int i) { Store.Set("geminiModel", GeminiChat.Models[i]); }), true));
+            sp.Children.Add(Row("Модель Gemini", "Flash-Lite — самая быстрая, на бесплатном уровне отвечает стабильнее всех. Flash умнее, но часто перегружена; если она занята, kapsula.txt сама попробует другую модель.", Chips(GeminiChat.ModelNames, Array.IndexOf(GeminiChat.Models, GeminiChat.Model()), delegate(int i) { Store.Set("geminiModel", GeminiChat.Models[i]); }), true));
             sp.Children.Add(Header("Claude"));
             sp.Children.Add(Row("Ключ Claude API", "Нужен свой ключ: console.anthropic.com → API Keys. Он хранится только на этом компьютере, зашифрованный Windows, и отправляется только на api.anthropic.com.", BuildKeyEditor(), true));
             sp.Children.Add(Row("Модель Claude", "Opus 5.5 — умнее; Sonnet 5.5 — быстрее и дешевле.", Chips(new string[] { "Opus 5.5", "Sonnet 5.5" }, ClaudeChat.Model() == "claude-sonnet-5-5" ? 1 : 0, delegate(int i) { island.SetClaudeModel(i == 1 ? "claude-sonnet-5-5" : "claude-opus-5-5"); }), true));
@@ -470,11 +470,11 @@ namespace Kapsula
                     bool have = ClaudeBridge.Installed && ClaudeBridge.Enabled;
                     bool old = have && !ClaudeBridge.UpToDate;
                     cSet(have);
-                    string st = !have ? "Kapsula допишет свои строки в настройки Claude Code (прежний файл сохранится рядом). В интернет ничего не уходит."
+                    string st = !have ? "kapsula.txt допишет свои строки в настройки Claude Code (прежний файл сохранится рядом). В интернет ничего не уходит."
                         : old ? "Подключение устарело: нажмите на переключатель — оно обновится и останется включённым."
                         : ClaudeBridge.Error != null ? "Не работает: " + Reason(ClaudeBridge.Error) + "."
                         : "Подключено. Новые сессии Claude Code подхватят это сразу, уже открытые — после перезапуска.";
-                    if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно из значка Kapsula у часов или командой «стоп claude». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
+                    if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно из значка kapsula.txt у часов или командой «стоп claude». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
                 };
                 cClick = delegate
                 {
@@ -517,7 +517,7 @@ namespace Kapsula
                         : DiscordBridge.Error != null ? "Не работает: " + Reason(DiscordBridge.Error) + "."
                         : DiscordBridge.Clients > 0 ? "Подключено: сообщения и звонки Discord появляются на острове."
                         : "Ждёт уведомлений: Discord подключается сам, когда приходит сообщение. Если карточек нет — в Vencord откройте Настройки → Плагины и включите XSOverlay.";
-                    if (dText != null) dText.Text = "Kapsula только принимает уведомления; в Discord ничего не меняется. " + st;
+                    if (dText != null) dText.Text = "kapsula.txt только принимает уведомления; в Discord ничего не меняется. " + st;
                 };
                 dShow();
                 var dTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -547,7 +547,7 @@ namespace Kapsula
                     // Discord открыт (часто — только в трее у часов): пока он держит свои файлы, подключить нельзя. Кнопка
                     // так и называется — «Закрыть Discord и подключить»: закрываем, подключаем и запускаем его снова
                     bool close = vRunning;
-                    vStatus.Text = close ? "Закрываю Discord…" : off ? "Возвращаю Discord как было…" : "Скачиваю сборку Vencord с плагином Kapsula и ставлю…";
+                    vStatus.Text = close ? "Закрываю Discord…" : off ? "Возвращаю Discord как было…" : "Скачиваю сборку Vencord с плагином kapsula.txt и ставлю…";
                     vStatus.Foreground = Sub; vStatus.Visibility = Visibility.Visible;
                     System.Threading.ThreadPool.QueueUserWorkItem(delegate
                     {
@@ -561,7 +561,7 @@ namespace Kapsula
                         {
                             vBusy = false; vInBuild = inBuild;
                             vResultBad = err != null;
-                            vResult = err == DiscordInstall.NeedClose ? "Discord открыт (может быть, только в трее у часов). Нажмите «Закрыть Discord и " + (off ? "отключить" : "подключить") + "» — Kapsula закроет его, " + (off ? "отключит" : "подключит") + " и запустит снова."
+                            vResult = err == DiscordInstall.NeedClose ? "Discord открыт (может быть, только в трее у часов). Нажмите «Закрыть Discord и " + (off ? "отключить" : "подключить") + "» — kapsula.txt закроет его, " + (off ? "отключит" : "подключит") + " и запустит снова."
                                 : err != null ? "Не вышло: " + Reason(err) + "."
                                 : off ? (restarted ? "Отключено — Discord запущен снова." : "Отключено — перезапустите Discord.")
                                 : restarted ? "Готово — Discord запущен снова, звонки появятся на острове." : "Готово — перезапустите Discord, и звонки появятся на острове.";
@@ -569,7 +569,7 @@ namespace Kapsula
                         }));
                     });
                 });
-                var vRow = Row("Звонки Discord на острове · бета", "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин Kapsula; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы.", vBtn, false);
+                var vRow = Row("Звонки Discord на острове · бета", "Канал и время звонка как в самом Discord, мут, полный мут и демонстрация экрана — в капсуле, а на «Главной» кнопки: выключить микрофон, полный мут, выйти. Ставит в Discord нашу сборку Vencord — официальный Vencord плюс плагин kapsula.txt; ваши плагины и настройки остаются, «Отключить» вернёт всё как было. Это неофициальная модификация Discord — решаете вы.", vBtn, false);
                 var vTexts = (StackPanel)((Grid)((Border)vRow).Child).Children[0];
                 vText = vTexts.Children[1] as TextBlock;
                 // что сейчас и чем кончилось нажатие — своей строкой под описанием, а не в конце длинного абзаца
@@ -619,10 +619,10 @@ namespace Kapsula
                     bool have = SteamBridge.PluginInstalled;
                     sSet(have);
                     string sv = SteamBridge.InstalledVersion;   // plugin.json не прочитался — версии нет, и пустых скобок тоже
-                    string st = !have ? "Kapsula положит свой плагин в папку Millennium. В интернет ничего не уходит."
+                    string st = !have ? "kapsula.txt положит свой плагин в папку Millennium. В интернет ничего не уходит."
                         : SteamBridge.Error != null ? "Не работает: " + Reason(SteamBridge.Error) + "."
                         : SteamBridge.Clients > 0 ? "Подключено" + (string.IsNullOrEmpty(sv) ? "" : " (плагин " + sv + ")") + "."
-                        : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите Kapsula и перезапустите Steam.";
+                        : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите kapsula.txt и перезапустите Steam.";
                     if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. " + st + sNote;
                 };
                 sClick = delegate
@@ -646,13 +646,13 @@ namespace Kapsula
             sp.Children.Add(Row("Звук в записи экрана", "Звук компьютера — то, что играет в колонках или наушниках: видео, игра, звонок. Микрофон добавляется поверх, если выбран третий вариант.", Chips(new string[] { "Без звука", "Звук компьютера", "Компьютер и микрофон" }, ra == "0" ? 0 : (ra == "2" ? 2 : 1), delegate(int i) { Store.Set("recAudio", i.ToString()); }), true));
             sp = Sec("Общее");
             sp.Children.Add(Row("Запускать вместе с Windows", null, Toggle(Autostart.IsOn(), delegate(bool v) { Autostart.Set(v); }), false));
-            sp.Children.Add(Row("Автообновление", "Kapsula сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
+            sp.Children.Add(Row("Автообновление", "kapsula.txt сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
 
             sp = Sec("Уведомления");
             sp.Children.Add(Row("Смена раскладки", "Короткая подсказка «Раскладка: RU» при переключении языка.", Toggle(island.ShowLayout, delegate(bool v) { island.SetFlag("layout", v); }), false));
             sp.Children.Add(Row("Яркость на острове", "Меняете яркость клавишами ноутбука или в Windows — остров показывает её полоской, как громкость. Колёсико над островом с зажатым Ctrl тоже меняет яркость; у внешних мониторов — если они позволяют это программам.", Toggle(island.BrightHud, delegate(bool v) { island.SetFlag("brightHud", v); }), false));
             sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
-            sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, Kapsula убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия Kapsula). Пока Kapsula закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
+            sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, kapsula.txt убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия kapsula.txt). Пока kapsula.txt закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
             sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке команд.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Отсчёт до встречи в капсуле", "За 15 минут до события из календаря или задачи со временем капсула показывает «Созвон · через 12 мин». Пока играет музыка — только последние 5 минут.", Toggle(Store.Get("soonPill") != "0", delegate(bool v) { Store.Set("soonPill", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
@@ -889,7 +889,7 @@ namespace Kapsula
             int pets;
             int.TryParse(Store.Get("petPets"), out pets);
             var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            texts.Children.Add(new TextBlock { Text = "Зверёк — душа Kapsula", Foreground = Txt, FontSize = 17, FontWeight = FontWeights.SemiBold });
+            texts.Children.Add(new TextBlock { Text = "Зверёк — душа kapsula.txt", Foreground = Txt, FontSize = 17, FontWeight = FontWeights.SemiBold });
             texts.Children.Add(new TextBlock { Text = "Живёт в капсуле, переходит туда, куда вы смотрите, гуляет по окнам, приносит уведомления и получает наряды за привычки.", Foreground = Sub, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
             // «1 284 раза» — тысячи, как «Гладили 1 284 раза» на странице «Зверёк»; число не отрывается от «раза»,
             // а в узком окне строка переносится, а не обрезается краем
@@ -1519,7 +1519,7 @@ namespace Kapsula
             // чем Kapsula делится с остальными приложениями dev.txt через хаб core.txt (CoreHub.cs); те же два переключателя — на общей странице настроек в core.txt
             // дорога к core.txt: открыть, а если его нет — скачать (она есть в каждом приложении dev.txt)
             bool coreHere = CoreHub.Online || DevTxt.CoreApp.Installed;
-            sp.Children.Add(Row("core.txt — лаунчер dev.txt", coreHere ? "Обновления, общие настройки и остальные приложения dev.txt — в одном окне." : DevTxt.CoreApp.Pitch + ". Kapsula работает и без него — с ним приложения видят друг друга.",
+            sp.Children.Add(Row("core.txt — лаунчер dev.txt", coreHere ? "Обновления, общие настройки и остальные приложения dev.txt — в одном окне." : DevTxt.CoreApp.Pitch + ". kapsula.txt работает и без него — с ним приложения видят друг друга.",
                 PillBtn(DevTxt.CoreApp.Label(CoreHub.Online), !coreHere, delegate { DevTxt.CoreApp.Go(CoreHub.Online, CoreHub.ShowCore); }), false));
             sp.Children.Add(Row("Показывать музыку, погоду и события другим приложениям dev.txt", "Через core.txt остальные приложения dev.txt узнают, какой трек сейчас играет, какая погода и что сегодня в календаре — только название и время события. Дальше этого компьютера ничего не уходит.", Toggle(CoreHub.ShareOn, delegate(bool v) { island.SetFlag("hubShare", v); }), false));
             sp.Children.Add(Row("Показывать счётчик непрочитанного", "Другие приложения dev.txt видят, сколько сообщений из Discord и Steam вы ещё не открывали — только числа, без текста и имён.", Toggle(CoreHub.ShareUnreadOn, delegate(bool v) { island.SetFlag("hubUnread", v); }), false));
@@ -1531,7 +1531,7 @@ namespace Kapsula
         {
             sp.Children.Add(Header("Каждый день"));
             sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: сколько задач на сегодня, ближайшая из них и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. Kapsula сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
+            sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. kapsula.txt сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
 
             sp.Children.Add(Header("Поверх экрана"));
             sp.Children.Add(Row("Нагрузка в играх · бета", "В игре на весь экран в левом верхнем углу — маленькая полоска: процессор, видеокарта, память и время. Мышь проходит сквозь неё.", Toggle(Store.Get("gameStrip") == "1", delegate(bool v) { Store.Set("gameStrip", v ? "1" : "0"); }), false));
@@ -1570,7 +1570,7 @@ namespace Kapsula
                     camRow.Children.Add(conn);
                     var rm = PillBtn("Удалить", false, delegate
                     {
-                        if (MessageBox.Show(this, "Удалить камеру «Kapsula Camera» из Windows? Понадобятся права администратора.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                        if (MessageBox.Show(this, "Удалить камеру «Kapsula Camera» из Windows? Понадобятся права администратора.", "kapsula.txt", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
                         bool ok = PhoneCam.Setup(false);
                         if (ok) PhoneCam.Stop();   // драйвера больше нет — закрываем сервер камеры для телефона и отпускаем общую память кадров
                         camStatus.Text = ok ? "Камера удалена." : "Не удалось удалить: Windows не дала прав администратора.";
@@ -1580,7 +1580,7 @@ namespace Kapsula
                     camRow.Children.Add(rm);
                 }
                 if (camStatus.Text.Length == 0)
-                    camStatus.Text = !inst ? "Windows спросит разрешение администратора: драйвер камеры ставится для всего компьютера. Сам драйвер — часть Kapsula, ничего не скачивается."
+                    camStatus.Text = !inst ? "Windows спросит разрешение администратора: драйвер камеры ставится для всего компьютера. Сам драйвер — часть kapsula.txt, ничего не скачивается."
                         : !fresh ? "Вышла новая версия драйвера — обновите, чтобы она заработала."
                         : "Установлена. Камера в программах называется «Kapsula Camera». Драйвер камеры загружают все программы, которые ищут камеры; редкие игры с камерой и строгим античитом могут не пустить его к себе — тогда будет вылет, а не бан. Не пользуетесь камерой — удалите её, поставить снова можно в один клик.";
             };
@@ -1598,7 +1598,7 @@ namespace Kapsula
             var pRow = new StackPanel { Orientation = Orientation.Horizontal };
             var qr = PillBtn("Показать QR-код", true, delegate { Phone.ShowQr(island, null); pSet(Store.Get("phoneRemote") == "1"); });
             pRow.Children.Add(qr);
-            var renew = PillBtn("Новая ссылка", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Покажите новый QR-код телефону.", "Kapsula"); });
+            var renew = PillBtn("Новая ссылка", false, delegate { Phone.NewToken(); MessageBox.Show(this, "Старая ссылка больше не работает. Покажите новый QR-код телефону.", "kapsula.txt"); });
             renew.Margin = new Thickness(8, 0, 0, 0);
             pRow.Children.Add(renew);
             sp.Children.Add(Row("Подключить телефон", "Ссылка из QR-кода открывает пульт и камеру. Если она попала не туда — сделайте новую: старая сразу перестанет работать.", pRow, false));
@@ -1617,12 +1617,12 @@ namespace Kapsula
             var copy = PillBtn("Скопировать настройку", true, delegate
             {
                 string tok = ClaudeBridge.Token();   // сначала ключ, потом сервер: сервер читает ключ при запуске
-                if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек Kapsula.", "Kapsula"); return; }
+                if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек Kapsula.", "kapsula.txt"); return; }
                 Store.Set("mcp", "1"); ClaudeBridge.Start(); mSet(true);   // MCP-серверу не нужен «Claude Code на острове»
-                if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + Reason(ClaudeBridge.Error) + ".", "Kapsula"); return; }
+                if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + Reason(ClaudeBridge.Error) + ".", "kapsula.txt"); return; }
                 string json = "{\n  \"mcpServers\": {\n    \"kapsula\": {\n      \"type\": \"http\",\n      \"url\": \"" + ClaudeBridge.McpUrl + "\",\n      \"headers\": { \"X-Kapsula-Token\": \"" + tok + "\", \"X-Kapsula-Agent\": \"Мой агент\" }\n    }\n  }\n}";
                 try { Clipboard.SetText(json); } catch { }
-                MessageBox.Show(this, "Настройка скопирована. Вставьте её в файл MCP-серверов вашего агента (Cursor, Codex, Claude Desktop и т. п.) и поменяйте «Мой агент» на его имя.\n\nВ настройке есть секретный ключ — не публикуйте её.", "Kapsula");
+                MessageBox.Show(this, "Настройка скопирована. Вставьте её в файл MCP-серверов вашего агента (Cursor, Codex, Claude Desktop и т. п.) и поменяйте «Мой агент» на его имя.\n\nВ настройке есть секретный ключ — не публикуйте её.", "kapsula.txt");
             });
             copy.Margin = new Thickness(12, 0, 0, 0);
             mRow.Children.Add(copy);
@@ -1669,7 +1669,7 @@ namespace Kapsula
                         row.Children.Add(use);
                         var del = PillBtn("Удалить", false, delegate
                         {
-                            if (MessageBox.Show(this, "Удалить Qwen " + m.Name + " с компьютера? Освободится около " + m.SizeGb.ToString("0.#", ru) + " ГБ.", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                            if (MessageBox.Show(this, "Удалить Qwen " + m.Name + " с компьютера? Освободится около " + m.SizeGb.ToString("0.#", ru) + " ГБ.", "kapsula.txt", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
                             QwenLocal.Delete(m); shown = null; paint();
                         });
                         del.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(del);
@@ -1688,7 +1688,7 @@ namespace Kapsula
                             // недокачанная модель или оставшийся движок — их тоже убирает «Удалить»
                             var drop = PillBtn("Удалить", false, delegate
                             {
-                                if (MessageBox.Show(this, "Удалить с компьютера то, что уже скачано для Qwen " + m.Name + "?", "Kapsula", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                                if (MessageBox.Show(this, "Удалить с компьютера то, что уже скачано для Qwen " + m.Name + "?", "kapsula.txt", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
                                 QwenLocal.Delete(m); shown = null; paint();
                             });
                             drop.Margin = new Thickness(6, 0, 0, 0); row.Children.Add(drop);
