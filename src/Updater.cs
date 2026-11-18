@@ -96,9 +96,12 @@ namespace Kapsula
                 {
                     int wait = 60 * 60 * 1000;   // проверяем раз в час
                     bool byHand = manual;
-                    if (Enabled || byHand) checking = true;   // сначала «идёт проверка», потом сбрасываем нажатие — «Проверяю…» не мигает
+                    // core.txt на связи — обновлениями занимается он (показывает их и сам ставит). Иначе оба
+                    // меняют один и тот же файл, и один из них падает на полпути. Проверка по кнопке — всегда.
+                    bool auto = Enabled && !CoreHub.Online;
+                    if (auto || byHand) checking = true;   // сначала «идёт проверка», потом сбрасываем нажатие — «Проверяю…» не мигает
                     manual = false;
-                    if (Enabled || byHand)
+                    if (auto || byHand)
                     {
                         try
                         {
@@ -270,6 +273,9 @@ namespace Kapsula
             if (Sha256(data) != sha) throw new Exception("контрольная сумма не совпала, обновление отброшено");
 
             string exe = ExePath;
+            // Пока мы работали, core.txt перенёс kapsula.txt в общую папку dev.txt: нашего файла на прежнем месте нет.
+            // Подменять нечего — новая версия придёт через core.txt или при следующем запуске.
+            if (!System.IO.File.Exists(exe)) throw new Exception("kapsula.txt перенесли в другую папку — обновление после перезапуска");
             string fresh = System.IO.Path.ChangeExtension(exe, ".new.exe");
             string old = System.IO.Path.ChangeExtension(exe, ".old.exe");
             System.IO.File.WriteAllBytes(fresh, data);
