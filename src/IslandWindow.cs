@@ -8981,6 +8981,11 @@ namespace Kapsula
             menu.Opening += delegate { lyr.Checked = LyricsOn(); };
             menu.Items.Add(lyr);
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
+            // та же строка, что в меню каждого приложения dev.txt: открыть лаунчер, а если его нет — скачать
+            var coreItem = new WF.ToolStripMenuItem("Открыть core.txt");
+            coreItem.Click += delegate { DevTxt.CoreApp.Go(CoreHub.Online, CoreHub.ShowCore); };
+            menu.Opening += delegate { coreItem.Text = DevTxt.CoreApp.Label(CoreHub.Online); };
+            menu.Items.Add(coreItem);
             menu.Items.Add("Папка со снимками", null, delegate { try { System.Diagnostics.Process.Start(ShotDir()); } catch { } });
             // новая версия уже скачана — пункт перезапускает Kapsula, и «Проверяю обновления…» тогда не к месту
             menu.Items.Add("Проверить обновления (сейчас " + Updater.CurrentText + ")", null, delegate { if (!Updater.Ready) Toast("", "Проверяю обновления…", null, -1, null); Updater.CheckNow(); });
@@ -9018,7 +9023,7 @@ namespace Kapsula
                 menu.Opening += delegate { if (upd != null) upd.Text = Updater.Ready ? "Перезапустить и обновить" : "Проверить обновления"; };
                 WF.ToolStripItem[] order =
                 {
-                    find("Настройки"), upd, new WF.ToolStripSeparator(),
+                    find("Настройки"), upd, coreItem, new WF.ToolStripSeparator(),
                     quiet, awakeItem, games, lyr, auto, new WF.ToolStripSeparator(),
                     find("Папка со снимками"), find("Сообщить об ошибке"), stopClaude, new WF.ToolStripSeparator(),
                     find("Выход")
