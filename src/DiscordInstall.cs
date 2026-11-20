@@ -1,6 +1,6 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: DiscordInstall.cs
 // «Подключить Discord» одной кнопкой: ставит в Discord нашу сборку Vencord — это официальный Vencord плюс плагин
-// Kapsula (github.com/cxxperman/kapsula-vencord; она сама собирается из каждого обновления Vencord). Если Vencord
+// Kapsula (github.com/cxxperman/maska.txt; она сама собирается из каждого обновления Vencord). Если Vencord
 // уже стоит, меняются только его файлы, а прежние сохраняются рядом — «Отключить» возвращает их на место. Если
 // Vencord нет, Kapsula делает то же, что его установщик. Ваши плагины и настройки Vencord не трогаются. Пока Discord
 // запущен, ничего не меняется — Kapsula просит его закрыть; заработает при следующем запуске Discord (сам Discord
@@ -13,7 +13,7 @@ namespace Kapsula
 {
     static class DiscordInstall
     {
-        public const string Repo = "cxxperman/kapsula-vencord";
+        public const string Repo = "cxxperman/maska.txt";
         static readonly string[] Files = { "patcher.js", "preload.js", "renderer.js", "renderer.css" };
 
         // Для проверок (tests.ps1): поддельные папки AppData и готовая сборка из папки вместо скачивания
