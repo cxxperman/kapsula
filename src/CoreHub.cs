@@ -159,7 +159,7 @@ namespace Kapsula
             };
             // Семья dev.txt (Family.cs): слушает core.family и hub.apps, отвечает на tray.run. Создаётся после своих
             // обработчиков и до link.Start(); Changed приходит в фоновом потоке хаба — к окну только через Dispatcher
-            family = new Family(link, "kapsula");
+            family = new Family(link, "kapsula", delegate { island.Dispatcher.BeginInvoke(new Action(delegate { island.Quit(); })); });   // «Закрыть» в трее core.txt
             family.Changed = delegate { island.Dispatcher.BeginInvoke(new Action(delegate { island.FamilyChanged(); })); };
             link.Start();
             // Настройки меняют и в окне Kapsula, и горячими клавишами — проще сверяться раз в пару секунд, чем ловить каждое место.

@@ -361,7 +361,7 @@ namespace DevTxt
     // Связь приложения с семьёй: слушает core.family и hub.apps, отвечает на tray.run, отдаёт <app>.tray и <app>.keys
     class Family
     {
-        public const string Topic = "core.family", TrayRun = "tray.run", NotifyCommand = "notify", FocusSet = "focus.set";
+        public const string Topic = "core.family", TrayRun = "tray.run", NotifyCommand = "notify", FocusSet = "focus.set", QuitCommand = "quit";
         public const int MaxTray = 4;
 
         readonly HubLink link;
@@ -376,12 +376,16 @@ namespace DevTxt
         public Action Changed = null;
 
         // Создаётся после того, как приложение назначило свои Topics, Commands и обработчики, и до link.Start()
-        public Family(HubLink link, string app)
+        public Family(HubLink link, string app) : this(link, app, null) { }
+
+        // quit — как закрыть приложение по пункту «Закрыть» в общем трее core.txt (пока своего значка нет, это
+        // единственный выход). Вызывается в потоке хаба: к окнам — через Dispatcher. null — команды quit у приложения нет.
+        public Family(HubLink link, string app, Action quit)
         {
             this.link = link;
             this.app = app;
             link.Topics = With(link.Topics, Topic, "hub.apps");
-            link.Commands = With(link.Commands, TrayRun);
+            link.Commands = quit != null ? With(link.Commands, TrayRun, QuitCommand) : With(link.Commands, TrayRun);
             var ownState = link.OnState;
             var ownCommand = link.OnCommand;
             var ownStatus = link.OnStatus;
@@ -395,6 +399,7 @@ namespace DevTxt
             };
             link.OnCommand = delegate(string name, Dictionary<string, object> args, string from)
             {
+                if (name == QuitCommand && quit != null) { quit(); return null; }
                 if (name != TrayRun)
                 {
                     if (ownCommand == null) throw new Exception("unknown-command");
