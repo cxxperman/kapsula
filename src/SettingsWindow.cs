@@ -329,7 +329,7 @@ namespace Kapsula
                 stNote.Text = "PNG, GIF (с анимацией) или WEBP. Стикер из Telegram: сохраните его картинкой — анимированные стикеры Telegram в форматах TGS и WEBM не подойдут, GIF — подойдёт. Пока Claude Code чем-то занят или идёт загрузка, вместо стикера ненадолго появляется зверёк — он это показывает.";
                 Sec("Внешний вид").Children.Add(Row("Свой стикер вместо зверька", "Поставьте в капсулу любую картинку вместо зверька — например, любимый стикер.", stCol, true));
             }
-            var banner = Ua.Banner(LinkButton("Исходный код на GitHub", "https://github.com/cxxperman/kapsula"));
+            var banner = Ua.Banner(LinkButton("Исходный код на GitHub", "https://github.com/cxxperman/kapsula.txt"));
             sp.Children.Add(banner);
             rowsByTitle["Украинский проект"] = banner;
             rowText[banner] = "украинский проект украина сделано в украине github исходный код";

@@ -305,7 +305,7 @@ namespace Kapsula
         {
             System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072;   // TLS 1.2
             var rq = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
-            rq.UserAgent = "Kapsula/" + Updater.CurrentText + " (+https://github.com/cxxperman/kapsula)";   // так просят OpenStreetMap и MET Norway
+            rq.UserAgent = "Kapsula/" + Updater.CurrentText + " (+https://github.com/cxxperman/kapsula.txt)";   // так просят OpenStreetMap и MET Norway
             rq.Timeout = 8000; rq.ReadWriteTimeout = 8000;
             rq.AutomaticDecompression = System.Net.DecompressionMethods.GZip;   // deflate в .NET читается с ошибками у некоторых серверов
             using (var r = rq.GetResponse())

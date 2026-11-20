@@ -13,7 +13,7 @@ namespace Kapsula
     static class Updater
     {
         // Репозиторий на GitHub в виде «владелец/название». Если оставить пустым — автообновление выключено.
-        public const string Repo = "cxxperman/kapsula";
+        public const string Repo = "cxxperman/kapsula.txt";
 
         // Только для проверки на своём компьютере: адрес вида http://127.0.0.1:порт/..., отдающий тот же JSON, что GitHub.
         public static string FeedOverride;

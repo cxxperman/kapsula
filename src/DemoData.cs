@@ -74,7 +74,7 @@ namespace Kapsula
                 return;
             }
             clips.Add(new ClipItem { Text = "Встреча в 15:00, переговорная 2", Source = "Заметки", At = now.AddMinutes(-2) });
-            clips.Add(new ClipItem { Text = "https://github.com/cxxperman/kapsula", Source = "Браузер", At = now.AddMinutes(-9) });
+            clips.Add(new ClipItem { Text = "https://github.com/cxxperman/kapsula.txt", Source = "Браузер", At = now.AddMinutes(-9) });
             clips.Add(new ClipItem { Text = "#F08A4B", Source = "Пипетка", At = now.AddMinutes(-16) });
             clips.Add(new ClipItem { Text = "var pet = new PetView(2.6, Ink);", Source = "Редактор кода", At = now.AddMinutes(-34) });
             clips.Add(new ClipItem { Text = DemoText, Source = "Kapsula", At = now.AddHours(-2), Pinned = true });
