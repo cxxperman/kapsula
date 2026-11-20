@@ -106,6 +106,7 @@ namespace Kapsula
         public bool TestSettings, TestSettingsTop;
         public double TestSettingsScroll;   // ключ --settingsscroll N
         public string TestSettingsTab;   // ключ --settingstab «Раздел»
+        public string TestSettingsDump;  // ключ --settingsdump папка: снимок каждого раздела настроек, потом Kapsula закрывается
         ScaleTransform scaleT = new ScaleTransform(1, 1);
         SettingsWindow settingsWin;
         bool lastWinDark;
@@ -313,10 +314,12 @@ namespace Kapsula
         {
             if (state != 0) SetState(0);
             // свёрнутое окно настроек Activate() не разворачивает — возвращаем его сами
-            if (settingsWin != null) { if (settingsWin.WindowState == WindowState.Minimized) settingsWin.WindowState = WindowState.Normal; settingsWin.Activate(); if (openSection != null) settingsWin.ShowSection(openSection); openSection = null; return; }
+            if (settingsWin != null) { if (settingsWin.WindowState == WindowState.Minimized) settingsWin.WindowState = WindowState.Normal; if (!TestSettings) settingsWin.Activate(); if (openSection != null) settingsWin.ShowSection(openSection); openSection = null; return; }   // проверочные снимки не отнимают фокус
             settingsWin = new SettingsWindow(this);
             settingsWin.Closed += delegate { settingsWin = null; ApplyEffectiveTheme(); };
             if (TestSettings) { settingsWin.ShowActivated = false; settingsWin.Topmost = true; settingsWin.WindowStartupLocation = WindowStartupLocation.Manual; settingsWin.Top = 60; settingsWin.Left = (SystemParameters.PrimaryScreenWidth - 840) / 2; if (TestSettingsTab != null) settingsWin.ShowSection(TestSettingsTab); if (TestSettingsScroll > 0) { var sw = settingsWin; double off = TestSettingsScroll; sw.Dispatcher.BeginInvoke(new Action(delegate { sw.ScrollTo(off); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); } }
+            // снимки разделов делаются с окна за краем экрана: на ваших окнах ничего не мелькает и фокус не уходит
+            if (TestSettingsDump != null) { settingsWin.Topmost = false; settingsWin.Left = -20000; var sd = settingsWin; string dir = TestSettingsDump; TestSettingsDump = null; sd.Dispatcher.BeginInvoke(new Action(delegate { sd.DumpSections(dir, QuitForTest); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); }
             if (openSection != null) settingsWin.ShowSection(openSection);
             openSection = null;
             settingsWin.Show();
@@ -1309,10 +1312,12 @@ namespace Kapsula
                         for (int i = apps.Length - 1; i >= 0 && exe == null; i--) { string f = System.IO.Path.Combine(apps[i], "Discord.exe"); if (System.IO.File.Exists(f)) exe = f; }
                     }
                 }
+                else if (source.EndsWith(".txt", StringComparison.Ordinal)) res = DevAppIcon(source.Substring(0, source.Length - 4));   // «metla.txt» — значок приложения dev.txt (CoreHub.cs)
                 if (exe != null && System.IO.File.Exists(exe)) res = Shell.IconFor(exe);
             }
             catch { }
-            sourceIcons[source] = res;
+            // значок приложения dev.txt берётся у запущенного приложения: не нашёлся — в следующий раз ищется снова
+            if (res != null || !source.EndsWith(".txt", StringComparison.Ordinal)) sourceIcons[source] = res;
             return res;
         }
 
@@ -1527,8 +1532,17 @@ namespace Kapsula
             cardUntil = Environment.TickCount + 12000;
         }
 
+        // Проверочные снимки сделаны (--settingsdump): выйти, как по «Выходу» в меню значка, — без значка-призрака у часов
+        public void QuitForTest()
+        {
+            trayGone = true;
+            if (tray != null) tray.Visible = false;
+            Application.Current.Shutdown();
+        }
+
         public void RestartForUpdate()
         {
+            trayGone = true;   // значок не вернётся и по сигналу от core.txt (ApplyTray)
             if (tray != null) tray.Visible = false;
             Updater.Restart();
         }
@@ -2061,6 +2075,8 @@ namespace Kapsula
                 if (CmdRoute(pq, new string[] { "наушн", "airpods", "аирпод", "эирпод" }, new string[] { "наушники", "airpods", "аирподс", "эирподс" }, FillEarbuds)) return;
                 if (CmdRoute(pq, new string[] { "не бесп", "тихо", "тишин" }, new string[] { "не беспокоить", "тихо", "тишина" }, FillQuiet)) return;
                 if (CmdRoute(pq, new string[] { "уведомл", "истори" }, new string[] { "уведомления", "история" }, FillHistory)) return;
+                // выйти можно и отсюда: пока значок у часов держит core.txt, своего меню с «Выходом» нет
+                if (QuitWord(pq)) AddCmd("Выйти из kapsula.txt", "остров закроется до следующего запуска", "", null, delegate { Quit(); });
                 if (TaskListWord(pq)) { FillTaskList(); RenderCmd(); if (state == 4) SetTargets(); return; }   // «задачи» — на сегодня, с отметкой
                 if (pq.StartsWith("ошибк") || pq.StartsWith("сообщить") || pq.StartsWith("баг")) AddCmd("Сообщить об ошибке", "сведения скопируются, откроется страница на GitHub", "", null, delegate { ReportBug(); });
                 // Закреплённые в буфере фразы находятся по любому слову из них и вставляются одним нажатием
@@ -6073,6 +6089,7 @@ namespace Kapsula
             h.Mods = mods; h.Vk = vk;
             Store.Set("hk_" + h.Key, mods + "," + vk);
             RegisterHot(h);
+            CoreHub.PublishFamily();   // страница «Клавиши» в core.txt видит новое сочетание сразу
             return h.Ok;
         }
 
@@ -7648,7 +7665,15 @@ namespace Kapsula
         List<Seen> seenNotes = new List<Seen>();
         DateTime quietUntil = DateTime.MinValue;
 
-        public bool QuietNow { get { return quietUntil > DateTime.Now; } }
+        // Тихо: своё «Не беспокоить» или общее из core.txt (core.family.focus) — с ним оно одно на все приложения dev.txt
+        public bool QuietNow
+        {
+            get
+            {
+                FamilyState f = CoreHub.FamilyInfo;
+                return CoreHub.QuietOn(quietUntil, DateTime.Now, f != null && f.Focus, f != null ? f.FocusUntil : 0, FamilyState.Now());
+            }
+        }
 
         // ---- Игровой режим (Ctrl+Alt+G): остров уезжает за край и не выезжает и не раскрывается от наведения мыши — в игре
         // курсор часто у верхней кромки. Достать его — двойной щелчок у верхней кромки над островом. Уведомления и карточки по-прежнему появляются (в том числе поверх игры на весь экран),
@@ -7716,9 +7741,15 @@ namespace Kapsula
             return QuietNow;
         }
 
+        // Плитка на вкладке «Система», строка команд и меню значка у часов. С core.txt «Не беспокоить» одно на всю семью:
+        // просим его на те же минуты (QuietHandOver), а своё держим, пока он не подтвердит, — не ответит, тишина не пропадёт.
+        // Без core.txt — своё, как раньше. Выключение выключает и общее
         public void SetQuiet(int minutes)
         {
+            quietAsked = 0;
             quietUntil = minutes > 0 ? DateTime.Now.AddMinutes(minutes) : DateTime.MinValue;
+            if (minutes > 0) QuietHandOver();
+            else { quietSeenEnd = 0; CoreHub.SetFocus(false, 0); }
             Toast("", minutes > 0 ? "Не беспокоить: " + LeftText(minutes) : "Уведомления снова показываются", null, -1, minutes > 0 ? (Brush)accent : null);   // «1 ч», «20 мин», а 90 — «1 ч 30 мин», не «1 ч»
         }
 
@@ -7726,13 +7757,26 @@ namespace Kapsula
         {
             if (QuietNow)
             {
-                int left = (int)Math.Ceiling((quietUntil - DateTime.Now).TotalMinutes);
-                AddCmd("Выключить «Не беспокоить»", "осталось " + LeftText(left), "", null, delegate { SetQuiet(0); });   // «осталось 2 ч 59 мин», а не «179 мин»
+                FamilyState f = CoreHub.FamilyInfo;
+                AddCmd("Выключить «Не беспокоить»", QuietLeft(quietUntil, f != null && f.Focus, f != null ? f.FocusEnds : null, DateTime.Now), "", null, delegate { SetQuiet(0); });   // «осталось 2 ч 59 мин», а не «179 мин»
                 return;
             }
             AddCmd("Не беспокоить 1 час", "карточки не появляются, всё попадает в историю", "", null, delegate { SetQuiet(60); });
             AddCmd("Не беспокоить 3 часа", "", "", null, delegate { SetQuiet(180); });
             AddCmd("Не беспокоить 20 минут", "", "", null, delegate { SetQuiet(20); });
+        }
+
+        // Сколько ещё тихо: своё «Не беспокоить» (до localUntil) или общее из core.txt (familyEnds; null — пока не выключат) —
+        // «осталось 2 ч 59 мин», «пока не выключите»
+        static string QuietLeft(DateTime localUntil, bool family, DateTime? familyEnds, DateTime now)
+        {
+            DateTime end = localUntil;
+            if (end <= now && family)
+            {
+                if (!familyEnds.HasValue) return "пока не выключите";
+                end = familyEnds.Value;
+            }
+            return "осталось " + LeftText(Math.Max(1, (int)Math.Ceiling((end - now).TotalMinutes)));
         }
 
         void FillHistory()
@@ -8122,6 +8166,7 @@ namespace Kapsula
         public string TestDuckAsk;  // ключ --duckask: отправить в Duck.ai проверочное сообщение (только по прямому разрешению человека)
         public bool TestTimerDone;  // ключ --timerdone: показать карточку «Время вышло» без ожидания
         public bool TestTray;       // ключ --traymenu: показать меню значка у часов без нажатий
+        public bool TestQuiet;      // ключ --quiettest: «Не беспокоить» само включается на 20 минут и выключается — проверка с core.txt
         public bool TestDuckToggle; // ключ --ducktoggle: панель сама закрывается и открывается каждые несколько секунд
         public int TestChip = -1;   // ключ --chiptest N: только значок заряда в панели
         public int TestBuds = -1;  // ключ --budstest N: карточка наушников с зарядом N%
@@ -8843,6 +8888,7 @@ namespace Kapsula
             if (TestBuds >= 0) ClaudeAfter(2500, delegate { ShowBudsCard(new EarbudsState { Model = "AirPods Max", Single = TestBuds, At = Environment.TickCount }); });
             if (TestTimerDone) ClaudeAfter(1500, delegate { timerTotal = TimeSpan.FromMinutes(5); timerRinging = true; SetTargets(); TimerDoneCard(); });
             if (TestTray) ClaudeAfter(1500, delegate { tray.ContextMenuStrip.Show((int)(SystemParameters.PrimaryScreenWidth * dpi / 2) - 150, 110); });
+            if (TestQuiet) { ClaudeAfter(2500, delegate { SetQuiet(20); }); ClaudeAfter(14000, delegate { SetQuiet(0); }); }
             if (TestDuckToggle)
             {
                 var tg = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(4000) };
@@ -8971,13 +9017,7 @@ namespace Kapsula
             auto.Click += delegate { Autostart.Set(!Autostart.IsOn()); };
             menu.Items.Add(auto);
             var lyr = new WF.ToolStripMenuItem("Тексты песен (lrclib.net)");
-            lyr.Click += delegate
-            {
-                Store.Set("lyrics", LyricsOn() ? "off" : "on");
-                lyricsKey = null;
-                SetLyrics(null);
-                RenderMedia();
-            };
+            lyr.Click += delegate { ToggleLyrics(); };
             menu.Opening += delegate { lyr.Checked = LyricsOn(); };
             menu.Items.Add(lyr);
             menu.Items.Add("Настройки…", null, delegate { OpenSettings(); });
@@ -8997,7 +9037,7 @@ namespace Kapsula
             menu.Items.Add(awakeItem);
             menu.Opening += delegate { awakeItem.Checked = awakeOn; };
             menu.Opening += delegate { quiet.Text = QuietNow ? "Выключить «Не беспокоить»" : "Не беспокоить 1 час"; };   // то же условие, что у щелчка
-            var games = new WF.ToolStripMenuItem("Показывать в играх и на весь экран");
+            var games = new WF.ToolStripMenuItem("Показывать остров в играх");
             games.Click += delegate
             {
                 bool v = Store.Get("showInGames") != "1";
@@ -9011,7 +9051,7 @@ namespace Kapsula
             stopClaude.Click += delegate { ClaudeStop(null, null); };
             menu.Items.Add(stopClaude);
             menu.Opening += delegate { stopClaude.Visible = ClaudeBridge.Enabled && ClaudeBridge.Listening; stopClaude.Enabled = ClaudeBridge.Busy; };
-            menu.Items.Add("Выход", null, delegate { tray.Visible = false; Application.Current.Shutdown(); });
+            menu.Items.Add("Выход", null, delegate { Quit(); });
             // Порядок по смыслу: главное сверху, переключатели, служебное, выход
             {
                 var all = new List<WF.ToolStripItem>();
@@ -9031,11 +9071,21 @@ namespace Kapsula
                 menu.Items.Clear();
                 foreach (WF.ToolStripItem it in order) if (it != null) menu.Items.Add(it);
                 lyr.Text = "Тексты песен";
-                games.Text = "Показывать в играх";
+                games.Text = "Показывать остров в играх";   // как в окне настроек и в core.txt
                 DarkMenuRenderer.Apply(menu);
             }
             tray.ContextMenuStrip = menu;
-            tray.Visible = true;
+            // Значок появляется чуть позже, когда ясно, есть ли core.txt: он может взять значок на себя (TrayStart, CoreHub.cs)
+            Dispatcher.BeginInvoke(new Action(TrayStart));
+        }
+
+        // «Тексты песен»: пункт своего меню у часов и тот же пункт в общем меню core.txt
+        void ToggleLyrics()
+        {
+            Store.Set("lyrics", LyricsOn() ? "off" : "on");
+            lyricsKey = null;
+            SetLyrics(null);
+            RenderMedia();
         }
 
         // ------------------------------------------------- физика и геометрия
@@ -9975,12 +10025,12 @@ namespace Kapsula
                 if (ws < w * h * 0.02) return Color.FromRgb(0xF2, 0xF2, 0xF4);
                 r /= ws; g /= ws; b /= ws;
                 double m = Math.Max(r, Math.Max(g, b));
-                if (m < 1) return DefaultAccent;
+                if (m < 1) return OwnAccent;
                 double k = 240 / m;
                 // чуть осветляем, чтобы читалось на чёрном
                 return Color.FromRgb((byte)Math.Min(255, r * k * 0.85 + 38), (byte)Math.Min(255, g * k * 0.85 + 38), (byte)Math.Min(255, b * k * 0.85 + 38));
             }
-            catch { return DefaultAccent; }
+            catch { return OwnAccent; }
         }
 
         // ---- плавная смена трека: текст уезжает и выезжает с другой стороны, обложка перетекает в новую
@@ -10121,7 +10171,7 @@ namespace Kapsula
                 {
                     shownCover = media.Cover;
                     coverBrush = null;
-                    Color ac = DefaultAccent;
+                    Color ac = OwnAccent;   // без обложки — свой цвет подсветки (общий из core.txt, если он его задаёт)
                     if (media.Cover != null)
                     {
                         try
@@ -10139,6 +10189,7 @@ namespace Kapsula
                         }
                         catch { coverBrush = null; }
                     }
+                    accentFromCover = coverBrush != null && ac != OwnAccent;   // общий цвет из core.txt цвет обложки не перекрывает
                     UpdateAccent(ac);
                     SwapCover(mCover, coverBrush != null ? (Brush)coverBrush : Glass.Fill);
                     SwapCover(cCover, coverBrush != null ? (Brush)coverBrush : Glass.Fill);
@@ -10828,7 +10879,8 @@ namespace Kapsula
                 SystemTick();   // строка «Нагрузка в игре» — сразу с числами, не дожидаясь следующего замера
                 RenderCompact(); Wake();
             }
-            if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); }
+            if (fs != hiddenFs) { hiddenFs = fs; SetTargets(); if (!fs) ShowHeldNote(); }   // остров снова на месте — карточка, что ждала (CoreHub.cs)
+            if (trayWaitUntil != 0) ApplyTray();   // при запуске core.txt так и не ответил — свой значок появляется (CoreHub.cs)
             if (tick % 20 == 3 && state == 0 && !toastOn) CalendarTick();
             if (tick % 4 == 1) { MoodTick(); MorningTick(); }
             if (tick % 4 == 3) { TaskRemindTick(); SoonTick(); TodayCalendarTick(); HeadphonesTick(); NetTick(); UpdateTick(); }   // задача — карточкой в свой час, а до того — отсчёт в капсуле; наушники; интернет; обновления Windows
@@ -10866,7 +10918,7 @@ namespace Kapsula
             }
             if (tick % 4 == 0)
             {
-                // индикаторы микрофона и камеры — по желанию («Настройки → Безопасность»), по умолчанию выключены
+                // индикаторы микрофона и камеры — по желанию («Настройки → Приватность»), по умолчанию выключены
                 bool cam = Store.Get("camDot") == "1" && CamBusy();
                 if (cam != camInUse) { camInUse = cam; if (cam && !StartingUp()) Toast(((char)0xE714).ToString(), "Камера включена", null, -1, ClaudeGreen); RenderCompact(); }
                 bool mic = Store.Get("micDot") == "1" && MicBusy();

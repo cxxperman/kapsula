@@ -275,14 +275,15 @@ namespace Kapsula
             var checkLabel = new TextBlock { Text = "Проверить обновления", Foreground = OnTxt, FontSize = 14, FontWeight = FontWeights.SemiBold };
             var checkBtn = new Border { Background = OnBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 6, 14, 7), Cursor = Cursors.Hand, Child = checkLabel };
             Glass.DarkButton(checkBtn);
-            var verRow = Row("Kapsula " + Updater.CurrentText, "—", checkBtn, false);
+            var verRow = Row("Версия " + Updater.CurrentText, "—", checkBtn, false);
             TextBlock verStatus = ((StackPanel)((Grid)((Border)verRow).Child).Children[0]).Children[1] as TextBlock;
             Action showStatus = delegate
             {
                 string s = Updater.StatusText;
                 if (!Updater.Configured) s = "Автообновление в этой сборке не настроено.";
                 else if (Updater.Checking) s = "Проверяю…";   // пока идёт проверка, не показываем прошлый итог
-                else if (s == "") s = Store.Get("autoUpdate") == "0" ? "Автообновление выключено. Проверить можно кнопкой." : "Обновления проверяются сами раз в час.";
+                // core.txt на связи — обновления ставит он (Updater), своя проверка — только по кнопке
+                else if (s == "") s = CoreHub.Online ? "Обновления ставит core.txt. Проверить можно и здесь." : Store.Get("autoUpdate") == "0" ? "Автообновление выключено. Проверить можно кнопкой." : "Обновления проверяются сами раз в час.";
                 if (verStatus != null) verStatus.Text = s;
                 // новая версия уже скачана — та же кнопка перезапускает Kapsula, и подпись говорит об этом прямо
                 checkLabel.Text = Updater.Ready ? "Перезапустить и обновить" : "Проверить обновления";
@@ -332,15 +333,38 @@ namespace Kapsula
             sp.Children.Add(banner);
             rowsByTitle["Украинский проект"] = banner;
             rowText[banner] = "украинский проект украина сделано в украине github исходный код";
+            // Запуск вместе с Windows и автообновление. Пока core.txt установлен, их показывает он (section «startup»):
+            // здесь вместо них одна строка с дорогой к core.txt
+            if (!InCore("autostart")) sp.Children.Add(Row("Запускать вместе с Windows", null, Toggle(Autostart.IsOn(), delegate(bool v) { Autostart.Set(v); }), false));
+            if (!InCore("autoUpdate")) sp.Children.Add(Row("Автообновление", "kapsula.txt сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
+            if (InCore("autostart")) sp.Children.Add(CoreLine(CoreStartup, "Запуск вместе с Windows и автообновление kapsula.txt — на странице «Общие».", "general", "запуск и обновления запускать вместе с windows автозапуск автообновление"));
+            else
+            {
+                // дорога к core.txt: открыть, а если его нет — скачать (она есть в каждом приложении dev.txt)
+                bool coreHere = CoreHub.Online || CoreInstalled;
+                sp.Children.Add(Row("core.txt — лаунчер dev.txt", coreHere ? "Обновления, общие настройки и остальные приложения dev.txt — в одном окне." : DevTxt.CoreApp.Pitch + ". kapsula.txt работает и без него — с ним приложения видят друг друга.",
+                    PillBtn(DevTxt.CoreApp.Label(CoreHub.Online), !coreHere, delegate { DevTxt.CoreApp.Go(CoreHub.Online, CoreHub.ShowCore); }), false));
+            }
+
+            // Пока значок у часов держит core.txt, своего меню с «Выходом» нет, а в меню core.txt выхода для приложений нет:
+            // тогда выйти можно здесь, как «Выйти из aura.txt» у aura.txt. Строка появляется и прячется сама (Merged.Needs)
+            sp.Children.Add(Row("Выйти из kapsula.txt", "Остров закроется до следующего запуска. Выйти можно и командой «выход» в строке острова.", PillBtn("Выйти", false, delegate { island.Quit(); }), false));
 
             sp = Sec("Внешний вид");
-            sp.Children.Add(Row("Цвет острова", "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.", BuildSwatches(), true));
-            sp.Children.Add(Row("Тема как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной. Выбранный выше цвет при этом используется для тёмной темы.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false));
+            // подсветку острова (когда у трека нет обложки) может задавать core.txt — общий акцентный цвет приложений dev.txt;
+            // цвет самого острова по-прежнему выбирается здесь. Подсказка следит за этим и при открытом окне (WireDeps)
+            var colorRow = Row("Цвет острова", ColorHint(island.SharedAccentOn), BuildSwatches(), true);
+            colorDesc = DescOf(colorRow);
+            sp.Children.Add(colorRow);
+            // по умолчанию спрятана (Merged.ThemeRowShown): видна, когда её выключали или когда она перекрывает выбранный цвет; поиск её находит
+            themeRow = (Border)Row("Тема как в Windows", "Светлый остров при светлой теме Windows, тёмный — при тёмной. Выбранный выше цвет при этом используется для тёмной темы.", Toggle(island.FollowWindows, delegate(bool v) { island.SetFlag("followWin", v); }), false);
+            sp.Children.Add(themeRow);
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             sp.Children.Add(Row("Размер", "Потяните — остров меняется сразу. Для больших мониторов удобнее покрупнее.", SliderCtl(0.8, 2, 0.05, island.Scale,
                 delegate(double v) { return Math.Round(v * 100) + "%"; },
                 delegate(double v) { island.PreviewScale(v.ToString("0.##", inv)); },
                 delegate(double v) { island.ApplyScale(v); }), true));
+            // «Шрифт острова», «Характер анимаций» и «Блоки по очереди» спрятаны, пока их не меняли (Merged.Used); поиск их находит
             sp.Children.Add(Row("Шрифт острова", "«Как в Windows» — системный. Остальные готовые есть в каждой Windows; «Другой…» — любой установленный у вас. Остров меняется сразу; буквы, которых в шрифте нет, подставит системный.", Chips(IslandWindow.FontNames, island.FontChoice(), delegate(int i)
             {
                 if (i < IslandWindow.FontNames.Length - 1) { island.ApplyFont(island.FontFace(i), true); return; }
@@ -351,6 +375,7 @@ namespace Kapsula
                     if (dlg.ShowDialog(dlgOwner) == System.Windows.Forms.DialogResult.OK) island.ApplyFont(dlg.Font.FontFamily.Name, true);
                 }
             }, IslandWindow.FontNames.Length - 1, island.FontChoice), true));   // «Другой…» открывается и повторно; после «Отмены» подсветка — на прежнем шрифте
+            QuietLast(sp, "font");
             sp.Children.Add(Row("Ширина капсулы", "Растяните капсулу вширь — например, под вырез вашего монитора или просто для вида. Остров меняется сразу.", SliderCtl(0, 240, 4, island.PillExtraW,
                 delegate(double v) { return v < 1 ? "как есть" : "+" + Math.Round(v); },
                 delegate(double v) { island.SetPillSize(v, island.PillH, false); },
@@ -362,15 +387,18 @@ namespace Kapsula
             sp.Children.Add(Row("Светлая кромка", "Тонкий блик по краю острова — он не сливается с тёмными обоями и окнами.", Toggle(island.RimOn, delegate(bool v) { island.SetFlag("rim", v); }), false));
             sp.Children.Add(Row("Тень под островом", "Мягкая тень: на светлых окнах остров словно парит над ними.", Toggle(island.ShadowOn, delegate(bool v) { island.SetFlag("shadow", v); }), false));
             sp.Children.Add(Row("Характер анимаций", "Как остров раскрывается и сворачивается. Выберите — остров сразу покажет. «Капля» сначала стекает вниз, потом расплывается вширь. «Меньше движения» — без отскоков и прыжков; включается само, если в Windows выключены анимации.", Chips(IslandWindow.MotionNames, island.MotionStyle, delegate(int i) { island.SetMotion(i); }), true));
+            QuietLast(sp, "motion");
             sp.Children.Add(Row("Зверёк в переходах", "Зверёк сам переходит туда, куда вы смотрите: выпрыгивает из капсулы на край панели и сидит, свесив лапки, перескакивает за вкладками, занимает место зверьков погоды, таймера и пустых списков, приносит уведомления — садится на край карточки и отдаёт вам письмо, — качается на жидком крае под музыку. Пока вкладку перестраивают, надевает каску и следит за стройкой. Кликните по нему — подпрыгнет.", Toggle(island.RideOn, delegate(bool v) { island.SetFlag("petRide", v); }), false));
             sp.Children.Add(Row("Зверёк гуляет по окнам", "Когда остров свёрнут и ничего не происходит, зверёк иногда выпрыгивает из капсулы и садится на верхний край окна, в котором вы работаете: сидит, свесив лапки, прохаживается, засыпает, если вы отошли. Окно двигают — едет с ним. Что-то случилось — возвращается. Сквозь него можно кликать. На развёрнутых окнах, в играх и на весь экран не гуляет. Наведите на эту строку — сядет на окно настроек.", Toggle(island.WalkOn, delegate(bool v) { island.SetFlag("walk", v); }), false));
             sp.Children.Add(Row("Блоки по очереди", "Когда открывается панель или вкладка, блоки проявляются один за другим, волной сверху вниз.", Toggle(island.CascadeOn, delegate(bool v) { island.SetFlag("cascade", v); }), false));
+            QuietLast(sp, "cascade");
+            sp.Children.Add(Row("Секунды в часах", "В капсуле вместо 12:30 будет 12:30:45.", Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
             sp.Children.Add(Row("Матовое стекло · бета", "Раскрытая панель и строка команд становятся полупрозрачными, а то, что за ними, размывается. Капсула и карточки остаются чёрными. Функция пробная: на некоторых компьютерах фон может обновляться с задержкой или нагружать систему — тогда выключите.", Toggle(island.GlassOn, delegate(bool v) { island.SetGlass(v); }), false));
             Sec("Поведение").Children.Add(Row("Остров можно отцепить", "Потяните остров за пустое место — он отцепится от верхнего края и останется там, где отпустите; у краёв экрана прилипает. Поднесите к верхнему краю — встанет на место. Если панели не хватает места, остров сам приподнимается, пока она открыта.", Toggle(island.AllowDetach, delegate(bool v) { island.SetFlag("detach", v); }), false));
             Sec("Поведение").Children.Add(Row("Вернуть остров наверх", "Если отцепленный остров мешает или потерялся.", PillBtn("Вернуть наверх", false, delegate { island.Attach(true); }), false));
             Sec("Поведение").Children.Add(Row("Автоскрытие", "Остров уезжает за край и возвращается, когда курсор у верхней кромки экрана или есть что показать.", Toggle(island.AutoHide, delegate(bool v) { island.SetFlag("autoHide", v); }), false));
-            Sec("Поведение").Children.Add(Row("Показывать в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
-            Sec("Поведение").Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так — если выше не включено «Показывать в играх».", HideAppsEditor(), true));
+            if (!InCore("showInGames")) Sec("Игры").Children.Add(Row("Показывать остров в играх", "Остров остаётся на месте поверх игр и видео на весь экран, а не прячется за край. Работает в оконном режиме без рамки; в «эксклюзивном» полноэкранном режиме игра сама закрывает собой все окна. Переключается и из меню значка у часов.", Toggle(Store.Get("showInGames") == "1", delegate(bool v) { island.SetFlag("showInGames", v); }), false));
+            Sec("Поведение").Children.Add(Row("Прятаться в программах", "Если остров закрывает вкладки или кнопки какой-то программы, добавьте её сюда: пока она активна, остров уезжает за край и возвращается, когда курсор у верхней кромки или есть что показать. В играх и видео на весь экран он прячется и так, если не включено «Показывать остров в играх»" + (InCore("showInGames") ? " (в core.txt, страница «Игры»)." : " (раздел «Игры»)."), HideAppsEditor(), true));
             sp.Children.Add(Row("Зверёк в капсуле", "Следит за курсором, задумывается, пока отвечает нейросеть, пугается таймера, радуется удаче и показывает, чем занят Claude Code. Если выключить, останутся только часы и погода.", Toggle(island.ShowEyes, delegate(bool v) { island.SetFlag("eyes", v); }), false));
             sp.Children.Add(Row("Сезонные наряды зверька", "Колпак под Новый год, шляпа в конце октября, шарф зимой.", Toggle(Store.Get("petSeason") != "0", delegate(bool v) { island.SetFlag("petSeason", v); }), false));
             sp.Children.Add(Row("Наряд зверька", "Обновки за привычки: повязка — за 3 перерыва после долгой работы, бабочка — за 10 выполненных задач на «Сегодня», наушники — за 10 часов музыки, корона — за 10 кругов помодоро. Новый наряд приносит карточка. «Сам» — носит последнюю обновку, а пока их нет — сезонный наряд.", OutfitPicker(), true));
@@ -382,7 +410,7 @@ namespace Kapsula
             }
 
             // Конструктор вкладок: каждая вкладка острова — сетка блоков, которые перетаскиваются прямо на острове
-            sp = Sec("Вкладки острова");
+            sp = Sec("Вкладки");
             sp.Children.Add(Header("Как это работает"));
             sp.Children.Add(Row("Карандаш в углу панели", "На вкладке нажмите карандаш (справа вверху, рядом с булавкой) — блоки начнут покачиваться. Тащите любой блок мышью: остальные расступятся заранее, а место, куда он встанет, подсветится зелёным (красным — если не помещается). «−» прячет блок, спрятанные возвращаются кнопками снизу, «Как было» — исходная раскладка, Esc или «Готово» — закончить.", new TextBlock(), false));
             sp.Children.Add(Header("Вкладки"));
@@ -410,25 +438,23 @@ namespace Kapsula
             sp = Sec("Музыка");
             sp.Children.Add(Row("Капсула во время музыки", "Что показывать в свёрнутом виде. «Строка песни» работает, когда для трека нашёлся текст; иначе показывается название.", Chips(new string[] { "Часы и погода", "Название", "Строка песни", "Полоса трека" }, island.PillMode, delegate(int i) { island.SetPillMode(i); }), true));
             sp.Children.Add(Row("Плеер на «Главной»", "«Компактный» — обложка слева. «Крупная обложка» — обложка по центру, название под ней. «В цвет обложки» — весь плеер залит её цветом. «Мягкое зеркало» — обложка по центру, а за ней она же, сильно размытая.", Chips(new string[] { "Компактный", "Крупная обложка", "В цвет обложки", "Мягкое зеркало" }, island.PlayerStyle, delegate(int i) { island.SetPlayerStyle(i); }), true));
-            sp.Children.Add(Row("Мини-плеер при наведении", "Во время музыки сначала открывается мини-плеер, клик по нему — вся панель.", Toggle(island.HoverMini, delegate(bool v) { island.SetFlag("hoverMini", v); }), false));
-            sp.Children.Add(Row("Мини-плеер: только текст песни", "Когда для трека нашёлся текст, мини-плеер показывает только его — крупно, во всю ширину, с маленькой обложкой и полосой времени. Переключается и кнопкой в самом мини-плеере.", Toggle(island.MiniLyricsOnly, delegate(bool v) { island.SetMiniLyricsOnly(v); }), false));
-            sp.Children.Add(Row("Новый трек поверх игр и видео", "Когда остров спрятан от игры или видео на весь экран, он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
-            sp.Children.Add(Header("Жидкий край"));
-            sp.Children.Add(Row("Жидкий край", "Нижний край пляшет под звук.", Toggle(island.LiquidOn, delegate(bool v) { island.SetFlag("liquid", v); }), false));
-            sp.Children.Add(Row("Край как эквалайзер", "Слева бас, справа высокие частоты. Выключено — край пляшет от общей громкости.", Toggle(Store.Get("liquidSpectrum") != "0", delegate(bool v) { Store.Set("liquidSpectrum", v ? "1" : "0"); }), false));
-            sp.Children.Add(Header("Тексты песен"));
+            // два прежних переключателя — одним выбором (Merged.Mini): hoverMini и miniLyricsOnly
+            sp.Children.Add(PairRow("Мини-плеер при наведении", "Во время музыки наведение сначала открывает мини-плеер, клик по нему — всю панель. «Только текст песни» — когда для трека нашёлся текст, мини-плеер показывает только его, крупно, с маленькой обложкой и полосой времени; переключается и кнопкой в самом мини-плеере.", Merged.Mini, "мини-плеер только текст песни"));
+            if (!InCore("fsTrack")) sp.Children.Add(Row("Новый трек поверх игр и видео", "Когда остров спрятан от игры или видео на весь экран, он выглядывает на пару секунд с названием нового трека.", Toggle(Store.Get("fsTrack") != "0", delegate(bool v) { island.SetFlag("fsTrack", v); }), false));
+            // «Жидкий край» и «Край как эквалайзер» — одним выбором (Merged.Edge): liquid и liquidSpectrum
+            sp.Children.Add(PairRow("Край во время музыки", "Нижний край острова: ровный, пляшет от общей громкости или как эквалайзер — слева бас, справа высокие частоты.", Merged.Edge, "жидкий край край как эквалайзер"));
             sp.Children.Add(Row("Тексты песен", "Загружаются с lrclib.net для играющего трека.", Toggle(island.LyricsEnabled, delegate(bool v) { island.SetFlag("lyrics", v); }), false));
 
             double[] offs = { -1, -0.5, 0, 0.5, 1 };
             int oi = 2;
             for (int i = 0; i < offs.Length; i++) if (Math.Abs(offs[i] - island.LyricOffset) < 0.01) oi = i;
             sp.Children.Add(Row("Сдвиг текста песни", "Если строки отстают от звука — сдвиньте вперёд, если спешат — назад.", Chips(new string[] { "−1 с", "−0,5 с", "Без сдвига", "+0,5 с", "+1 с" }, oi, delegate(int i) { island.SetLyricOffset(offs[i]); }), true));
-            sp.Children.Add(Header("Наушники"));
-            sp.Children.Add(Header("Cider"));
             sp.Children.Add(Row("«В избранное» и «Не интересует»", "Когда играет Cider, по бокам кнопок плеера появляются звезда (в избранное Apple Music) и перечёркнутый круг (предлагать меньше такого и дальше). У других плееров Windows не даёт программам ставить оценки, поэтому там этих кнопок нет.", Toggle(Store.Get("ciderRate") != "0", delegate(bool v) { Store.Set("ciderRate", v ? "1" : "0"); }), false));
             sp.Children.Add(Row("Ключ Cider", "Cider пускает программы только по ключу. В Cider откройте настройки, раздел подключений (Connectivity), управление доступом внешних приложений — создайте ключ и вставьте сюда. Ключ хранится только на этом компьютере, зашифрованный Windows, и уходит только самому Cider на этом же компьютере.", BuildSecretEditor("ciderKey", "CIDER_TOKEN"), true));
 
+            // альфа: спрятана, пока её не включали (Merged.Used); поиск по настройкам её находит
             sp.Children.Add(Row("Оценки в других плеерах · альфа", "Сырая функция, по умолчанию выключена. Звезда и «Не интересует» для Spotify, Яндекс Музыки, YouTube Music, SoundCloud и других — в браузере и в приложениях, без расширений и ключей. kapsula.txt находит кнопки «Нравится» и «Не нравится» в окне плеера через специальные возможности Windows и нажимает их, не трогая мышь. Вкладка с плеером должна быть выбранной в своём окне (окно может быть свёрнуто). Кнопки появляются, только если нашлись в плеере.", Toggle(Store.Get("uiaRate") == "1", delegate(bool v) { Store.Set("uiaRate", v ? "1" : "0"); }), false));
+            QuietLast(sp, "uiaRate");
 
             sp = Sec("AirPods и Beats");
             sp.Children.Add(Row("Заряд AirPods и Beats", "Когда наушники появляются рядом, остров показывает их заряд и предупреждает на 20% и 10%. Наушники сами сообщают заряд по Bluetooth — kapsula.txt только слушает. Команда «наушники» в строке команд покажет заряд в любой момент.", Toggle(Earbuds.Enabled, delegate(bool v) { Store.Set("earbuds", v ? "1" : "0"); if (v) Earbuds.Start(); else Earbuds.Stop(); }), false));
@@ -476,7 +502,8 @@ namespace Kapsula
                         : old ? "Подключение устарело: нажмите на переключатель — оно обновится и останется включённым."
                         : ClaudeBridge.Error != null ? "Не работает: " + Reason(ClaudeBridge.Error) + "."
                         : "Подключено. Новые сессии Claude Code подхватят это сразу, уже открытые — после перезапуска.";
-                    if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно из значка kapsula.txt у часов или командой «стоп claude». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
+                    // значок у часов держит core.txt — своего меню нет, и «Остановить Claude Code» там не найти
+                    if (cText != null) cText.Text = "Пока вы в другой программе, остров показывает запросы разрешений и вопросы Claude Code с кнопками, сообщает, что он закончил, и даёт ответить ему. Остановить его можно " + (CoreHub.HideOwnTray ? "" : "из меню значка kapsula.txt у часов, ") + "командой «стоп claude» или кнопкой «Остановить все» на вкладке «Claude Code». Не ответили за полминуты — Claude Code спросит сам, как обычно. " + st + cNote;
                 };
                 cClick = delegate
                 {
@@ -504,6 +531,7 @@ namespace Kapsula
                 sp.Children.Add(cRow);
                 sp.Children.Add(Row("Звук, когда Claude Code ждёт вас", "Системный звук вместе с карточкой разрешения или вопроса — чтобы не пропустить, если вы отвернулись от экрана.", Toggle(Store.Get("claudeSound") != "0", delegate(bool v) { Store.Set("claudeSound", v ? "1" : "0"); }), false));
                 sp.Children.Add(Row("Кнопка «Открыть в VS Code» · альфа", "Сырая функция, по умолчанию выключена. На карточке «Claude закончил» появляется кнопка, открывающая папку проекта в VS Code (без VS Code — в Проводнике), а в строке команд — команда «открыть проект в VS Code».", Toggle(Store.Get("vscodeButton") == "1", delegate(bool v) { Store.Set("vscodeButton", v ? "1" : "0"); }), false));
+                QuietLast(sp, "vscodeButton");
                 sp.Children.Add(Row("Показывать, что делает Claude Code", "Короткая надпись на острове о каждом его действии: какую команду выполняет, какой файл правит. По умолчанию выключено — без этого остров показывает только важное: запросы разрешений, вопросы и «закончил» после работы дольше полуминуты.", Toggle(Store.Get("claudeActivity") == "1", delegate(bool v) { Store.Set("claudeActivity", v ? "1" : "0"); }), false));
             }
 
@@ -610,28 +638,39 @@ namespace Kapsula
                 sp.Children.Add(Row("Уведомления Steam · бета", "Сообщения друзей, «друг в игре» и другие уведомления Steam на острове. Нужен Millennium — неофициальная модификация клиента Steam; ставить её или нет, решаете вы.", LinkButton("Сайт Millennium", "https://steambrew.app/"), false));
             else if (Steam.Found)
             {
-                Action<bool> sSet;
-                Action sClick = null;
-                var sBtn = ToggleSet(SteamBridge.PluginInstalled, delegate(bool v) { if (sClick != null) sClick(); }, out sSet);
-                var sRow = Row("Уведомления Steam · бета", "—", sBtn, false);
-                var sText = ((StackPanel)((Grid)((Border)sRow).Child).Children[0]).Children[1] as TextBlock;
+                // «Уведомления Steam» и «Не дублировать уведомления Steam» — один выбор (Merged.SteamNotify): без плагина
+                // уведомления показывает только Steam; с плагином — остров, а окошко Steam остаётся или прячется (steamHideToasts).
+                // Плагин ставится и убирается так же, как прежним переключателем; не вышло — выбор встаёт на то, что есть на самом деле
+                PrefPair sPair = Merged.SteamNotify;
                 string sNote = "";
-                Action sShow = delegate
+                Action sShow = null;
+                Action<int> sSelect;
+                Func<int> sNow = delegate { return Merged.Choice(sPair, SteamBridge.PluginInstalled, IslandWindow.Pref("steamHideToasts")); };
+                var sChips = Chips(sPair.Labels, sNow(), delegate(int i)
                 {
                     bool have = SteamBridge.PluginInstalled;
-                    sSet(have);
-                    string sv = SteamBridge.InstalledVersion;   // plugin.json не прочитался — версии нет, и пустых скобок тоже
-                    string st = !have ? "kapsula.txt положит свой плагин в папку Millennium. В интернет ничего не уходит."
-                        : SteamBridge.Error != null ? "Не работает: " + Reason(SteamBridge.Error) + "."
-                        : SteamBridge.Clients > 0 ? "Подключено" + (string.IsNullOrEmpty(sv) ? "" : " (плагин " + sv + ")") + "."
-                        : "Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите kapsula.txt и перезапустите Steam.";
-                    if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. " + st + sNote;
-                };
-                sClick = delegate
+                    if (i == 0) { if (have) sNote = SteamBridge.RemovePlugin() ? " Плагин удалён; он выгрузится при следующем запуске Steam." : " Не удалось удалить папку плагина."; }
+                    else if (have || SteamBridge.InstallPlugin())
+                    {
+                        sNote = "";
+                        if (IslandWindow.Pref("steamHideToasts") != (i == 2)) island.SetPref("steamHideToasts", i == 2);   // при «Только в Steam» не трогается
+                    }
+                    else sNote = " Не удалось записать в папку Millennium.";
+                    if (sShow != null) sShow();
+                }, -1, sNow, out sSelect);
+                var sRow = Row("Уведомления Steam · бета", "—", sChips, true);
+                Words(sRow, string.Join(" ", sPair.Labels) + " не дублировать уведомления steam");
+                var sText = DescOf(sRow);
+                sShow = delegate
                 {
-                    if (SteamBridge.PluginInstalled) sNote = SteamBridge.RemovePlugin() ? " Плагин удалён; он выгрузится при следующем запуске Steam." : " Не удалось удалить папку плагина.";
-                    else sNote = SteamBridge.InstallPlugin() ? "" : " Не удалось записать в папку Millennium.";
-                    sShow();
+                    bool have = SteamBridge.PluginInstalled;
+                    sSelect(sNow());   // плагин могли поставить или убрать и не отсюда
+                    string sv = SteamBridge.InstalledVersion;   // plugin.json не прочитался — версии нет, и пустых скобок тоже
+                    string st = !have ? ""
+                        : SteamBridge.Error != null ? " Не работает: " + Reason(SteamBridge.Error) + "."
+                        : SteamBridge.Clients > 0 ? " Подключено" + (string.IsNullOrEmpty(sv) ? "" : " (плагин " + sv + ")") + "."
+                        : " Плагин установлен, но Steam не подключился. В Steam откройте Millennium → Плагины, включите kapsula.txt и перезапустите Steam.";
+                    if (sText != null) sText.Text = "Сообщения друзей, «друг в игре» и другие уведомления Steam — карточками на острове. Для этого kapsula.txt кладёт свой плагин в папку Millennium; в интернет ничего не уходит. «Только остров» — окошко Steam справа снизу не появляется (звук остаётся), а в игре Steam показывает уведомления как обычно." + st + sNote;
                 };
                 sShow();
                 var sTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -639,28 +678,24 @@ namespace Kapsula
                 sTimer.Start();
                 Closed += delegate { sTimer.Stop(); };
                 sp.Children.Add(sRow);
-                sp.Children.Add(Row("Не дублировать уведомления Steam · бета", "Когда уведомление показал остров, окошко Steam справа снизу не появляется (звук остаётся). В игре Steam показывает уведомления как обычно.", Toggle(Store.Get("steamHideToasts") != "0", delegate(bool v) { island.SetFlag("steamHideToasts", v); SteamBridge.SendConfig(); }), false));
             }
 
-            Sec("Внешний вид").Children.Add(Row("Секунды в часах", "В капсуле вместо 12:30 будет 12:30:45.", Toggle(island.ShowSeconds, delegate(bool v) { island.SetFlag("seconds", v); }), false));
             sp = Sec("Запись и снимки");
             string ra = Store.Get("recAudio");
             sp.Children.Add(Row("Звук в записи экрана", "Звук компьютера — то, что играет в колонках или наушниках: видео, игра, звонок. Микрофон добавляется поверх, если выбран третий вариант.", Chips(new string[] { "Без звука", "Звук компьютера", "Компьютер и микрофон" }, ra == "0" ? 0 : (ra == "2" ? 2 : 1), delegate(int i) { Store.Set("recAudio", i.ToString()); }), true));
-            sp = Sec("Общее");
-            sp.Children.Add(Row("Запускать вместе с Windows", null, Toggle(Autostart.IsOn(), delegate(bool v) { Autostart.Set(v); }), false));
-            sp.Children.Add(Row("Автообновление", "kapsula.txt сама скачивает новые версии с GitHub, сверяет контрольную сумму файла и перезапускается, когда вы пару минут не трогаете компьютер.", Toggle(Store.Get("autoUpdate") != "0", delegate(bool v) { island.SetFlag("autoUpdate", v); }), false));
-
             sp = Sec("Уведомления");
             sp.Children.Add(Row("Смена раскладки", "Короткая подсказка «Раскладка: RU» при переключении языка.", Toggle(island.ShowLayout, delegate(bool v) { island.SetFlag("layout", v); }), false));
             sp.Children.Add(Row("Яркость на острове", "Меняете яркость клавишами ноутбука или в Windows — остров показывает её полоской, как громкость. Колёсико над островом с зажатым Ctrl тоже меняет яркость; у внешних мониторов — если они позволяют это программам.", Toggle(island.BrightHud, delegate(bool v) { island.SetFlag("brightHud", v); }), false));
-            sp.Children.Add(Row("Уведомления Windows на острове", "Новые уведомления других программ показываются карточкой. Нигде не сохраняются.", Toggle(island.ShowNotifications, delegate(bool v) { island.SetFlag("notifications", v); }), false));
-            sp.Children.Add(Row("Уведомления только на острове", "Чтобы уведомления не показывались дважды, kapsula.txt убирает уведомление Windows сразу, как только показала его на острове: окошко Windows успевает лишь мелькнуть. Пропущенное можно посмотреть в истории острова (до закрытия kapsula.txt). Пока kapsula.txt закрыта, уведомления Windows работают как обычно. Предупреждения безопасности Windows не трогаются.", Toggle(Banners.On, delegate(bool v) { Banners.Set(v); }), false));
-            sp.Children.Add(Row("Напоминать о событиях календаря", "За десять минут до события из календаря Windows появится карточка. Список ближайших событий — по команде «календарь» в строке команд.", Toggle(Store.Get("calendar") != "0", delegate(bool v) { Store.Set("calendar", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Отсчёт до встречи в капсуле", "За 15 минут до события из календаря или задачи со временем капсула показывает «Созвон · через 12 мин». Пока играет музыка — только последние 5 минут.", Toggle(Store.Get("soonPill") != "0", delegate(bool v) { Store.Set("soonPill", v ? "1" : "0"); }), false));
+            // «Уведомления Windows на острове» и «Уведомления только на острове» — один выбор (Merged.WindowsNotify).
+            // «Скрывать текст» отдельно: он прячет текст и у уведомлений приложений dev.txt, даже когда уведомления Windows не на острове
+            sp.Children.Add(PairRow("Уведомления Windows", "Новые уведомления других программ — карточкой на острове. На диск они не сохраняются: пропущенные — в истории острова до закрытия kapsula.txt. «Только остров» — окошко Windows убирается, как только остров показал уведомление, и успевает лишь мелькнуть. Пока kapsula.txt закрыта, уведомления Windows работают как обычно, а предупреждения безопасности Windows не трогаются.", Merged.WindowsNotify, "уведомления windows на острове уведомления только на острове"));
+            sp.Children.Add(Row("Скрывать текст уведомлений", "Карточки уведомлений Windows и приложений dev.txt показывают только, от кого уведомление, без текста — если рядом кто-то смотрит на экран.", Toggle(Store.Get("hideNotifText") == "1", delegate(bool v) { Store.Set("hideNotifText", v ? "1" : "0"); }), false));
+            // «Напоминать о событиях календаря» и «Отсчёт до встречи в капсуле» — один выбор (Merged.Remind), все четыре сочетания
+            sp.Children.Add(PairRow("Напоминания о событиях", "Карточка — за 10 минут до события из календаря Windows. Отсчёт — за 15 минут до события или задачи со временем капсула показывает «Созвон · через 12 мин», а пока играет музыка — только последние 5 минут. Ближайшие события — по команде «календарь» в строке команд.", Merged.Remind, "напоминать о событиях календаря отсчёт до встречи в капсуле"));
             sp.Children.Add(Row("Счётчик непрочитанного", "Красный кружок с числом сообщений из Discord и Steam, пришедших, пока вы в них не смотрели. Сбрасывается, когда вы открываете программу.", Toggle(Store.Get("unread") != "0", delegate(bool v) { Store.Set("unread", v ? "1" : "0"); }), false));
 
             BuildExtrasSection(Sec("Дополнительно"));
-            BuildSecuritySection(Sec("Безопасность"));
+            BuildSecuritySection(Sec("Приватность"));
 
             sp = Sec("Клавиши");
             sp.Children.Add(new TextBlock { Foreground = Sub, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 0, 8), Text = "Нажмите на сочетание и введите новое. Backspace отключает, правый клик возвращает исходное. Красным отмечены сочетания, занятые другой программой." });
@@ -669,31 +704,44 @@ namespace Kapsula
             Closed += delegate { if (capturing != null) { capturing = null; island.SuspendHotkeys(false); } };
             try { Arrange(); } catch (Exception ex) { Store.LogError("порядок настроек", ex); }
             try { Sec("Зверёк").Children.Insert(0, PetHero()); } catch (Exception ex) { Store.LogError("зверёк в настройках", ex); }
+            try { WireDeps(); } catch (Exception ex) { Store.LogError("строки настроек", ex); }
+            built = true;
             try { BuildLayout(); } catch (Exception ex) { Store.LogError("окно настроек", ex); Content = new TextBlock { Text = ex.ToString(), Foreground = Txt, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(16) }; }
         }
 
-        // ---- разделы настроек
-        static readonly string[] SectionOrder = { "Зверёк", "Общее", "Внешний вид", "Поведение", "Вкладки острова", "Музыка", "Уведомления", "Игры", "Нейросети", "Телефон", "AirPods и Beats", "Steam и Discord", "Запись и снимки", "Безопасность", "Дополнительно", "Клавиши" };
-        static readonly string[] SectionGlyphs = { "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" };
+        // ---- разделы настроек: сначала зверёк и общее, потом вид и поведение острова, потом что он умеет, связи с программами
+        // и устройствами, приватность и клавиши. Значок — символ Segoe Fluent Icons; у зверька — его лапка
+        static readonly string[] SectionOrder = { "Зверёк", "Общее", "Внешний вид", "Поведение", "Вкладки", "Музыка", "Уведомления", "Игры", "Steam и Discord", "Нейросети", "Телефон", "AirPods и Beats", "Запись и снимки", "Приватность", "Дополнительно", "Клавиши" };
+        static readonly string[] SectionGlyphs = { "", "\uE713", "\uE790", "\uE8B0", "\uE70F", "\uE8D6", "\uEA8F", "\uE7FC", "\uE8F2", "\uE8BD", "\uE8EA", "\uE7F6", "\uE714", "\uE72E", "\uE71D", "\uE765" };
         static readonly string[] SectionHints =
         {
             "Характер, прогулки по окнам, наряды и свой стикер",
-            "Версия, обновления, запуск, монитор",
-            "Цвет, размер, анимации, кромка, зверёк",
-            "Когда остров прячется и что подсказывает",
-            "Конструктор: блоки вкладок перетаскиваются",
-            "Плеер, жидкий край, тексты песен, оценки",
-            "Карточки уведомлений и напоминания",
-            "Остров в играх, игровой режим, Twitch",
-            "Чат, Qwen на компьютере, ключи, Claude Code",
+            "Версия, запуск и обновления",
+            "Цвет, размер, стекло и форма капсулы",
+            "Где остров, когда он прячется и что подсказывает",
+            "Конструктор вкладок: блоки перетаскиваются",
+            "Плеер, край, тексты песен и оценки",
+            "Уведомления Windows и напоминания",
+            "Остров в играх, игровой режим и Twitch",
+            "Уведомления, звонки и плагины",
+            "Чат, Qwen на компьютере, ключи и Claude Code",
             "Пульт и веб-камера из телефона",
             "Заряд наушников и пауза, когда их сняли",
-            "Карточки и плагины Steam и Discord",
-            "Звук в записи, остров на снимках",
-            "Камера, микрофон, пароли, текст уведомлений",
-            "Пробные функции: звонки",
+            "Звук в записи и остров на снимках",
+            "Камера и микрофон, пароли и чем делиться",
+            "Пробные функции",
             "Сочетания клавиш"
-        };        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
+        };
+
+        // Прежние названия разделов: последний открытый раздел запомнен по имени, а ссылки на разделы есть и на острове
+        static string SectionName(string name)
+        {
+            if (name == "Безопасность") return "Приватность";
+            if (name == "Вкладки острова") return "Вкладки";
+            return name;
+        }
+
+        Dictionary<string, StackPanel> sections = new Dictionary<string, StackPanel>();
         List<Border> navItems = new List<Border>();
         TextBlock paneTitle, paneHint;
         string currentSection;
@@ -706,17 +754,19 @@ namespace Kapsula
         static readonly string[][] Layout =
         {
             new[] { "Зверёк", "#Характер", "Зверёк в капсуле", "Зверёк в переходах", "Зверёк гуляет по окнам", "#Наряды", "Наряд зверька", "Сезонные наряды зверька", "#Вместо зверька", "Свой стикер вместо зверька" },
-            new[] { "Общее", "Украинский проект", "Kapsula ", "Запускать вместе с Windows", "Автообновление", "Монитор" },
+            new[] { "Общее", "Украинский проект", "Версия ", "Запускать вместе с Windows", "Автообновление", CoreStartup, "core.txt — лаунчер dev.txt", "Выйти из kapsula.txt" },
             new[] { "Внешний вид", "#Остров", "Цвет острова", "Тема как в Windows", "Размер", "Шрифт острова", "Матовое стекло", "Светлая кромка", "Тень под островом", "Секунды в часах", "#Анимации", "Характер анимаций", "Блоки по очереди", "#Форма капсулы", "Ширина капсулы", "Высота капсулы" },
-            new[] { "Поведение", "#Где остров", "Остров можно отцепить", "Вернуть остров наверх", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки", "Яркость на острове" },
-            new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "Мини-плеер: только текст песни", "#Жидкий край", "Жидкий край", "Край как эквалайзер", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
-            new[] { "Уведомления", "#Карточки", "Уведомления Windows на острове", "Уведомления только на острове", "Счётчик непрочитанного", "#Напоминания", "Напоминать о событиях календаря", "Утренняя карточка" },
-            new[] { "Игры", "#Остров в играх", "Игровой режим", "Показывать в играх", "Новый трек поверх игр и видео", "Нагрузка в играх", "Нагрузка в капсуле во время игры","#Twitch", "Чат Twitch поверх игры", "Канал Twitch", "Чат Twitch и вне игр" },
+            new[] { "Поведение", "#Где остров", "Монитор", "Остров можно отцепить", "Вернуть остров наверх", "#Когда прятаться", "Автоскрытие", "Прятаться в программах", "#Подсказки", "Смена раскладки", "Яркость на острове" },
+            new[] { "Музыка", "#Плеер", "Капсула во время музыки", "Плеер на «Главной»", "Мини-плеер при наведении", "Край во время музыки", "#Тексты песен", "Тексты песен", "Сдвиг текста песни", "#Оценки треков", "«В избранное» и «Не интересует»", "Ключ Cider", "Оценки в других плеерах" },
+            new[] { "Уведомления", "#Карточки", "Уведомления Windows", "Скрывать текст уведомлений", "Счётчик непрочитанного", "#Напоминания", "Напоминания о событиях", "Утренняя карточка" },
+            new[] { "Игры", "#Остров в играх", "Игровой режим", "Показывать остров в играх", "Нагрузка в капсуле во время игры", "Новый трек поверх игр и видео", "Нагрузка в играх", CoreGames, "#Twitch", "Чат Twitch поверх игры", "Канал Twitch", "Чат Twitch и вне игр" },
+            new[] { "Steam и Discord", "#Discord", "Discord через Vencord", "Звонки Discord на острове", "#Steam", "Steam", "Уведомления Steam" },
             new[] { "Нейросети", "#Чат", "Кто отвечает в чате", "#Qwen на этом компьютере", "Модель Qwen 3.5", "Скачать на компьютер", "#Claude", "Ключ Claude API", "Модель Claude", "#Gemini", "Ключ Gemini API", "Модель Gemini", "#Claude Code", "Claude Code на острове", "Показывать, что делает Claude Code", "Звук, когда Claude Code ждёт вас", "Кнопка «Открыть в VS Code»", "#Другие ИИ-агенты (MCP)", "Остров для любых агентов" },
             new[] { "Телефон", "#Пульт", "Пульт с телефона", "Подключить телефон", "#Камера телефона", "Телефон как веб-камера", "Качество камеры" },
+            new[] { "AirPods и Beats", "Заряд AirPods и Beats", "Пауза, когда сняли наушники" },
             new[] { "Запись и снимки", "Звук в записи экрана", "Показывать остров на скриншотах" },
-            new[] { "Безопасность", "#Камера и микрофон", "Индикатор микрофона", "Индикатор камеры", "#Приватность", "Скрывать текст уведомлений", "Не запоминать пароли из буфера", "Показывать музыку, погоду и события другим приложениям dev.txt", "Показывать счётчик непрочитанного" },
-            new[] { "Дополнительно", "#Пробные функции", "Режим звонка" },
+            new[] { "Приватность", "Индикаторы камеры и микрофона", "Не запоминать пароли из буфера", "Делиться с приложениями dev.txt", "Показывать музыку, погоду и события другим приложениям dev.txt", "Показывать счётчик непрочитанного", CoreFamily },
+            new[] { "Дополнительно", "Режим звонка" },
         };
 
         Border FindRow(string key)
@@ -780,6 +830,276 @@ namespace Kapsula
             }
         }
 
+        // ---- Строки, которые появляются, только когда на что-то влияют (Merged.Needs), и «Тема как в Windows»
+        readonly List<KeyValuePair<Border, Func<bool>>> deps = new List<KeyValuePair<Border, Func<bool>>>();
+        readonly List<Action> pairSync = new List<Action>();          // сводные выборы: подсветка — по тому, что сейчас в настройках
+        readonly HashSet<Border> leaving = new HashSet<Border>();     // строки, которые как раз прячутся
+        readonly Dictionary<Border, int> revealSeq = new Dictionary<Border, int>();
+        int revealN;
+        Border themeRow;
+        bool themeSeen, camInstalled, built;
+
+        void WireDeps()
+        {
+            foreach (string[] n in Merged.Needs)
+            {
+                Border r;
+                if (!rowsByTitle.TryGetValue(n[0], out r)) continue;   // строки нет на этом компьютере или её показывает core.txt
+                string what = n[1];
+                deps.Add(new KeyValuePair<Border, Func<bool>>(r, delegate { return NeedOn(what); }));
+                depNote[r] = Merged.NeedNote(what);   // поиск найдёт её и спрятанной — и скажет, когда она появится
+            }
+            // переключатели, которые меняют и не здесь, раз в секунду встают так, как сейчас в настройках (SwitchSource)
+            foreach (var kv in rowSwitch)
+            {
+                string title;
+                Func<bool> get = rowTitle.TryGetValue(kv.Key, out title) ? SwitchSource(title) : null;
+                if (get == null) continue;
+                Switch sw = kv.Value;
+                switchSync.Add(delegate { bool v; try { v = get(); } catch { return; } if (sw.Value != v) sw.Value = v; });
+            }
+            if (themeRow != null) deps.Add(new KeyValuePair<Border, Func<bool>>(themeRow, delegate
+            {
+                // однажды показанная строка остаётся до закрытия окна: не пропадает из-под курсора
+                themeSeen = themeSeen || Merged.ThemeRowShown(Store.Get("followWin"), IslandWindow.WindowsDark, IslandWindow.IsLight(island.IslandColor));
+                return themeSeen;
+            }));
+            RefreshDeps(false);
+            // спрятанную «Тему как в Windows» поиск тоже находит
+            if (themeRow != null && themeRow.Visibility != Visibility.Visible)
+                quiet[themeRow] = delegate { return themeSeen || Merged.ThemeRowShown(Store.Get("followWin"), IslandWindow.WindowsDark, IslandWindow.IsLight(island.IslandColor)); };
+            // раз в секунду — то, что меняется не в этом окне: остров отцепили, Windows сменила тему, core.txt поменял выбор
+            // или переключатель, значок у часов перешёл к core.txt, core.txt задал цвет подсветки
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            t.Tick += delegate
+            {
+                foreach (Action a in switchSync) a();
+                RefreshDeps(true);
+                foreach (Action a in pairSync) a();
+                if (colorDesc != null) { string h = ColorHint(island.SharedAccentOn); if (colorDesc.Text != h) colorDesc.Text = h; }
+                if (scroller != null && scroller.Content != searchPage) RefreshNav();   // во время поиска строки разделов — на его странице
+            };
+            t.Start();
+            Closed += delegate { t.Stop(); };
+        }
+
+        readonly Dictionary<Border, string> depNote = new Dictionary<Border, string>();   // зависимая строка → когда она появится
+        readonly Dictionary<FrameworkElement, Switch> switchOf = new Dictionary<FrameworkElement, Switch>();
+        readonly Dictionary<Border, Switch> rowSwitch = new Dictionary<Border, Switch>();   // строка → её переключатель
+        readonly Dictionary<Border, string> rowTitle = new Dictionary<Border, string>();    // строка → её название (как в Layout)
+        readonly List<Action> switchSync = new List<Action>();
+        TextBlock colorDesc;
+
+        // Переключатели, которые меняют и не в этом окне: в core.txt (его страница и сценарии), в меню значка у часов, в общем
+        // меню core.txt, сочетанием клавиш. По названию строки — откуда взять, как он стоит сейчас; null — меняется только здесь
+        public static readonly string[] Synced =
+        {
+            "Автоскрытие", "Секунды в часах", "Светлая кромка", "Тень под островом", "Зверёк в капсуле", "Зверёк в переходах",
+            "Зверёк гуляет по окнам", "Сезонные наряды зверька", "Тексты песен", "Показывать остров в играх", "Новый трек поверх игр и видео",
+            "Нагрузка в капсуле во время игры", "Делиться с приложениями dev.txt", "Показывать музыку, погоду и события другим приложениям dev.txt",
+            "Показывать счётчик непрочитанного", "Запускать вместе с Windows", "Автообновление", "Игровой режим",
+            "«В избранное» и «Не интересует»", "Заряд AirPods и Beats", "Чат Twitch поверх игры"
+        };
+
+        Func<bool> SwitchSource(string title)
+        {
+            switch (title)
+            {
+                case "Автоскрытие": return delegate { return island.AutoHide; };
+                case "Секунды в часах": return delegate { return island.ShowSeconds; };
+                case "Светлая кромка": return delegate { return island.RimOn; };
+                case "Тень под островом": return delegate { return island.ShadowOn; };
+                case "Зверёк в капсуле": return delegate { return island.ShowEyes; };
+                case "Зверёк в переходах": return delegate { return island.RideOn; };
+                case "Зверёк гуляет по окнам": return delegate { return island.WalkOn; };
+                case "Сезонные наряды зверька": return delegate { return Store.Get("petSeason") != "0"; };
+                case "Тексты песен": return delegate { return island.LyricsEnabled; };
+                case "Показывать остров в играх": return delegate { return Store.Get("showInGames") == "1"; };
+                case "Новый трек поверх игр и видео": return delegate { return Store.Get("fsTrack") != "0"; };
+                case "Нагрузка в капсуле во время игры": return delegate { return Store.Get("gameLoad") == "1"; };
+                case "Делиться с приложениями dev.txt": return delegate { return CoreHub.ShareOn && CoreHub.ShareUnreadOn; };   // включён — только если оба
+                case "Показывать музыку, погоду и события другим приложениям dev.txt": return delegate { return CoreHub.ShareOn; };
+                case "Показывать счётчик непрочитанного": return delegate { return CoreHub.ShareUnreadOn; };
+                case "Запускать вместе с Windows": return delegate { return Autostart.IsOn(); };
+                case "Автообновление": return delegate { return Store.Get("autoUpdate") != "0"; };
+                case "Игровой режим": return delegate { return island.GamerMode; };
+                case "«В избранное» и «Не интересует»": return delegate { return Store.Get("ciderRate") != "0"; };
+                case "Заряд AirPods и Beats": return delegate { return Earbuds.Enabled; };
+                case "Чат Twitch поверх игры": return delegate { return Store.Get("twitchOverlay") == "1"; };
+            }
+            return null;
+        }
+
+        // Подсказка у «Цвета острова»: подсветку (у трека без обложки) может задавать core.txt — цвет самого острова всё равно здесь
+        public static string ColorHint(bool sharedAccent)
+        {
+            return "Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет." + (sharedAccent ? " Цвет подсветки задаёт core.txt." : "");
+        }
+
+        // В списке разделов — только те, где сейчас есть что показать: раздел, где всё спрятано, появляется, когда в нём
+        // появилась строка (например, нашли поиском и открыли строку «пока не трогали»)
+        void RefreshNav()
+        {
+            foreach (Border b in navItems)
+            {
+                StackPanel sec;
+                Visibility want = sections.TryGetValue((string)b.Tag, out sec) && HasRows(sec) ? Visibility.Visible : Visibility.Collapsed;
+                if (b.Visibility != want) b.Visibility = want;
+            }
+        }
+
+        // От чего зависит строка (Merged.Needs): состояние острова или ключ настроек с его значением по умолчанию
+        bool NeedOn(string what)
+        {
+            switch (what)
+            {
+                case "eyes": return island.ShowEyes;
+                case "lyrics": return island.LyricsEnabled;
+                case "detached": return island.Detached;
+                case "camera": return camInstalled;
+                case "coreTray": return CoreHub.HideOwnTray;
+            }
+            return IslandWindow.Pref(what);
+        }
+
+        void RefreshDeps(bool animate)
+        {
+            foreach (var d in deps)
+            {
+                bool want;
+                try { want = d.Value(); } catch { continue; }
+                Reveal(d.Key, want, animate);
+            }
+        }
+
+        // После любой перемены в окне зависимые строки появляются или прячутся сразу, а не через секунду
+        void AfterChange() { if (built) RefreshDeps(true); }
+
+        // ---- «Пока не трогали — не видно» (Merged.Used): строка стоит на своём месте в разделе, но спрятана, пока её значение
+        // такое же, как по умолчанию. Поиск по настройкам её находит — так её можно и включить, и вернуть как было
+        readonly Dictionary<Border, Func<bool>> quiet = new Dictionary<Border, Func<bool>>();
+
+        void Quiet(Border row, Func<bool> used)
+        {
+            if (row == null) return;
+            bool on;
+            try { on = used(); } catch { on = true; }
+            if (on) return;   // уже трогали — обычная строка, видна до закрытия окна, даже если её вернут как было
+            row.Visibility = Visibility.Collapsed;
+            quiet[row] = used;
+        }
+
+        // Последняя строка, добавленная в раздел, — по ключу её настройки
+        void QuietLast(Panel p, string key)
+        {
+            Quiet(p.Children[p.Children.Count - 1] as Border, delegate { return Merged.Used(key, Store.Get(key), SystemParameters.ClientAreaAnimation); });
+        }
+
+        // В разделе есть что показать: спрятанные строки и пустые подзаголовки не в счёт
+        static bool HasRows(Panel p)
+        {
+            foreach (UIElement k in p.Children) if (k.Visibility == Visibility.Visible && !IsHeader(k)) return true;
+            return false;
+        }
+
+        // Строка появляется и прячется плавно: карточка раздвигается или сдвигается (высота), а содержимое строки проявляется
+        // или тает, — за Tokens.Motion.BaseMs; при «Меньше движения» или когда раздел не на экране — сразу.
+        // Карточка раздела (GroupRows) пересобирается, когда строка уже видна или уже спрятана
+        void Reveal(Border row, bool show, bool animate)
+        {
+            bool shown = row.Visibility == Visibility.Visible && !leaving.Contains(row);
+            if (shown == show || row.Parent == searchPage) return;   // найденная поиском строка стоит на странице поиска, пока его не сбросят
+            var host = row.Parent as StackPanel;
+            UIElement body = row.Child ?? row;   // тает содержимое, а фон карточки остаётся сплошным — без «дыры» посреди карточки
+            int my = ++revealN;
+            revealSeq[row] = my;
+            leaving.Remove(row);
+            row.BeginAnimation(FrameworkElement.HeightProperty, null);
+            body.BeginAnimation(UIElement.OpacityProperty, null);
+            row.Height = double.NaN; body.Opacity = 1;
+            if (show) row.Visibility = Visibility.Visible;
+            bool smooth = animate && !island.ReducedMotion && host != null && host.IsVisible;
+            if (!smooth)
+            {
+                row.ClipToBounds = false;
+                if (!show) row.Visibility = Visibility.Collapsed;
+                if (host != null) GroupRows(host);
+                return;
+            }
+            double from = 0, to = 0;
+            if (show)
+            {
+                GroupRows(host);   // новая строка уже в карточке: углы и линии сразу на местах
+                row.Measure(new Size(host.ActualWidth, double.PositiveInfinity));
+                to = Math.Max(0, row.DesiredSize.Height - row.Margin.Top - row.Margin.Bottom);
+            }
+            else { from = row.ActualHeight; leaving.Add(row); }
+            row.ClipToBounds = true;
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var dur = TimeSpan.FromMilliseconds(Tokens.Motion.BaseMs);
+            var grow = new DoubleAnimation(from, to, dur) { EasingFunction = ease };
+            grow.Completed += delegate
+            {
+                int now;
+                if (!revealSeq.TryGetValue(row, out now) || now != my) return;   // за это время строку снова показали или спрятали
+                row.BeginAnimation(FrameworkElement.HeightProperty, null);
+                body.BeginAnimation(UIElement.OpacityProperty, null);
+                row.Height = double.NaN; body.Opacity = 1; row.ClipToBounds = false;
+                if (show) return;
+                leaving.Remove(row);
+                row.Visibility = Visibility.Collapsed;
+                var p = row.Parent as StackPanel;
+                if (p != null) GroupRows(p);
+            };
+            row.BeginAnimation(FrameworkElement.HeightProperty, grow);
+            body.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(show ? 0 : 1, show ? 1 : 0, dur) { EasingFunction = ease });
+        }
+
+        // Строка сводного выбора (Merged.cs): варианты — точные сочетания прежних ключей, выбор меняет только то, что и правда
+        // другое. old — прежние названия строк: поиск находит новую строку и по ним
+        FrameworkElement PairRow(string title, string desc, PrefPair p, string old)
+        {
+            Func<int> now = delegate { return Merged.Choice(p, IslandWindow.Pref(p.A), IslandWindow.Pref(p.B)); };
+            Action<int> select;
+            var chips = Chips(p.Labels, now(), delegate(int i) { island.SetPair(p, i); }, -1, now, out select);
+            pairSync.Add(delegate { select(now()); });   // выбор поменяли не здесь (в core.txt) — подсветка встаёт на то, что есть
+            return Words(Row(title, desc, chips, true), string.Join(" ", p.Labels) + " " + old);
+        }
+
+        // Дополнительные слова для поиска по строке: прежние названия, подписи вариантов
+        FrameworkElement Words(FrameworkElement row, string more)
+        {
+            var b = row as Border;
+            string t;
+            if (b != null && rowText.TryGetValue(b, out t)) rowText[b] = t + " " + (more ?? "").ToLowerInvariant();
+            return row;
+        }
+
+        // Подпись под названием строки (Row): её меняют на ходу — состояние подключения, итог нажатия
+        static TextBlock DescOf(FrameworkElement row)
+        {
+            try { return ((StackPanel)((Panel)((Border)row).Child).Children[0]).Children[1] as TextBlock; } catch { return null; }
+        }
+
+        // core.txt установлен — пункты с section (games, startup, family) показывает он (PROTOCOL.md, «Семья»).
+        // KAPSULA_TEST_NOCORE=1 — для проверочных снимков окна таким, каким его видят без core.txt
+        static bool CoreInstalled { get { return Environment.GetEnvironmentVariable("KAPSULA_TEST_NOCORE") != "1" && DevTxt.CoreApp.Installed; } }
+        static bool InCore(string key) { return Merged.ViaCore(CoreInstalled, key); }
+
+        // Одна строка вместо пунктов, которые показывает core.txt (PROTOCOL.md: «Настраивается в core.txt»), — в подсказке что
+        // и на какой странице, кнопка открывает эту страницу: у запущенного core.txt — через хаб, у незапущенного — ключом
+        // --page (CoreHub.OpenCore). Строк три, по одной на группу: в разметке (Layout) они — под своими именами (key).
+        // words — прежние названия строк: поиск находит, куда они переехали
+        public const string CoreStartup = "core.txt: запуск и обновления", CoreGames = "core.txt: игры", CoreFamily = "core.txt: чем делиться";
+
+        FrameworkElement CoreLine(string key, string desc, string page, string words)
+        {
+            var row = (Border)Row("Настраивается в core.txt", desc, PillBtn(DevTxt.CoreApp.Label(CoreHub.Online), false, delegate { CoreHub.OpenCore(page); }), false);
+            rowsByTitle[key] = row;
+            rowTitle[row] = key;
+            return Words(row, words);
+        }
+
         // ---- Поиск по настройкам: найденные строки на время поиска собираются на одну страницу
         TextBox searchBox;
         StackPanel searchPage = new StackPanel();
@@ -793,15 +1113,26 @@ namespace Kapsula
                 searchPage.Children.Remove(b.Key);
                 Panel home = b.Value.Key;
                 home.Children.Insert(Math.Min(b.Value.Value, home.Children.Count), b.Key);
+                // строка «пока не трогали»: включили её в поиске — теперь она обычная, иначе снова прячется
+                var row = b.Key as Border;
+                Func<bool> used;
+                if (row == null || !quiet.TryGetValue(row, out used)) continue;
+                bool on;
+                try { on = used(); } catch { on = true; }
+                if (on) quiet.Remove(row); else row.Visibility = Visibility.Collapsed;
             }
             borrowed.Clear();
             searchPage.Children.Clear();
             foreach (StackPanel sec in sections.Values) GroupRows(sec);
+            if (navItems.Count > 0) RefreshNav();
         }
+
+        readonly List<KeyValuePair<string, List<Border>>> lastFound = new List<KeyValuePair<string, List<Border>>>();   // разделы последнего поиска — для проверочных снимков
 
         void RunSearch(string q)
         {
             ReturnBorrowed();
+            lastFound.Clear();
             q = (q ?? "").Trim().ToLowerInvariant();
             // одна буква — ещё не запрос: показываем раздел, но поле не трогаем (иначе первая же буква стиралась)
             if (q.Length < 2) { searchMuted = true; ShowSection(currentSection ?? "Общее"); searchMuted = false; return; }
@@ -812,24 +1143,36 @@ namespace Kapsula
                 StackPanel sec;
                 if (!sections.TryGetValue(name, out sec)) continue;
                 var hits = new List<Border>();
+                var later = new List<Border>();   // спрятанные зависимые строки: сейчас ни на что не влияют — только когда появятся
                 foreach (UIElement k in sec.Children)
                 {
                     var b = k as Border; string txt;
                     if (b == null || !rowText.TryGetValue(b, out txt)) continue;
+                    bool hidden = b.Visibility != Visibility.Visible && !quiet.ContainsKey(b);   // «пока не трогали» ищем как обычные
+                    if (hidden && !depNote.ContainsKey(b)) continue;
                     bool all = true;
                     foreach (string w in words) if (!txt.Contains(w) && !name.ToLowerInvariant().Contains(w)) { all = false; break; }
-                    if (all) hits.Add(b);
+                    if (all) (hidden ? later : hits).Add(b);
                 }
-                if (hits.Count == 0) continue;
+                if (hits.Count == 0 && later.Count == 0) continue;
                 var head = new TextBlock { Text = name, Foreground = Sub, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 12, 0, 8), Cursor = Cursors.Hand, ToolTip = "Открыть раздел" };
                 string target = name;
-                head.MouseLeftButtonDown += delegate { searchBox.Text = ""; ShowSection(target); };
+                var opened = new List<Border>(hits);
+                head.MouseLeftButtonDown += delegate { OpenFound(target, opened); };
+                lastFound.Add(new KeyValuePair<string, List<Border>>(target, opened));
                 searchPage.Children.Add(head);
                 foreach (Border b in hits)
                 {
                     borrowed.Add(new KeyValuePair<UIElement, KeyValuePair<Panel, int>>(b, new KeyValuePair<Panel, int>(sec, sec.Children.IndexOf(b))));
                     sec.Children.Remove(b);
+                    b.Visibility = Visibility.Visible;
                     searchPage.Children.Add(b);
+                    found++;
+                }
+                foreach (Border b in later)
+                {
+                    string title;
+                    searchPage.Children.Add(NoteRow(rowTitle.TryGetValue(b, out title) ? title : "", depNote[b]));
                     found++;
                 }
             }
@@ -841,6 +1184,33 @@ namespace Kapsula
             scroller.Content = searchPage;
             scroller.ScrollToTop();
             foreach (Border b in navItems) { b.Background = Brushes.Transparent; b.BorderBrush = Brushes.Transparent; }
+            foreach (Border p in navPills) p.Visibility = Visibility.Hidden;   // поиск — не раздел: полоски выбранного раздела нет
+        }
+
+        // Щелчок по названию раздела в найденном: раздел открывается, а найденные в нём строки «пока не трогали» остаются
+        // видны до закрытия окна — их искали, чтобы поменять; первая найденная строка — перед глазами
+        void OpenFound(string section, List<Border> found)
+        {
+            foreach (Border b in found)
+            {
+                if (!quiet.Remove(b)) continue;
+                if (b == themeRow) themeSeen = true;   // «Тема как в Windows» ещё и зависимая строка: не прятать её снова через секунду
+            }
+            searchBox.Text = "";
+            ShowSection(section);
+            RefreshNav();
+            if (found.Count == 0) return;
+            Border first = found[0];
+            Dispatcher.BeginInvoke(new Action(delegate { first.BringIntoView(); }), DispatcherPriority.Loaded);
+        }
+
+        // Найденная поиском, но сейчас спрятанная строка: только её название (бледно) и когда она появится
+        Border NoteRow(string title, string note)
+        {
+            var col = new StackPanel();
+            col.Children.Add(new TextBlock { Text = title, Foreground = Sub, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            col.Children.Add(new TextBlock { Text = note, Foreground = Sub, FontSize = 12, LineHeight = 17, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+            return new Border { Background = RowBg, CornerRadius = new CornerRadius(4), Padding = new Thickness(18, 13, 18, 14), Margin = new Thickness(0, 0, 0, 8), Child = col, Tag = "row" };
         }
 
         // Панель раздела по названию: строки настроек добавляются в неё
@@ -856,23 +1226,35 @@ namespace Kapsula
         {
             Ui.PetColor,
             Color.FromRgb(0x8E, 0x8E, 0x93), Color.FromRgb(0x5E, 0x5C, 0xE6), Tokens.Palette.Green, Color.FromRgb(0x64, 0xD2, 0xFF), Tokens.Palette.Pink, Tokens.Palette.Red,
-            Tokens.Palette.Green, Color.FromRgb(0xE0, 0x7B, 0x45), Tokens.Palette.Green, Color.FromRgb(0xAC, 0xAC, 0xB2), Color.FromRgb(0x30, 0xB0, 0xC7), Tokens.Palette.Orange, Tokens.Palette.Blue, Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
+            Tokens.Palette.Green, Color.FromRgb(0x30, 0xB0, 0xC7), Color.FromRgb(0xE0, 0x7B, 0x45), Tokens.Palette.Green, Color.FromRgb(0xAC, 0xAC, 0xB2), Tokens.Palette.Orange, Tokens.Palette.Blue, Color.FromRgb(0xAF, 0x52, 0xDE), Color.FromRgb(0x63, 0x63, 0x66)
         };
         static readonly Brush Divider = new SolidColorBrush(Color.FromRgb(0x1D, 0x1D, 0x1D));
         static readonly Brush RowHover = new SolidColorBrush(Color.FromRgb(0x32, 0x32, 0x32));
 
+        static bool IsRow(UIElement u) { var b = u as Border; return b != null && (b.Tag as string) == "row"; }
+        static bool IsHeader(UIElement u) { var t = u as TextBlock; return t != null && (t.Tag as string) == "hdr"; }
+
         // Строки настроек, идущие подряд, собираются в одну карточку: скруглены только её внешние углы,
         // между строками — тонкая линия. Так раздел читается как несколько понятных групп, а не россыпь плашек.
+        // Спрятанные строки (Collapsed) не в счёт, а подзаголовок, под которым не осталось видимых строк, прячется тоже.
         static void GroupRows(StackPanel p)
         {
-            var kids = new List<UIElement>();
-            foreach (UIElement k in p.Children) kids.Add(k);
+            var all = new List<UIElement>();
+            foreach (UIElement k in p.Children) all.Add(k);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (!IsHeader(all[i])) continue;
+                bool any = false;
+                for (int j = i + 1; j < all.Count && !IsHeader(all[j]); j++) if (all[j].Visibility == Visibility.Visible) { any = true; break; }
+                all[i].Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+            }
+            var kids = all.FindAll(delegate(UIElement u) { return u.Visibility == Visibility.Visible; });
             for (int i = 0; i < kids.Count; i++)
             {
                 var b = kids[i] as Border;
-                if (b == null || (b.Tag as string) != "row") continue;
-                bool first = i == 0 || !((kids[i - 1] is Border) && ((Border)kids[i - 1]).Tag as string == "row");
-                bool last = i == kids.Count - 1 || !((kids[i + 1] is Border) && ((Border)kids[i + 1]).Tag as string == "row");
+                if (!IsRow(b)) continue;
+                bool first = i == 0 || !IsRow(kids[i - 1]);
+                bool last = i == kids.Count - 1 || !IsRow(kids[i + 1]);
                 b.CornerRadius = new CornerRadius(first ? Ui.BlockR : 0, first ? Ui.BlockR : 0, last ? Ui.BlockR : 0, last ? Ui.BlockR : 0);   // углы — как у блоков острова
                 b.Margin = new Thickness(0, 0, 0, last ? 16 : 0);
                 b.BorderBrush = Divider;
@@ -965,7 +1347,7 @@ namespace Kapsula
             for (int i = 0; i < SectionOrder.Length; i++)
             {
                 string name = SectionOrder[i];
-                if (!sections.ContainsKey(name) || sections[name].Children.Count == 0) continue;
+                if (!sections.ContainsKey(name)) continue;
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 // значок раздела — белый на цветном скруглённом квадрате, у каждого раздела свой цвет
                 Color tint = SectionColors[i % SectionColors.Length];
@@ -988,6 +1370,7 @@ namespace Kapsula
                 navItems.Add(item);
                 nav.Children.Add(item);
             }
+            RefreshNav();   // раздел, где всё спрятано, в списке не нужен, пока в нём не появится строка
             var navDock = new DockPanel();
             var saved = new TextBlock { Text = "Изменения сохраняются сразу", Foreground = Sub, FontSize = 12, Margin = new Thickness(24, 8, 12, 14) };
             DockPanel.SetDock(saved, Dock.Bottom);
@@ -1015,8 +1398,8 @@ namespace Kapsula
             root.Children.Add(pane);
             Content = root;
 
-            string last = Store.Get("settingsTab");
-            ShowSection(sections.ContainsKey(last) && sections[last].Children.Count > 0 ? last : "Зверёк");   // впервые — с раздела зверька
+            string last = SectionName(Store.Get("settingsTab"));
+            ShowSection(sections.ContainsKey(last) && HasRows(sections[last]) ? last : "Зверёк");   // впервые — с раздела зверька
         }
 
         // Превью: живая копия острова прямо в окне настроек. В «Музыке» показывает мини-плеер, у строк про «Главную» —
@@ -1068,16 +1451,15 @@ namespace Kapsula
         {
             switch (title)
             {
-                case "Уведомления Windows на острове": case "Уведомления только на острове": case "Скрывать текст уведомлений": return "notif";
-                case "Напоминать о событиях календаря": return "calendar";
-                case "Отсчёт до встречи в капсуле": return "soon";
+                case "Уведомления Windows": case "Скрывать текст уведомлений": return "notif";
+                case "Напоминания о событиях": return "remind";   // карточка или отсчёт — по тому, что выбрано (Row)
                 case "Смена раскладки": return "layout";
                 case "Яркость на острове": return "bright";
                 case "Зверёк гуляет по окнам": return "walk";
                 case "Игровой режим": return "gamer";
                 case "Новый трек поверх игр и видео": return "track";
                 case "Счётчик непрочитанного": return "unread";
-                case "Индикатор микрофона": case "Индикатор камеры": return "privacy";
+                case "Индикаторы камеры и микрофона": return "privacy";
                 case "Зверёк в переходах": case "Блоки по очереди": return "motion";   // остров раскрывается и сворачивается сам
             }
             return null;
@@ -1112,8 +1494,10 @@ namespace Kapsula
         bool searchMuted;
         public void ShowSection(string name)
         {
+            name = SectionName(name);
             if (!sections.ContainsKey(name)) return;
             if (borrowed.Count > 0 || scroller != null && scroller.Content == searchPage) ReturnBorrowed();
+            if (currentSection != null && name != currentSection && !HasRows(sections[name])) return;   // в разделе сейчас нечего показать
             if (!searchMuted && searchBox != null && searchBox.Text.Length > 0) { searchMuted = true; searchBox.Text = ""; searchMuted = false; }   // переход по разделу сбрасывает поиск, а сам поиск — нет
             // где настройки ничего не меняют на самом острове, большое превью только мешает
             if (pvBox != null) pvBox.Visibility = name == "Нейросети" || name == "Телефон" || name == "Клавиши" ? Visibility.Collapsed : Visibility.Visible;
@@ -1219,12 +1603,15 @@ namespace Kapsula
             string baseTitle = title.Replace(" · бета", "").Replace(" · альфа", "");
             if (!rowsByTitle.ContainsKey(baseTitle)) rowsByTitle[baseTitle] = rowBox;
             rowText[rowBox] = (baseTitle + " " + (desc ?? "")).ToLowerInvariant();
+            rowTitle[rowBox] = baseTitle;
+            Switch rowSw;
+            if (switchOf.TryGetValue(control, out rowSw)) rowSwitch[rowBox] = rowSw;   // переключатель строки — его сверяют с настройками (SwitchSource)
             // Наведение на строку — остров сам показывает пример: карточку, подсказку, напоминание
             string demo = DemoFor(baseTitle);
             if (demo != null)
             {
                 var dt = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
-                dt.Tick += delegate { dt.Stop(); island.ShowDemo(demo); };
+                dt.Tick += delegate { dt.Stop(); island.ShowDemo(demo != "remind" ? demo : IslandWindow.Pref("soonPill") || !IslandWindow.Pref("calendar") ? "soon" : "calendar"); };
                 rowBox.MouseEnter += delegate { dt.Stop(); dt.Start(); };
                 rowBox.MouseLeave += delegate { dt.Stop(); };
             }
@@ -1249,27 +1636,23 @@ namespace Kapsula
 
         // Переключатель, которым можно управлять снаружи: set ставит его в нужное положение без вызова changed.
         // Нужен там, где действие может не получиться (подключение плагина) и переключатель должен вернуться назад.
+        // Тот же переключатель Windows 11, что и у остальных строк, а не свой зелёный: вид у всех строк один
         FrameworkElement ToggleSet(bool on, Action<bool> changed, out Action<bool> set)
         {
-            bool state = on;
-            var knob = new Ellipse { Width = 18, Height = 18, Fill = Brushes.White, Margin = new Thickness(3), HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left };
-            var b = new Border { Width = 44, Height = 24, CornerRadius = new CornerRadius(4), Background = state ? Green : ChipBg, Child = knob, Cursor = Cursors.Hand };
-            Action<bool> show = delegate(bool v)
-            {
-                state = v;
-                knob.HorizontalAlignment = v ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-                b.Background = v ? Green : ChipBg;
-            };
-            b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; show(!state); changed(state); };
-            set = show;
-            return b;
+            Switch.Reduced = island.ReducedMotion;
+            var sw = new Switch(on, Tokens.Palette.Brand, Color.FromRgb(0x3A, 0x3A, 0x3F), delegate(bool v) { changed(v); AfterChange(); });
+            set = delegate(bool v) { sw.Value = v; };
+            switchOf[sw.Root] = sw;
+            return sw.Root;
         }
 
-        // Переключатель как в iOS: бегунок скользит, дорожка плавно наливается зелёным
+        // Переключатель Windows 11 в цвете акцента. После каждого щелчка строки, которые от него зависят, появляются или прячутся
         FrameworkElement Toggle(bool on, Action<bool> changed)
         {
             Switch.Reduced = island.ReducedMotion;
-            return new Switch(on, Tokens.Palette.Brand, Color.FromRgb(0x3A, 0x3A, 0x3F), changed).Root;   // переключатель Windows 11 в цвете акцента
+            var sw = new Switch(on, Tokens.Palette.Brand, Color.FromRgb(0x3A, 0x3A, 0x3F), delegate(bool v) { changed(v); AfterChange(); });
+            switchOf[sw.Root] = sw;
+            return sw.Root;
         }
 
         // Ползунок: live вызывается при каждом движении (без записи в настройки), done — когда отпустили.
@@ -1309,11 +1692,13 @@ namespace Kapsula
 
         // Выбор одного варианта из нескольких: варианты лежат в общей дорожке, подсветка выбранного
         // переезжает от одного к другому — так же, как вкладки на самом острове.
-        FrameworkElement Chips(string[] labels, int selected, Action<int> pick) { return Chips(labels, selected, pick, -1, null); }
+        FrameworkElement Chips(string[] labels, int selected, Action<int> pick) { Action<int> s; return Chips(labels, selected, pick, -1, null, out s); }
+        FrameworkElement Chips(string[] labels, int selected, Action<int> pick, int again, Func<int> current) { Action<int> s; return Chips(labels, selected, pick, again, current, out s); }
 
         // again — вариант, который срабатывает и при повторном нажатии (открывает окно выбора, как «Другой…» у шрифта);
-        // current — что выбрано на самом деле после pick: окно закрыли «Отменой» — подсветка возвращается туда
-        FrameworkElement Chips(string[] labels, int selected, Action<int> pick, int again, Func<int> current)
+        // current — что выбрано на самом деле после pick: окно закрыли «Отменой» — подсветка возвращается туда;
+        // select — поставить выбор снаружи, не вызывая pick: настройку поменяли не здесь (в core.txt, кнопкой на острове)
+        FrameworkElement Chips(string[] labels, int selected, Action<int> pick, int again, Func<int> current, out Action<int> select)
         {
             // варианты переносятся на следующую строку, если не влезают в ширину строки настроек: «Другой…» у шрифта
             // и «Qwen на этом ПК» не уходят за край. Подсветка выбранного ездит по обеим осям.
@@ -1355,6 +1740,7 @@ namespace Kapsula
                     if (cur == idx && idx != again) return;
                     cur = idx; move(true); pick(idx);
                     if (current != null) { int actual = current(); if (actual != cur) { cur = actual; move(true); } }
+                    AfterChange();
                 };
                 items.Add(c);
                 row.Children.Add(c);
@@ -1365,6 +1751,7 @@ namespace Kapsula
             // в одну строку — капсула; перенеслось на вторую — скругление как у строк списка
             row.SizeChanged += delegate { track.CornerRadius = row.ActualHeight > 34 ? new CornerRadius(Ui.RowR) : new CornerRadius(4); move(false); };
             track.Loaded += delegate { move(false); };
+            select = delegate(int i) { if (i == cur) return; cur = i; move(true); };
             return track;
         }
         // Гардероб зверька: «Сам», «По сезону», «Без наряда» и обновки за привычки. Ещё не полученные — бледные,
@@ -1472,6 +1859,107 @@ namespace Kapsula
         ScrollViewer scroller;
         public void ScrollTo(double y) { if (scroller != null) scroller.ScrollToVerticalOffset(y); }
 
+        // ---- Проверочные снимки (ключ --settingsdump папка): каждый раздел — окно, как его видно на экране (NN-win.png),
+        // и раздел целиком, во всю длину, без прокрутки (NN-full.png); в index.txt — названия и сколько строк видно.
+        // Ничего не нажимается и не меняется; после последнего раздела вызывается done.
+        public void DumpSections(string dir, Action done)
+        {
+            var names = new List<string>();
+            foreach (string n in SectionOrder) if (sections.ContainsKey(n) && HasRows(sections[n])) names.Add(n);
+            try { System.IO.Directory.CreateDirectory(dir); } catch { }
+            var index = new StringBuilder();
+            int i = -1;
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };   // раздел успевает проявиться (ShowSection — 260 мс)
+            t.Tick += delegate
+            {
+                if (i >= 0)
+                {
+                    string stem = System.IO.Path.Combine(dir, (i + 1).ToString("00"));
+                    StackPanel sec = sections[names[i]];
+                    int rows = 0;
+                    foreach (UIElement k in sec.Children) if (k is Border && ((Border)k).Tag as string == "row" && k.Visibility == Visibility.Visible) rows++;
+                    try { SavePng(Content as FrameworkElement, stem + "-win.png", null); SavePng(sec, stem + "-full.png", Bg); index.AppendLine((i + 1).ToString("00") + "\t" + names[i] + "\t" + rows); }
+                    catch (Exception ex) { index.AppendLine((i + 1).ToString("00") + "\t" + names[i] + "\t" + ex.Message); }
+                }
+                i++;
+                if (i < names.Count) { ShowSection(names[i]); return; }
+                t.Stop();
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "index.txt"), index.ToString(), Encoding.UTF8); } catch { }
+                string flip = Environment.GetEnvironmentVariable("KAPSULA_TEST_REVEAL");
+                Action next = flip != null && flip.Contains(":") ? (Action)delegate { RevealCheck(dir, flip.Substring(0, flip.IndexOf(':')), flip.Substring(flip.IndexOf(':') + 1), done); } : done;
+                // KAPSULA_TEST_SEARCH=слово — ещё снимок страницы поиска: спрятанные «пока не трогали» строки поиск находит
+                string q = Environment.GetEnvironmentVariable("KAPSULA_TEST_SEARCH");
+                if (string.IsNullOrEmpty(q)) { next(); return; }
+                searchBox.Text = q;
+                var st = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                st.Tick += delegate
+                {
+                    st.Stop();
+                    try { SavePng(Content as FrameworkElement, System.IO.Path.Combine(dir, "search-win.png"), null); SavePng(searchPage, System.IO.Path.Combine(dir, "search.png"), Bg); } catch { }
+                    // KAPSULA_TEST_SEARCHOPEN=1 — ещё и щелчок по первому найденному разделу: он открывается с найденной строкой
+                    if (Environment.GetEnvironmentVariable("KAPSULA_TEST_SEARCHOPEN") != "1" || lastFound.Count == 0) { searchBox.Text = ""; next(); return; }
+                    OpenFound(lastFound[0].Key, lastFound[0].Value);
+                    var ot = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                    ot.Tick += delegate
+                    {
+                        ot.Stop();
+                        try { SavePng(Content as FrameworkElement, System.IO.Path.Combine(dir, "search-open-win.png"), null); SavePng(sections[currentSection], System.IO.Path.Combine(dir, "search-open.png"), Bg); } catch { }
+                        next();
+                    };
+                    ot.Start();
+                };
+                st.Start();
+            };
+            t.Start();
+        }
+
+        // Проверка зависимых строк (KAPSULA_TEST_REVEAL=раздел:ключ): ключ переключается так же, как его строкой, и раздел
+        // снимается посреди появления (rN-mid.png) и после него (rN.png) — туда и обратно. Ключ потом стоит как был
+        void RevealCheck(string dir, string section, string key, Action done)
+        {
+            ShowSection(section);
+            var steps = new List<KeyValuePair<int, Action>>();
+            Action<string> shot = delegate(string name) { try { SavePng(sections[SectionName(section)], System.IO.Path.Combine(dir, name + ".png"), Bg); } catch { } };
+            Action flipIt = delegate { island.SetPref(key, !IslandWindow.Pref(key)); AfterChange(); };
+            steps.Add(new KeyValuePair<int, Action>(700, flipIt));
+            steps.Add(new KeyValuePair<int, Action>(Tokens.Motion.BaseMs / 2, delegate { shot("r1-mid"); }));
+            steps.Add(new KeyValuePair<int, Action>(700, delegate { shot("r1"); flipIt(); }));
+            steps.Add(new KeyValuePair<int, Action>(Tokens.Motion.BaseMs / 2, delegate { shot("r2-mid"); }));
+            steps.Add(new KeyValuePair<int, Action>(700, delegate { shot("r2"); }));
+            int at = 0;
+            var t = new DispatcherTimer();
+            t.Tick += delegate
+            {
+                t.Stop();
+                if (at >= steps.Count) { done(); return; }
+                steps[at].Value();
+                at++;
+                t.Interval = TimeSpan.FromMilliseconds(at < steps.Count ? steps[at].Key : 300);
+                t.Start();
+            };
+            t.Interval = TimeSpan.FromMilliseconds(steps[0].Key);
+            t.Start();
+        }
+
+        // Элемент — в PNG, как он нарисован сейчас (без прокрутки и обрезки родителем); back — подложка под прозрачным
+        static void SavePng(FrameworkElement el, string file, Brush back)
+        {
+            if (el == null) return;
+            int w = (int)Math.Ceiling(el.ActualWidth), h = (int)Math.Ceiling(el.ActualHeight);
+            if (w <= 0 || h <= 0) return;
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                if (back != null) dc.DrawRectangle(back, null, new Rect(0, 0, w, h));
+                dc.DrawRectangle(new VisualBrush(el) { Stretch = Stretch.None, ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, w, h), AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, w, h));
+            }
+            var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(rtb));
+            using (var fs = System.IO.File.Create(file)) enc.Save(fs);
+        }
+
         // ---- редактор горячих клавиш
         Hot capturing;
         TextBlock capturingLabel;
@@ -1532,38 +2020,40 @@ namespace Kapsula
             PaintHot(h);
         }
 
-        // Поле для ключа: вводит его сам пользователь; обратно ключ никогда не показывается.
-        // Поле для ключа Gemini: ключ вводит сам пользователь, хранится зашифрованным на этом компьютере
-        // ---- «Безопасность»: индикаторы камеры и микрофона, приватность уведомлений и буфера, скрытие от записи
+        // ---- «Приватность»: индикаторы камеры и микрофона, пароли в буфере, чем kapsula.txt делится с приложениями dev.txt
         void BuildSecuritySection(StackPanel sp)
         {
-            sp.Children.Add(Header("Камера и микрофон"));
-            sp.Children.Add(Row("Индикатор микрофона", "Оранжевая точка в капсуле и короткое сообщение, когда какая-то программа включает микрофон.", Toggle(Store.Get("micDot") == "1", delegate(bool v) { Store.Set("micDot", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Индикатор камеры", "Зелёная точка в капсуле и короткое сообщение, когда какая-то программа включает веб-камеру.", Toggle(Store.Get("camDot") == "1", delegate(bool v) { Store.Set("camDot", v ? "1" : "0"); }), false));
-            sp.Children.Add(Header("Приватность"));
-            sp.Children.Add(Row("Скрывать текст уведомлений", "Карточки уведомлений Windows на острове показывают только программу, без текста сообщения, — если рядом кто-то смотрит на экран.", Toggle(Store.Get("hideNotifText") == "1", delegate(bool v) { Store.Set("hideNotifText", v ? "1" : "0"); }), false));
-            sp.Children.Add(Row("Не запоминать пароли из буфера", "Пароли, скопированные из менеджеров паролей, не попадают в историю буфера Kapsula. История буфера и так хранится только в памяти и стирается при выходе.", Toggle(Store.Get("clipSecrets") != "0", delegate(bool v) { Store.Set("clipSecrets", v ? "1" : "0"); }), false));
-            // чем Kapsula делится с остальными приложениями dev.txt через хаб core.txt (CoreHub.cs); те же два переключателя — на общей странице настроек в core.txt
-            // дорога к core.txt: открыть, а если его нет — скачать (она есть в каждом приложении dev.txt)
-            bool coreHere = CoreHub.Online || DevTxt.CoreApp.Installed;
-            sp.Children.Add(Row("core.txt — лаунчер dev.txt", coreHere ? "Обновления, общие настройки и остальные приложения dev.txt — в одном окне." : DevTxt.CoreApp.Pitch + ". kapsula.txt работает и без него — с ним приложения видят друг друга.",
-                PillBtn(DevTxt.CoreApp.Label(CoreHub.Online), !coreHere, delegate { DevTxt.CoreApp.Go(CoreHub.Online, CoreHub.ShowCore); }), false));
-            sp.Children.Add(Row("Показывать музыку, погоду и события другим приложениям dev.txt", "Через core.txt остальные приложения dev.txt узнают, какой трек сейчас играет, какая погода и что сегодня в календаре — только название и время события. Дальше этого компьютера ничего не уходит.", Toggle(CoreHub.ShareOn, delegate(bool v) { island.SetFlag("hubShare", v); }), false));
-            sp.Children.Add(Row("Показывать счётчик непрочитанного", "Другие приложения dev.txt видят, сколько сообщений из Discord и Steam вы ещё не открывали — только числа, без текста и имён.", Toggle(CoreHub.ShareUnreadOn, delegate(bool v) { island.SetFlag("hubUnread", v); }), false));
+            // «Индикатор микрофона» и «Индикатор камеры» — один выбор (Merged.Dots), все четыре сочетания
+            sp.Children.Add(PairRow("Индикаторы камеры и микрофона", "Точка в капсуле и короткое сообщение, когда какая-то программа включает микрофон (оранжевая точка) или веб-камеру (зелёная).", Merged.Dots, "индикатор микрофона индикатор камеры"));
+            sp.Children.Add(Row("Не запоминать пароли из буфера", "Пароли, скопированные из менеджеров паролей, не попадают в историю буфера kapsula.txt. История буфера и так хранится только в памяти и стирается при выходе.", Toggle(Store.Get("clipSecrets") != "0", delegate(bool v) { Store.Set("clipSecrets", v ? "1" : "0"); }), false));
+            // Чем kapsula.txt делится с остальными приложениями dev.txt через хаб core.txt (CoreHub.cs). Пока core.txt установлен,
+            // это на его странице «Общие» (section «family»). Иначе — один переключатель на оба ключа, пока они совпадают;
+            // разошлись (одно из двух раньше выключили) — два прежних, чтобы было видно как есть (Merged.ShareShown)
+            bool share = CoreHub.ShareOn, unread = CoreHub.ShareUnreadOn;
+            if (InCore("share")) sp.Children.Add(CoreLine(CoreFamily, "Чем kapsula.txt делится с другими приложениями dev.txt: музыка, погода, события и счётчик непрочитанного — на странице «Общие».", "general", "делиться с приложениями dev.txt показывать музыку погоду и события счётчик непрочитанного связь"));
+            else if (Merged.ShareShown("share", share, unread))
+                sp.Children.Add(Words(Row("Делиться с приложениями dev.txt", "Через core.txt остальные приложения dev.txt узнают, какой трек сейчас играет, какая погода и что сегодня в календаре (только название и время события), и сколько сообщений из Discord и Steam вы ещё не открывали (только числа). Дальше этого компьютера ничего не уходит.",
+                    Toggle(share, delegate(bool v) { island.SetFlag("hubShare", v); island.SetFlag("hubUnread", v); }), false), "показывать музыку погоду и события счётчик непрочитанного"));
+            else
+            {
+                sp.Children.Add(Row("Показывать музыку, погоду и события другим приложениям dev.txt", "Через core.txt остальные приложения dev.txt узнают, какой трек сейчас играет, какая погода и что сегодня в календаре — только название и время события. Дальше этого компьютера ничего не уходит.", Toggle(share, delegate(bool v) { island.SetFlag("hubShare", v); }), false));
+                sp.Children.Add(Row("Показывать счётчик непрочитанного", "Другие приложения dev.txt видят, сколько сообщений из Discord и Steam вы ещё не открывали — только числа, без текста и имён.", Toggle(unread, delegate(bool v) { island.SetFlag("hubUnread", v); }), false));
+            }
             sp.Children.Add(Row("Показывать остров на скриншотах", "По умолчанию он скрыт от снимков, записи экрана и трансляций.", Toggle(island.ShowInCapture, delegate(bool v) { island.SetFlag("showInCapture", v); }), false));
         }
 
-        // ---- «Дополнительно»: звонки, телефон, игры, Twitch, утро, MCP
+        // ---- «Дополнительно» и то, что раскладывается отсюда по своим разделам (Layout): утро, игры, Twitch, телефон, MCP
         void BuildExtrasSection(StackPanel sp)
         {
-            sp.Children.Add(Header("Каждый день"));
             sp.Children.Add(Row("Утренняя карточка", "Раз в день, когда вы впервые садитесь за компьютер до полудня: сколько задач на сегодня, ближайшая из них и кнопка «Фокус».", Toggle(Store.Get("morningCard") != "0", delegate(bool v) { Store.Set("morningCard", v ? "1" : "0"); }), false));
+            // альфа: спрятана, пока её не включали (Merged.Used); поиск по настройкам её находит
             sp.Children.Add(Row("Режим звонка · альфа", "Сырая функция, по умолчанию выключена. kapsula.txt сама угадывает звонок: Discord, Zoom, Teams, Telegram или браузер держит микрофон и в разговоре кто-то говорит. Тогда капсула показывает длительность звонка, а «Главная» — большую кнопку микрофона и выбор устройств. Может ошибаться.", Toggle(Store.Get("callMode") == "1", delegate(bool v) { Store.Set("callMode", v ? "1" : "0"); }), false));
-
-            sp.Children.Add(Header("Поверх экрана"));
+            QuietLast(sp, "callMode");
             sp.Children.Add(Row("Нагрузка в играх · бета", "В игре на весь экран в левом верхнем углу — маленькая полоска: процессор, видеокарта, память и время. Мышь проходит сквозь неё.", Toggle(Store.Get("gameStrip") == "1", delegate(bool v) { Store.Set("gameStrip", v ? "1" : "0"); }), false));
-            // то же в самой капсуле, без отдельного окна: только когда остров остаётся поверх игры («Показывать в играх»)
-            sp.Children.Add(Row("Нагрузка в капсуле во время игры", "Пока остров показан поверх игры на весь экран («Показывать в играх»), свёрнутая капсула вместо часов показывает одну строку: процессор, видеокарта и память. Обновляется раз в две секунды, без анимаций.", Toggle(Store.Get("gameLoad") == "1", delegate(bool v) { island.SetFlag("gameLoad", v); }), false));
+            // нагрузка в самой капсуле, без отдельного окна, — только когда остров остаётся поверх игры («Показывать в играх»).
+            // Что остров делает в играх, при установленном core.txt настраивается на его странице «Игры» (section «games»)
+            if (InCore("gameLoad")) Sec("Игры").Children.Add(CoreLine(CoreGames, "Показывать ли остров поверх игр и видео на весь экран, новый трек поверх них и нагрузку в капсуле — на странице «Игры».", "games", "показывать остров в играх новый трек поверх игр и видео нагрузка в капсуле во время игры"));
+            else sp.Children.Add(Row("Нагрузка в капсуле во время игры", "Пока остров показан поверх игры на весь экран («Показывать остров в играх»), свёрнутая капсула вместо часов показывает одну строку: процессор, видеокарта и память. Обновляется раз в две секунды, без анимаций.", Toggle(Store.Get("gameLoad") == "1", delegate(bool v) { island.SetFlag("gameLoad", v); }), false));
             sp.Children.Add(Row("Чат Twitch поверх игры · бета","Сообщения чата выбранного канала справа поверх игры. Читаются анонимно — входить в Twitch не нужно, писать в чат отсюда нельзя. Чат YouTube так показать нельзя: YouTube требует ключ разработчика.", Toggle(Store.Get("twitchOverlay") == "1", delegate(bool v) { Store.Set("twitchOverlay", v ? "1" : "0"); island.TwitchSync(); }), false));
             var chan = new TextBox { Width = 220, Height = 30, Background = ChipBg, Foreground = Txt, BorderThickness = new Thickness(0), Padding = new Thickness(10, 5, 10, 0), CaretBrush = Txt, FontSize = 14, Text = Store.Get("twitchChannel") };
             chan.LostFocus += delegate { Store.Set("twitchChannel", chan.Text.Trim().TrimStart('#')); island.TwitchSync(); };
@@ -1582,6 +2072,7 @@ namespace Kapsula
             {
                 camRow.Children.Clear();
                 bool inst = PhoneCam.Installed, fresh = inst && PhoneCam.UpToDate;
+                camInstalled = inst;   // «Качество камеры» нужно, только пока камера установлена
                 if (!inst || !fresh)
                     camRow.Children.Add(PillBtn(inst ? "Обновить драйвер" : "Установить камеру", true, delegate
                     {
@@ -1610,6 +2101,7 @@ namespace Kapsula
                     camStatus.Text = !inst ? "Windows спросит разрешение администратора: драйвер камеры ставится для всего компьютера. Сам драйвер — часть kapsula.txt, ничего не скачивается."
                         : !fresh ? "Вышла новая версия драйвера — обновите, чтобы она заработала."
                         : "Установлена. Камера в программах называется «Kapsula Camera». Драйвер камеры загружают все программы, которые ищут камеры; редкие игры с камерой и строгим античитом могут не пустить его к себе — тогда будет вылет, а не бан. Не пользуетесь камерой — удалите её, поставить снова можно в один клик.";
+                AfterChange();   // поставили или удалили камеру — «Качество камеры» появляется или прячется
             };
             camPaint();
             sp.Children.Add(Row("Телефон как веб-камера · бета", "Камера телефона становится обычной камерой Windows: её видят Discord, Zoom, Teams, браузеры и OBS. Телефон подключается по QR-коду через домашнюю сеть Wi-Fi.", camCol, true));
@@ -1644,7 +2136,7 @@ namespace Kapsula
             var copy = PillBtn("Скопировать настройку", true, delegate
             {
                 string tok = ClaudeBridge.Token();   // сначала ключ, потом сервер: сервер читает ключ при запуске
-                if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек Kapsula.", "kapsula.txt"); return; }
+                if (tok.Length == 0) { MessageBox.Show(this, "Не удалось создать секретный ключ в папке настроек kapsula.txt.", "kapsula.txt"); return; }
                 Store.Set("mcp", "1"); ClaudeBridge.Start(); mSet(true);   // MCP-серверу не нужен «Claude Code на острове»
                 if (!ClaudeBridge.Listening) { MessageBox.Show(this, "MCP-сервер не запустился: " + Reason(ClaudeBridge.Error) + ".", "kapsula.txt"); return; }
                 string json = "{\n  \"mcpServers\": {\n    \"kapsula\": {\n      \"type\": \"http\",\n      \"url\": \"" + ClaudeBridge.McpUrl + "\",\n      \"headers\": { \"X-Kapsula-Token\": \"" + tok + "\", \"X-Kapsula-Agent\": \"Мой агент\" }\n    }\n  }\n}";
@@ -1841,7 +2333,7 @@ namespace Kapsula
                 // Наведение показывает цвет на самом острове, уход курсора возвращает сохранённый.
                 ring.MouseEnter += delegate { island.ApplyTheme(c); };
                 ring.MouseLeave += delegate { island.ApplyEffectiveTheme(); };
-                ring.MouseLeftButtonDown += delegate { island.SetColor(c); PaintSwatches(); };
+                ring.MouseLeftButtonDown += delegate { island.SetColor(c); PaintSwatches(); AfterChange(); };   // светлый цвет — нужна «Тема как в Windows»
                 swatches.Add(ring);
                 row.Children.Add(ring);
             }
@@ -1851,7 +2343,7 @@ namespace Kapsula
             {
                 using (var dlg = new WF.ColorDialog { FullOpen = true, Color = System.Drawing.Color.FromArgb(island.IslandColor.R, island.IslandColor.G, island.IslandColor.B) })
                 {
-                    if (dlg.ShowDialog() == WF.DialogResult.OK) { island.SetColor(Color.FromRgb(dlg.Color.R, dlg.Color.G, dlg.Color.B)); PaintSwatches(); }
+                    if (dlg.ShowDialog() == WF.DialogResult.OK) { island.SetColor(Color.FromRgb(dlg.Color.R, dlg.Color.G, dlg.Color.B)); PaintSwatches(); AfterChange(); }
                 }
             };
             row.Children.Add(custom);

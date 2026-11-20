@@ -764,7 +764,8 @@ T 'настройки: «Зверёк» — первый раздел' $so[0] '�
 $sg = $swT.GetField('SectionGlyphs', $sf).GetValue($null); $sh = $swT.GetField('SectionHints', $sf).GetValue($null); $sc = $swT.GetField('SectionColors', $sf).GetValue($null)
 T 'настройки: у каждого раздела значок, подсказка и цвет' (($so.Length -eq $sg.Length) -and ($so.Length -eq $sh.Length) -and ($so.Length -eq $sc.Length)) $true
 T 'настройки: пустого раздела «Главная» нет' ($so -contains 'Главная') $false
-T 'настройки: подсказки разделов не сдвинулись' ($sh[[array]::IndexOf($so, 'Музыка')]) 'Плеер, жидкий край, тексты песен, оценки'
+T 'настройки: подсказки разделов не сдвинулись' ($sh[[array]::IndexOf($so, 'Музыка')]) 'Плеер, край, тексты песен и оценки'
+T 'настройки: подсказка «Приватности» — на своём месте' ($sh[[array]::IndexOf($so, 'Приватность')]) 'Камера и микрофон, пароли и чем делиться'
 $tm = $swT.GetMethod('Times', $sf)
 T 'гладили: 1 раз' ($tm.Invoke($null, @(1))) 'раз'
 T 'гладили: 3 раза' ($tm.Invoke($null, @(3))) 'раза'
@@ -950,12 +951,363 @@ $ll = $chT.GetMethod('LoadLine')
 T 'нагрузка в игре: строка' ($ll.Invoke($null, @([double]0.35, 66, 48))) 'ЦП 35% · ГП 66% · ОЗУ 48%'
 T 'нагрузка в игре: без видеокарты' ($ll.Invoke($null, @([double]0.05, -1, 100))) 'ЦП 5% · ОЗУ 100%'
 
-# оба переключателя «Показывать…» и строка «Нагрузка в игре» лежат в своих разделах окна настроек
+# переключатели «Показывать…» (общий и два прежних) и строка «Нагрузка в игре» лежат в своих разделах окна настроек
 $lay = $asm.GetType('Kapsula.SettingsWindow').GetField('Layout', $sf).GetValue($null)
 $secOf = @{}; foreach ($l in $lay) { foreach ($t in $l) { $secOf[$t] = $l[0] } }
-T 'настройки: «Показывать музыку…» — в «Безопасности»' $secOf['Показывать музыку, погоду и события другим приложениям dev.txt'] 'Безопасность'
-T 'настройки: «Показывать счётчик непрочитанного» — в «Безопасности»' $secOf['Показывать счётчик непрочитанного'] 'Безопасность'
+T 'настройки: «Делиться с приложениями dev.txt» — в «Приватности»' $secOf['Делиться с приложениями dev.txt'] 'Приватность'
+T 'настройки: «Показывать музыку…» — в «Приватности»' $secOf['Показывать музыку, погоду и события другим приложениям dev.txt'] 'Приватность'
+T 'настройки: «Показывать счётчик непрочитанного» — в «Приватности»' $secOf['Показывать счётчик непрочитанного'] 'Приватность'
 T 'настройки: «Нагрузка в капсуле во время игры» — в «Играх»' $secOf['Нагрузка в капсуле во время игры'] 'Игры'
 
+# --- Семья dev.txt (Family.cs, CoreHub.cs): «Не беспокоить», свой значок в трее, быстрые действия, клавиши, уведомления
+# «Не беспокоить»: своё или общее из core.txt; время общего вышло, а выключение ещё не пришло, — уже не тихо
+$qo = $chT.GetMethod('QuietOn')
+$qn = [datetime]'2026-11-19 12:00'; $qms = [long]1763550000000
+T 'семья: тихо — своё ещё идёт' ($qo.Invoke($null, @($qn.AddMinutes(5), $qn, $false, [long]0, $qms))) $true
+T 'семья: тихо — своё кончилось, общего нет' ($qo.Invoke($null, @($qn.AddMinutes(-1), $qn, $false, [long]0, $qms))) $false
+T 'семья: тихо — общее из core.txt, пока не выключат' ($qo.Invoke($null, @([datetime]::MinValue, $qn, $true, [long]0, $qms))) $true
+T 'семья: тихо — общее до времени в будущем' ($qo.Invoke($null, @([datetime]::MinValue, $qn, $true, [long]($qms + 60000), $qms))) $true
+T 'семья: тихо — время общего вышло' ($qo.Invoke($null, @([datetime]::MinValue, $qn, $true, [long]($qms - 1), $qms))) $false
+T 'семья: тихо — общее выключено, своё идёт' ($qo.Invoke($null, @($qn.AddMinutes(30), $qn, $false, [long]($qms + 60000), $qms))) $true
+$ql = $iwT.GetMethod('QuietLeft', $sf)
+T 'семья: «Не беспокоить» — сколько осталось своего' ($ql.Invoke($null, [object[]]@($qn.AddMinutes(179), $false, $null, $qn))) 'осталось 2 ч 59 мин'
+T 'семья: «Не беспокоить» — общее до времени' ($ql.Invoke($null, [object[]]@([datetime]::MinValue, $true, $qn.AddMinutes(20), $qn))) 'осталось 20 мин'
+T 'семья: «Не беспокоить» — общее без конца' ($ql.Invoke($null, [object[]]@([datetime]::MinValue, $true, $null, $qn))) 'пока не выключите'
+T 'семья: «Не беспокоить» — своё важнее общего' ($ql.Invoke($null, [object[]]@($qn.AddMinutes(45), $true, $null, $qn))) 'осталось 45 мин'
+
+# свой значок в трее: нет, пока общий у core.txt, пока при запуске ждём его ответа и когда Kapsula закрывается
+$ots = $chT.GetMethod('OwnTrayShown')
+T 'семья: свой значок — core.txt нет' ($ots.Invoke($null, @($false, $false, 0))) $true
+T 'семья: свой значок — значок у core.txt' ($ots.Invoke($null, @($false, $true, 0))) $false
+T 'семья: свой значок — при запуске ждём core.txt' ($ots.Invoke($null, @($false, $false, 2500))) $false
+T 'семья: свой значок — ждать больше нечего' ($ots.Invoke($null, @($false, $false, -40))) $true
+T 'семья: свой значок — Kapsula закрывается' ($ots.Invoke($null, @($true, $false, 0))) $false
+
+# быстрые действия в общем меню core.txt: не больше четырёх, первым — окно настроек, без «Выхода» и автозапуска
+$trs = $chT.GetMethod('TrayState')
+T 'семья: быстрые действия для трея core.txt' (HubJson $trs.Invoke($null, @($false, $true))) '{"items":[{"key":"show","label":"Настройки"},{"key":"awake","label":"Не засыпать","check":false},{"key":"lyrics","label":"Тексты песен","check":true},{"key":"shots","label":"Папка со снимками"}]}'
+T 'семья: «Не засыпать» включено — с галочкой' ((HubJson $trs.Invoke($null, @($true, $false))) -match '"key":"awake","label":"Не засыпать","check":true') $true
+T 'семья: в общем меню не больше четырёх пунктов' ($trs.Invoke($null, @($false, $false))['items'].Length -le 4) $true
+
+# сочетания клавиш для страницы «Клавиши» core.txt: как стоят сейчас; выключенное — пустое и не спорит,
+# занятое другой программой (full) остаётся включённым — так в core.txt видно, с чем оно совпало
+$hotT = $asm.GetType('Kapsula.Hot')
+$hots = [Activator]::CreateInstance(([System.Collections.Generic.List`1]).MakeGenericType($hotT))
+function HotOf($key, $name, $mods, $vk, $ok) {
+    $h = [Activator]::CreateInstance($hotT)
+    $hotT.GetField('Key').SetValue($h, $key); $hotT.GetField('Name').SetValue($h, $name)
+    $hotT.GetField('Mods').SetValue($h, [uint32]$mods); $hotT.GetField('Vk').SetValue($h, [uint32]$vk); $hotT.GetField('Ok').SetValue($h, [bool]$ok)
+    $hots.Add($h)
+}
+HotOf 'cmd' 'Строка команд' 0x1 0x20 $true
+HotOf 'area' 'Снимок области с разметкой' 0x3 0x53 $true
+HotOf 'full' 'Снимок всего экрана' 0x7 0x53 $false
+HotOf 'ocr' 'Текст с экрана' 0 0 $true
+$ksa = New-Object object[] 1; $ksa[0] = $hots
+T 'семья: сочетания для core.txt' (HubJson $chT.GetMethod('KeysState').Invoke($null, $ksa)) '{"keys":[{"id":"cmd","label":"Строка команд","keys":"Alt+Space","on":true},{"id":"area","label":"Снимок области с разметкой","keys":"Ctrl+Alt+S","on":true},{"id":"full","label":"Снимок всего экрана","keys":"Ctrl+Alt+Shift+S","on":true},{"id":"ocr","label":"Текст с экрана","keys":"","on":false}]}'
+
+# уведомление от другого приложения: заголовок до 60 знаков, текст до 200, в одну строку; подпись — имя продукта
+$nt = $chT.GetMethod('NotifyText')
+$cut60 = $nt.Invoke($null, @(('а' * 61), 60))
+T 'семья: заголовок уведомления — до 60 знаков' $cut60.Length 60
+T 'семья: обрезанный заголовок кончается «…»' $cut60.EndsWith('…') $true
+T 'семья: ровно 60 знаков не режутся' ($nt.Invoke($null, @(('б' * 60), 60))) ('б' * 60)
+T 'семья: текст уведомления — до 200 знаков' ($nt.Invoke($null, @(('в' * 500), 200))).Length 200
+T 'семья: переводы строк и лишние пробелы — одним пробелом' ($nt.Invoke($null, @("  Можно`r`nосвободить`t 12 ГБ  ", 200))) 'Можно освободить 12 ГБ'
+T 'семья: не строка — пусто' ($nt.Invoke($null, @(42, 60))) ''
+T 'семья: текста нет — пусто' ($nt.Invoke($null, @($null, 60))) ''
+T 'семья: эмодзи на границе пополам не режется' ($nt.Invoke($null, @((('г' * 58) + [char]::ConvertFromUtf32(0x1F9F9) + 'дд'), 60))) (('г' * 58) + '…')
+$an = $chT.GetMethod('AppName')
+T 'семья: уведомление подписано именем приложения' ($an.Invoke($null, @('metla'))) 'metla.txt'
+T 'семья: странное имя отправителя — без подписи' ($an.Invoke($null, @('Metla!'))) ''
+# карточка — как у уведомлений Windows: сверху приложение, ниже заголовок и текст; заголовок-название второй раз не пишется
+$nc = $chT.GetMethod('NotifyCard')
+function Card($app, $title, $text) { $a = [object[]]@([string]$app, [string]$title, [string]$text, $null, $null); [void]$nc.Invoke($null, $a); return $a[3] + ' | ' + $a[4] }
+T 'семья: карточка — заголовок совпал с приложением' (Card 'metla.txt' 'metla.txt' 'Можно освободить 12 ГБ') 'metla.txt | Можно освободить 12 ГБ'
+T 'семья: карточка — свой заголовок уходит в текст' (Card 'metla.txt' 'Очистка готова' 'Освобождено 12 ГБ') 'metla.txt | Очистка готова — Освобождено 12 ГБ'
+T 'семья: карточка — только заголовок' (Card 'aura.txt' 'Обработка голоса включена' '') 'aura.txt | Обработка голоса включена'
+T 'семья: карточка — без подписи отправителя' (Card '' '' 'Текст без заголовка') 'Уведомление | Текст без заголовка'
+T 'семья: карточка — пустое уведомление не показывается' (Card 'metla.txt' '' '') ' | '
+# общий цвет подсветки из hub.theme: «#RRGGBB» — его, null и непонятное — свой
+$ta = $chT.GetMethod('ThemeAccent')
+# hub.theme разбирается тем же JavaScriptSerializer, что и в HubLink (строки PowerShell в словаре C# не видит)
+function ThemeOf($json) { $a = New-Object object[] 1; $a[0] = $hubJs.DeserializeObject($json); return $ta.Invoke($null, $a) }
+T 'семья: общий цвет из core.txt' (ThemeOf '{"mode":"dark","accent":"#f08a4b","reducedMotion":false}') '#F08A4B'
+T 'семья: общего цвета нет — свой' ("" + (ThemeOf '{"mode":"dark","accent":null,"reducedMotion":false}')) ''
+T 'семья: непонятный цвет — свой' ("" + (ThemeOf '{"mode":"dark","accent":"orange","reducedMotion":false}')) ''
+T 'семья: тема без цвета — свой' ("" + (ThemeOf '{"mode":"light"}')) ''
+
+# где core.txt показывает настройки kapsula.txt (поле section): ключи те же, переезжает только место
+$sof = $chT.GetMethod('SectionOf')
+foreach ($c in @(@('autostart', 'startup'), @('autoUpdate', 'startup'), @('share', 'family'), @('hubShare', 'family'), @('hubUnread', 'family'), @('windowsNotify', ''), @('miniPlayer', ''), @('musicEdge', ''), @('showInGames', 'games'), @('fsTrack', 'games'), @('gameLoad', 'games'), @('autoHide', ''), @('walk', ''), @('lyrics', ''))) {
+    T "семья: настройка $($c[0]) — раздел core.txt" ("" + $sof.Invoke($null, @($c[0]))) $c[1]
+}
+$chT.GetMethod('Describe', $sf).Invoke($null, @()) | Out-Null
+$pub = @{}; foreach ($g in $chT.GetMethod('Settings').Invoke($null, @())['groups']) { foreach ($i in $g['items']) { $pub[$i['key']] = $i } }
+T 'семья: «Показывать остров в играх» — на странице «Игры» core.txt' ($pub['showInGames']['section'] + ' · ' + $pub['showInGames']['label']) 'games · Показывать остров в играх'
+T 'семья: «Новый трек поверх игр» по умолчанию включён' $pub['fsTrack']['value'] $true
+T 'семья: «Нагрузка в капсуле» по умолчанию выключена' $pub['gameLoad']['value'] $false
+T 'семья: автозапуск — в «Запуск и обновления»' $pub['autostart']['section'] 'startup'
+T 'семья: автообновление — в «Запуск и обновления»' $pub['autoUpdate']['section'] 'startup'
+T 'семья: «Делиться с приложениями dev.txt» — в «Связь между приложениями»' $pub['share']['section'] 'family'
+T 'семья: при одинаковых значениях прежние «Показывать…» не публикуются' ($pub.ContainsKey('hubShare') -or $pub.ContainsKey('hubUnread')) $false
+T 'семья: «Сезонные наряды» остаются на странице kapsula.txt' $pub['petSeason'].ContainsKey('section') $false
+
+# --- Окно настроек без лишнего (Merged.cs): сводные выборы вместо пар переключателей, строки «пока не трогали — не видно»,
+# строки, которые появляются, только когда на что-то влияют, и то же самое в описании для core.txt
+$mgT = $asm.GetType('Kapsula.Merged')
+$mOn = $mgT.GetMethod('On'); $mChoice = $mgT.GetMethod('Choice'); $mApply = $mgT.GetMethod('Apply'); $mValue = $mgT.GetMethod('Value'); $mIndex = $mgT.GetMethod('Index')
+$pairs = $mgT.GetField('All').GetValue($null)
+T 'сводные выборы: их шесть' $pairs.Count 6
+
+# значения по умолчанию — те же, что у кода, который эти ключи читает (Store.Get(…) != "0" или == "1")
+foreach ($c in @(@('notifications', $false), @('bannersOff', $false), @('steamHideToasts', $true), @('liquid', $true), @('liquidSpectrum', $true), @('hoverMini', $true), @('miniLyricsOnly', $false), @('micDot', $false), @('camDot', $false), @('calendar', $true), @('soonPill', $true), @('hubShare', $true), @('hubUnread', $true), @('ciderRate', $true), @('earbuds', $true), @('twitchOverlay', $false), @('showInGames', $false))) {
+    T "сводные выборы: $($c[0]) по умолчанию" ($mOn.Invoke($null, @($c[0], ''))) $c[1]
+    T "сводные выборы: $($c[0])='0' — выключено" ($mOn.Invoke($null, @($c[0], '0'))) $false
+    T "сводные выборы: $($c[0])='1' — включено" ($mOn.Invoke($null, @($c[0], '1'))) $true
+}
+
+# точные сочетания: прежние значения A/B (1 — включено) → вариант. У уточнения (B без A ни на что не влияет) «0/0» и «0/1» —
+# один и тот же вариант «выключено»; у двух независимых все четыре сочетания — разные варианты
+$want = @{
+    'windowsNotify' = @{ '0/0' = 'windows'; '0/1' = 'windows'; '1/0' = 'both'; '1/1' = 'island' }
+    'steamNotify'   = @{ '0/0' = 'steam'; '0/1' = 'steam'; '1/0' = 'both'; '1/1' = 'island' }
+    'musicEdge'     = @{ '0/0' = 'flat'; '0/1' = 'flat'; '1/0' = 'volume'; '1/1' = 'spectrum' }
+    'miniPlayer'    = @{ '0/0' = 'off'; '0/1' = 'off'; '1/0' = 'player'; '1/1' = 'lyrics' }
+    'dots'          = @{ '0/0' = 'off'; '1/0' = 'mic'; '0/1' = 'cam'; '1/1' = 'both' }
+    'remind'        = @{ '0/0' = 'off'; '1/0' = 'card'; '0/1' = 'countdown'; '1/1' = 'both' }
+}
+$keysOf = @{ 'windowsNotify' = 'notifications/bannersOff'; 'steamNotify' = 'steamPlugin/steamHideToasts'; 'musicEdge' = 'liquid/liquidSpectrum'; 'miniPlayer' = 'hoverMini/miniLyricsOnly'; 'dots' = 'micDot/camDot'; 'remind' = 'calendar/soonPill' }
+$raws = @('', '0', '1', 'x')
+foreach ($p in $pairs) {
+    $id = $p.Id; $n = $p.Values.Length
+    T "сводный выбор $($id): прежние ключи" ($p.A + '/' + $p.B) $keysOf[$id]
+    T "сводный выбор $($id): подписей столько же, сколько вариантов" $p.Labels.Length $n
+    T "сводный выбор $($id): вариантов три у уточнения и четыре у двух независимых" $n $(if ($p.Tier) { 3 } else { 4 })
+    $reached = @{}
+    foreach ($ra in $raws) {
+        foreach ($rb in $raws) {
+            $a = [bool]$mOn.Invoke($null, @($p.A, $ra)); $b = [bool]$mOn.Invoke($null, @($p.B, $rb))
+            $c = [int]$mChoice.Invoke($null, @($p, $a, $b)); $reached[$c] = 1
+            $ab = "$([int]$a)/$([int]$b)"
+            T "сводный выбор $($id): $($p.A)='$ra', $($p.B)='$rb' — вариант" $p.Values[$c] $want[$id][$ab]
+            # прежние значения → вариант → те же значения: выбрать то, что уже выбрано, ничего не меняет
+            $w = [object[]]@($p, $c, $a, $b); [void]$mApply.Invoke($null, $w)
+            T "сводный выбор $($id): $ab → $($p.Values[$c]) → как было" "$([int]$w[2])/$([int]$w[3])" $ab
+            # значение для core.txt — туда и обратно
+            T "сводный выбор $($id): $ab — значение для core.txt туда и обратно" ($mIndex.Invoke($null, @($p, $mValue.Invoke($null, @($p, $a, $b))))) $c
+            # любой вариант из этого состояния: выбран именно он, а «выключено» у уточнения не трогает уточнение
+            for ($k = 0; $k -lt $n; $k++) {
+                $w = [object[]]@($p, $k, $a, $b); $ok = $mApply.Invoke($null, $w)
+                T "сводный выбор $($id): из $ab — вариант $($p.Values[$k])" "$ok $($mChoice.Invoke($null, @($p, $w[2], $w[3])))" "True $k"
+                if ($p.Tier -and $k -eq 0) { T "сводный выбор $($id): из $ab «$($p.Labels[0])» не трогает $($p.B)" $w[3] $b }
+                if ($p.Tier -and $k -gt 0) { T "сводный выбор $($id): из $ab «$($p.Labels[$k])» ставит $($p.B) явно" $w[3] ($k -eq 2) }
+            }
+        }
+    }
+    T "сводный выбор $($id): каждый вариант достижим из прежних значений" $reached.Count $n
+    $w = [object[]]@($p, $n, $true, $true)
+    T "сводный выбор $($id): несуществующий вариант ничего не меняет" "$($mApply.Invoke($null, $w)) $($w[2]) $($w[3])" 'False True True'
+    T "сводный выбор $($id): незнакомое значение от core.txt" ($mIndex.Invoke($null, @($p, 'нет такого'))) -1
+    T "сводный выбор $($id): не строка от core.txt" ($mIndex.Invoke($null, @($p, $true))) -1
+}
+
+# «Делиться с приложениями dev.txt»: один переключатель, пока hubShare и hubUnread совпадают; разошлись — два прежних
+$mShare = $mgT.GetMethod('ShareShown')
+foreach ($c in @(@($true, $true, 'share'), @($false, $false, 'share'), @($true, $false, 'hubShare,hubUnread'), @($false, $true, 'hubShare,hubUnread'))) {
+    $shown = @(); foreach ($key in @('share', 'hubShare', 'hubUnread')) { if ($mShare.Invoke($null, @($key, $c[0], $c[1]))) { $shown += $key } }
+    T "делиться: hubShare=$($c[0]), hubUnread=$($c[1]) — видно" ($shown -join ',') $c[2]
+}
+T 'делиться: другие ключи не задевает' ($mShare.Invoke($null, @('lyrics', $true, $false))) $true
+
+# «Пока не трогали — не видно»: строка видна, только если значение уже не такое, как по умолчанию
+$mUsed = $mgT.GetMethod('Used')
+T 'пока не трогали — не видно: семь строк' ($mgT.GetField('Quiet').GetValue($null) -join ',') 'uiaRate,vscodeButton,callMode,font,motion,cascade,followWin'
+foreach ($c in @(
+    @('uiaRate', '', $true, $false), @('uiaRate', '0', $true, $false), @('uiaRate', '1', $true, $true),
+    @('vscodeButton', '', $true, $false), @('vscodeButton', '0', $true, $false), @('vscodeButton', '1', $true, $true),
+    @('callMode', '', $true, $false), @('callMode', '0', $true, $false), @('callMode', '1', $true, $true),
+    @('font', '', $true, $false), @('font', '   ', $true, $false), @('font', 'Georgia', $true, $true), @('font', 'Cascadia Mono, Consolas', $true, $true),
+    @('motion', '', $true, $false), @('motion', '', $false, $false), @('motion', '0', $true, $false), @('motion', '5', $false, $false),
+    @('motion', '5', $true, $true), @('motion', '0', $false, $true), @('motion', '3', $true, $true), @('motion', '6', $true, $false), @('motion', '-1', $true, $false), @('motion', 'x', $true, $false),
+    @('cascade', '', $true, $false), @('cascade', '1', $true, $false), @('cascade', '0', $true, $true),
+    @('followWin', '1', $true, $false), @('followWin', '0', $true, $true), @('followWin', '', $true, $true),
+    @('seconds', '', $true, $true), @('seconds', '1', $true, $true))) {
+    $sys = if ($c[2]) { '' } else { ', анимации Windows выключены' }
+    T "пока не трогали — не видно: $($c[0])='$($c[1])'$sys" ($mUsed.Invoke($null, @($c[0], $c[1], $c[2]))) $c[3]
+}
+# «Тема как в Windows» видна и по умолчанию, когда перекрывает выбранный цвет: светлая Windows или светлый цвет
+$mTheme = $mgT.GetMethod('ThemeRowShown')
+foreach ($c in @(@('1', $true, $false, $false), @('1', $false, $false, $true), @('1', $true, $true, $true), @('1', $false, $true, $true), @('0', $true, $false, $true), @('', $true, $false, $true))) {
+    T "«Тема как в Windows»: followWin='$($c[0])', Windows тёмная=$($c[1]), выбран светлый=$($c[2])" ($mTheme.Invoke($null, @($c[0], $c[1], $c[2]))) $c[3]
+}
+
+# строки, которые появляются, только когда на что-то влияют, — и каждая стоит в своём разделе
+$needs = @{}; foreach ($nd in $mgT.GetField('Needs').GetValue($null)) { $needs[$nd[0]] = $nd[1] }
+foreach ($c in @(@('Сдвиг текста песни', 'lyrics'), @('Вернуть остров наверх', 'detached'), @('Ключ Cider', 'ciderRate'), @('Канал Twitch', 'twitchOverlay'), @('Чат Twitch и вне игр', 'twitchOverlay'), @('Нагрузка в капсуле во время игры', 'showInGames'), @('Пауза, когда сняли наушники', 'earbuds'), @('Зверёк в переходах', 'eyes'), @('Зверёк гуляет по окнам', 'eyes'), @('Качество камеры', 'camera'))) {
+    T "зависимая строка: «$($c[0])» — только при $($c[1])" $needs[$c[0]] $c[1]
+}
+foreach ($k in $needs.Keys) { T "зависимая строка: «$k» стоит в разделе" ($secOf.ContainsKey($k)) $true }
+
+# пункты с section при установленном core.txt показывает он, а не окно kapsula.txt
+$mVia = $mgT.GetMethod('ViaCore')
+foreach ($c in @(@($true, 'autostart', $true), @($true, 'autoUpdate', $true), @($true, 'showInGames', $true), @($true, 'fsTrack', $true), @($true, 'gameLoad', $true), @($true, 'share', $true), @($true, 'hubShare', $true), @($true, 'hubUnread', $true), @($true, 'autoHide', $false), @($true, 'walk', $false), @($true, 'windowsNotify', $false), @($false, 'autostart', $false), @($false, 'share', $false), @($false, 'gameLoad', $false))) {
+    T "core.txt установлен=$($c[0]): «$($c[1])» показывает core.txt" ($mVia.Invoke($null, @($c[0], $c[1]))) $c[2]
+}
+
+# описание для core.txt: сводные выборы — одним пунктом choice; прежние ключи в описании не видны, но settings.set их принимает
+$pubKeys = $chT.GetMethod('Keys').Invoke($null, @($true)); $allKeys = $chT.GetMethod('Keys').Invoke($null, @($false))
+foreach ($k in @('autoHide', 'walk', 'windowsNotify', 'miniPlayer', 'musicEdge', 'share', 'lyrics', 'petRide', 'eyes', 'seconds', 'rim', 'shadow', 'petSeason', 'showInGames', 'fsTrack', 'gameLoad', 'autostart', 'autoUpdate')) {
+    T "core.txt: «$k» в описании" ($pubKeys -contains $k) $true
+}
+foreach ($k in @('notifications', 'hoverMini', 'liquid', 'hubShare', 'hubUnread')) {
+    T "core.txt: прежний «$k» в описании не виден" ($pubKeys -contains $k) $false
+    T "core.txt: прежний «$k» по-прежнему принимается" ($allKeys -contains $k) $true
+}
+# сценарии core.txt читают текущее значение autoHide и walk из описания — без него сценарий не срабатывает
+T 'core.txt: «autoHide» и «walk» для сценариев остаются в описании' (($pubKeys -contains 'autoHide') -and ($pubKeys -contains 'walk')) $true
+T 'core.txt: «Уведомления Windows» — выбор из трёх' ($pub['windowsNotify']['type'] + ' ' + (@($pub['windowsNotify']['options'] | ForEach-Object { $_['value'] }) -join ',')) 'choice windows,both,island'
+T 'core.txt: подписи вариантов — те же, что в окне' (@($pub['windowsNotify']['options'] | ForEach-Object { $_['label'] }) -join ',') 'Только Windows,Остров и Windows,Только остров'
+T 'core.txt: подсказка «Уведомлений Windows» называет вариант так же, как он подписан' ($pub['windowsNotify']['hint'].Contains('«Только остров»')) $true
+T 'core.txt: подсказка «Уведомлений Windows» не спорит сама с собой' ($pub['windowsNotify']['hint'].Contains('нигде не сохраняются')) $false
+T 'core.txt: «Уведомления Windows» по умолчанию — только в Windows' $pub['windowsNotify']['value'] 'windows'
+T 'core.txt: «Мини-плеер при наведении» по умолчанию — обычный' $pub['miniPlayer']['value'] 'player'
+T 'core.txt: «Край во время музыки» без настроек — эквалайзер' $pub['musicEdge']['value'] 'spectrum'
+T 'core.txt: «Делиться с приложениями dev.txt» — один переключатель на странице «Общие»' ($pub['share']['type'] + ' ' + $pub['share']['section'] + ' ' + $pub['share']['value']) 'switch family True'
+T 'core.txt: подпись общего переключателя' $pub['share']['label'] 'Делиться с приложениями dev.txt'
+
+# разметка окна: один раздел «Общее», каждая строка — один раз, каждый раздел — в списке разделов, строки — где их ищут
+T 'настройки: раздел «Общее» один' (@($lay | Where-Object { $_[0] -eq 'Общее' }).Count) 1
+$rowsAll = @(); foreach ($l in $lay) { for ($i = 1; $i -lt $l.Length; $i++) { if (-not $l[$i].StartsWith('#')) { $rowsAll += $l[$i] } } }
+T 'настройки: в разметке каждая строка один раз' (@($rowsAll | Sort-Object -Unique).Count) $rowsAll.Count
+foreach ($l in $lay) { T "настройки: раздел «$($l[0])» есть в списке разделов" ($so -contains $l[0]) $true }
+foreach ($c in @(@('Скрывать текст уведомлений', 'Уведомления'), @('Секунды в часах', 'Внешний вид'), @('Монитор', 'Поведение'), @('core.txt — лаунчер dev.txt', 'Общее'), @('core.txt: запуск и обновления', 'Общее'), @('core.txt: игры', 'Игры'), @('core.txt: чем делиться', 'Приватность'), @('Выйти из kapsula.txt', 'Общее'), @('Показывать остров в играх', 'Игры'), @('Уведомления Windows', 'Уведомления'), @('Напоминания о событиях', 'Уведомления'), @('Индикаторы камеры и микрофона', 'Приватность'), @('Край во время музыки', 'Музыка'), @('Мини-плеер при наведении', 'Музыка'), @('Уведомления Steam', 'Steam и Discord'), @('Режим звонка', 'Дополнительно'))) {
+    T "настройки: «$($c[0])» — в разделе «$($c[1])»" $secOf[$c[0]] $c[1]
+}
+$sn = $swT.GetMethod('SectionName', $sf)
+T 'настройки: прежний раздел «Безопасность» открывается как «Приватность»' ($sn.Invoke($null, @('Безопасность'))) 'Приватность'
+T 'настройки: прежний раздел «Вкладки острова» открывается как «Вкладки»' ($sn.Invoke($null, @('Вкладки острова'))) 'Вкладки'
+T 'настройки: «Музыка» остаётся «Музыкой»' ($sn.Invoke($null, @('Музыка'))) 'Музыка'
+$df = $swT.GetMethod('DemoFor', $sf)
+foreach ($c in @(@('Уведомления Windows', 'notif'), @('Скрывать текст уведомлений', 'notif'), @('Напоминания о событиях', 'remind'), @('Индикаторы камеры и микрофона', 'privacy'), @('Зверёк гуляет по окнам', 'walk'))) {
+    T "настройки: пример на острове у «$($c[0])»" ($df.Invoke($null, @($c[0]))) $c[1]
+}
+T 'превью: «Край во время музыки» — сам остров' ($pk.Invoke($null, @('Край во время музыки'))) 0
+T 'превью: «Мини-плеер при наведении» — мини-плеер' ($pk.Invoke($null, @('Мини-плеер при наведении'))) 2
+
+# --- Доводка после проверки: «Не беспокоить» переходит к core.txt, только когда он подтвердил; ничего не теряется
+$qh = $chT.GetMethod('QuietHandOver')
+function HandOver($localMin, $focus, $untilMin, $askedSame) {
+    $now = [long]1763550000000
+    $end = if ($localMin -gt 0) { $now + [long]($localMin * 60000) } else { [long]0 }
+    $until = if ($untilMin -eq 0) { [long]0 } else { $now + [long]($untilMin * 60000) }
+    $asked = if ($askedSame) { $end } else { [long]0 }
+    $a = [object[]]@($end, $now, [bool]$focus, $until, $asked, 0)
+    $r = $qh.Invoke($null, $a)
+    return "$r/$($a[5])"
+}
+T 'не беспокоить: своего нет — ничего' (HandOver 0 $false 0 $false) '0/0'
+T 'не беспокоить: своё на 60 мин, у core.txt тихо нет — попросить его на 60' (HandOver 60 $false 0 $false) '2/60'
+T 'не беспокоить: своё на 59,5 мин — просим с запасом вверх, 60' (HandOver 59.5 $false 0 $false) '2/60'
+T 'не беспокоить: попросили, а core.txt ещё не ответил — своё остаётся' (HandOver 60 $false 0 $true) '0/0'
+T 'не беспокоить: core.txt подтвердил на то же время — своё гасится' (HandOver 60 $true 60 $true) '1/0'
+T 'не беспокоить: у core.txt «пока не выключат» — своё гасится' (HandOver 60 $true 0 $false) '1/0'
+T 'не беспокоить: у core.txt тихо дольше своего — своё гасится' (HandOver 60 $true 180 $false) '1/0'
+T 'не беспокоить: у core.txt на полминуты короче — разница не в счёт' (HandOver 60 $true 59.5 $false) '1/0'
+T 'не беспокоить: у core.txt короче своего — продлить, а не потерять' (HandOver 60 $true 20 $false) '2/60'
+T 'не беспокоить: продлить просили, core.txt решил по-своему — его время главнее' (HandOver 60 $true 20 $true) '1/0'
+T 'не беспокоить: у core.txt время уже вышло — попросить заново' (HandOver 60 $true (-1) $false) '2/60'
+$qa = $chT.GetMethod('QuietAdopt'); $qnow = [long]1763550000000
+T 'не беспокоить: связь пропала, у core.txt было тихо ещё 30 мин — остаётся своим' ($qa.Invoke($null, @([long]($qnow + 1800000), $qnow, [long]0))) ($qnow + 1800000)
+T 'не беспокоить: связь пропала, у core.txt было не тихо — своё не меняется' ($qa.Invoke($null, @([long]0, $qnow, [long]0))) 0
+T 'не беспокоить: связь пропала, время core.txt уже вышло — своё не меняется' ($qa.Invoke($null, @([long]($qnow - 1), $qnow, [long]0))) 0
+T 'не беспокоить: своё и так дольше — не укорачивается' ($qa.Invoke($null, @([long]($qnow + 60000), $qnow, [long]($qnow + 120000)))) 0
+$um = $chT.GetMethod('UtcMs'); $fm = $chT.GetMethod('FromUtcMs')
+$t0 = [datetime]'2026-11-20 13:45:10'
+T 'не беспокоить: время туда и обратно (мс с 1970 года, UTC)' ($fm.Invoke($null, @($um.Invoke($null, @($t0)))).ToString('yyyy-MM-dd HH:mm:ss')) '2026-11-20 13:45:10'
+T 'не беспокоить: 1970 год по UTC — ноль' ($um.Invoke($null, @([datetime]::SpecifyKind([datetime]'1970-01-01', 'Utc')))) 0
+
+# свой значок: сколько ещё ждать core.txt при запуске — и через переход счётчика Windows через ноль
+$twl = $chT.GetMethod('TrayWaitLeft')
+T 'значок: не ждём' ($twl.Invoke($null, @(0, 12345))) 0
+T 'значок: ждём ещё 600 мс' ($twl.Invoke($null, @(1000, 400))) 600
+T 'значок: ждать больше нечего' (($twl.Invoke($null, @(1000, 1400))) -le 0) $true
+T 'значок: счётчик перешёл через ноль — ждём столько же' ($twl.Invoke($null, @(([int]::MinValue + 100), ([int]::MaxValue - 100)))) 201
+# уведомления приложений dev.txt: «Не беспокоить» — только история; остров спрятан от игры — карточка ждёт; не теряются
+$nr = $chT.GetMethod('NotifyRoute')
+foreach ($c in @(@($true, $false, $false, 'history'), @($true, $true, $false, 'history'), @($false, $true, $false, 'hold'), @($false, $true, $true, 'hold'), @($false, $false, $true, 'history'), @($false, $false, $false, 'card'))) {
+    T "уведомление: тихо=$($c[0]), остров спрятан от игры=$($c[1]), открыт вопрос Claude=$($c[2])" ($nr.Invoke($null, @($c[0], $c[1], $c[2]))) $c[3]
+}
+$nm = $chT.GetMethod('NotifyMore')
+T 'уведомление: одно — текст как есть' ($nm.Invoke($null, @('Можно освободить 12 ГБ', 0))) 'Можно освободить 12 ГБ'
+T 'уведомление: за игру пришло три — последнее и сколько ещё' ($nm.Invoke($null, @('Можно освободить 12 ГБ', 2))) 'Можно освободить 12 ГБ · ещё 2 в истории'
+T 'уведомление: без текста — только сколько ещё' ($nm.Invoke($null, @('', 1))) 'ещё 1 в истории'
+T 'семья: карточка — заголовок совпал с приложением, текста нет: одна строка, без пустой' (Card 'metla.txt' 'metla.txt' '') 'metla.txt | '
+
+# settings.set от core.txt: что именно сделает каждый ключ (сводный выбор, своё действие пункта или SetFlag)
+$plan = $chT.GetMethod('Plan')
+foreach ($c in @(
+    @('windowsNotify', 'island', 'pair windowsNotify 2'), @('windowsNotify', 'windows', 'pair windowsNotify 0'), @('miniPlayer', 'lyrics', 'pair miniPlayer 2'),
+    @('musicEdge', 'flat', 'pair musicEdge 0'), @('musicEdge', 'spectrum', 'pair musicEdge 2'), @('windowsNotify', 'nope', 'такого варианта нет'),
+    @('windowsNotify', $true, 'такого варианта нет'), @('notifications', $true, 'flag notifications True'), @('hoverMini', $false, 'flag hoverMini False'),
+    @('liquid', $true, 'flag liquid True'), @('hubShare', $false, 'flag hubShare False'), @('hubUnread', $true, 'flag hubUnread True'),
+    @('share', $false, 'own share False'), @('autoHide', $true, 'flag autoHide True'), @('walk', $false, 'flag walk False'),
+    @('autostart', $true, 'own autostart True'), @('autoUpdate', $false, 'own autoUpdate False'), @('showInGames', $true, 'flag showInGames True'),
+    @('fsTrack', $false, 'flag fsTrack False'), @('gameLoad', $true, 'flag gameLoad True'), @('autoHide', 'да', 'нужно «да» или «нет»'), @('nope', $true, 'такой настройки нет'))) {
+    T "settings.set $($c[0])=$($c[1])" ($plan.Invoke($null, @($c[0], $c[1]))) $c[2]
+}
+
+# сводный выбор пишет только то, что меняется, уточнение — раньше главного, и ровно так, как его писала прежняя строка
+$mWrites = $mgT.GetMethod('Writes'); $mRoute = $mgT.GetMethod('Route')
+foreach ($p in $pairs) {
+    for ($k = -1; $k -le $p.Values.Length; $k++) {
+        foreach ($a0 in @($false, $true)) {
+            foreach ($b0 in @($false, $true)) {
+                $w = [object[]]@($p, $k, $a0, $b0); $ok = $mApply.Invoke($null, $w)
+                $want = @(); if ($ok -and $w[3] -ne $b0) { $want += "$($p.B)=$($w[3])" }; if ($ok -and $w[2] -ne $a0) { $want += "$($p.A)=$($w[2])" }
+                $got = @($mWrites.Invoke($null, @($p, $k, $a0, $b0)) | ForEach-Object { "$($_.Key)=$($_.Value)" })
+                T "сводный выбор $($p.Id): из $([int]$a0)/$([int]$b0) вариант $k — что пишется" ($got -join ';') ($want -join ';')
+            }
+        }
+    }
+}
+foreach ($c in @(@('bannersOff', 'banners'), @('miniLyricsOnly', 'miniLyrics'), @('steamHideToasts', 'steam'), @('steamPlugin', 'plugin'), @('liquidSpectrum', 'store'), @('micDot', 'store'), @('camDot', 'store'), @('calendar', 'store'), @('soonPill', 'store'), @('notifications', 'flag'), @('liquid', 'flag'), @('hoverMini', 'flag'), @('hubShare', 'flag'), @('hubUnread', 'flag'))) {
+    T "сводный выбор: «$($c[0])» ставится как прежней строкой — $($c[1])" ($mRoute.Invoke($null, @($c[0]))) $c[1]
+}
+# зависимые строки: поиск находит и спрятанную — и говорит, когда она появится; «Выйти» — пока значок у core.txt
+$mNote = $mgT.GetMethod('NeedNote')
+foreach ($nd in $mgT.GetField('Needs').GetValue($null)) {
+    T "поиск: у спрятанной «$($nd[0])» сказано, когда она появится" (($mNote.Invoke($null, @($nd[1]))) -ne 'Появится, когда понадобится.') $true
+}
+T 'выход: строка «Выйти из kapsula.txt» — только пока значок у core.txt' $needs['Выйти из kapsula.txt'] 'coreTray'
+T 'выход: без core.txt поиск ведёт к «Выходу» в меню значка' (($mNote.Invoke($null, @('coreTray'))).Contains('«Выход»')) $true
+$qw = $iwT.GetMethod('QuitWord')
+foreach ($c in @(@('выход', $true), @('Выйти', $true), @('выйти из kapsula', $true), @('закрыть kapsula.txt', $true), @('выход из капсулы', $true), @('quit', $true), @('exit', $true),
+    @('выходные', $false), @('закрыть вкладку', $false), @('выход на работу', $false), @('выйти из дома', $false), @('', $false))) {
+    T "выход: команда «$($c[0])»" ($qw.Invoke($null, @($c[0]))) $c[1]
+}
+
+# переключатели, которые меняют и не в окне (core.txt, меню у часов, клавиши), раз в секунду встают как есть;
+# у каждой настройки, которую видит core.txt, в окне то же название — одна настройка, одно имя
+$synced = $swT.GetField('Synced').GetValue($null)
+foreach ($t in $synced) { T "настройки: «$t» сверяется и стоит в разметке" ($secOf.ContainsKey($t)) $true }
+foreach ($f in $chT.GetField('flags', $sf).GetValue($null)) {
+    $ft = $f.GetType(); $label = $ft.GetField('Label').GetValue($f)
+    if ($null -eq $label -or $null -ne $ft.GetField('Choice').GetValue($f)) { continue }
+    T "core.txt: «$label» — то же название в окне, и переключатель там сверяется" ($synced -contains $label) $true
+}
+# у каждого сверяемого переключателя есть откуда взять значение (окно не создаётся: метод только собирает делегаты)
+$swBare = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject($swT)
+$ss = $swT.GetMethod('SwitchSource', [Reflection.BindingFlags]'NonPublic,Instance')
+foreach ($t in $synced) { T "настройки: «$t» знает, откуда брать значение" ($null -ne $ss.Invoke($swBare, @($t))) $true }
+T 'настройки: «Смена раскладки» меняют только здесь — не сверяется' ($null -eq $ss.Invoke($swBare, @('Смена раскладки'))) $true
+$ch = $swT.GetMethod('ColorHint')
+T 'цвет острова: без общего цвета — обычная подсказка' ($ch.Invoke($null, @($false))) 'Наведите на цвет — остров сверху сразу покажет его. Клик сохраняет.'
+T 'цвет острова: цвет подсветки из core.txt — сказано' (($ch.Invoke($null, @($true))).EndsWith(' Цвет подсветки задаёт core.txt.')) $true
+$ca = $chT.GetMethod('CoreArgs')
+foreach ($c in @(@('general', '--page general'), @('games', '--page games'), @($null, ''), @('two words', ''), @('app:metla', ''))) {
+    T "core.txt: запуск на странице «$($c[0])»" ($ca.Invoke($null, @($c[0]))) $c[1]
+}
+T 'core.txt: строки «Настраивается в core.txt» — у каждой группы своя' (@($swT.GetField('CoreStartup').GetValue($null), $swT.GetField('CoreGames').GetValue($null), $swT.GetField('CoreFamily').GetValue($null)) | Sort-Object -Unique).Count 3
 "`nПройдено: $script:pass, не пройдено: $script:fail"
 if ($script:fail -gt 0) { exit 1 }

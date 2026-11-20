@@ -253,6 +253,14 @@ namespace Kapsula
             Root.MouseLeave += delegate { Grow(1); };
         }
 
+        // Положение переключателя. Поставить снаружи — без вызова changed: например, подключить плагин не вышло,
+        // и переключатель возвращается к тому, что есть на самом деле
+        public bool Value
+        {
+            get { return on; }
+            set { if (on == value) return; on = value; Paint(); Move(); }
+        }
+
         void Paint()
         {
             double l = (0.2126 * onColor.R + 0.7152 * onColor.G + 0.0722 * onColor.B) / 255;

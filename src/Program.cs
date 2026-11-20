@@ -124,6 +124,7 @@ namespace Kapsula
                 if (args[i] == "--settingstop") { w.TestSettings = true; w.TestSettingsTop = true; }
                 if (args[i] == "--settingsscroll" && i + 1 < args.Length) double.TryParse(args[i + 1], out w.TestSettingsScroll);
                 if (args[i] == "--settingstab" && i + 1 < args.Length) { w.TestSettings = true; w.TestSettingsTab = args[i + 1]; }
+                if (args[i] == "--settingsdump" && i + 1 < args.Length) { w.TestSettings = true; w.TestSettingsDump = args[i + 1]; }   // снимки всех разделов настроек в папку, потом выход
                 if (args[i] == "--bt") w.TestBt = true;
                 if (args[i] == "--chattest") w.TestChat = true;
                 if (args[i] == "--notif") w.ShowNotifications = true;   // только на этот запуск
@@ -161,6 +162,7 @@ namespace Kapsula
                 if (args[i] == "--qrtest") w.Loaded += delegate { w.Dispatcher.BeginInvoke(new Action(delegate { PhoneCam.Start(w); PhoneCam.ShowQr(); }), System.Windows.Threading.DispatcherPriority.ApplicationIdle); };
                 if (args[i] == "--timerdone") { w.TestTimerDone = true; w.ForceOpen = -3; }
                 if (args[i] == "--traymenu") { w.TestTray = true; w.ForceOpen = -3; }
+                if (args[i] == "--quiettest") w.TestQuiet = true;
                 if (args[i] == "--ducktoggle") { Ai.ForceDuck = true; w.TestDuckToggle = true; w.ForceOpen = 4; }
                 if (args[i] == "--season" && i + 1 < args.Length && int.TryParse(args[i + 1], out n)) PetView.TestSeason = n;
                 if (args[i] == "--pill") w.ForceOpen = -3;
