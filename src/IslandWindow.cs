@@ -10886,6 +10886,9 @@ namespace Kapsula
             if (tick % 4 == 3) { TaskRemindTick(); SoonTick(); TodayCalendarTick(); HeadphonesTick(); NetTick(); UpdateTick(); }   // задача — карточкой в свой час, а до того — отсчёт в капсуле; наушники; интернет; обновления Windows
             if (state != 0) lastOpenAt = Environment.TickCount;
             if (tick % 60 == 7) TrimTick();     // панель давно закрыта — неиспользуемую память отдаём системе
+            // Vencord поставили, пока Kapsula работала (например, core.txt с карточки Maska), — уведомления XSOverlay
+            // начинаем слушать без перезапуска. Раз в десять секунд; без Vencord Start только проверяет три папки
+            if (tick % 20 == 13 && !DiscordBridge.Listening && DiscordBridge.Error == null) DiscordBridge.Start();
             ExtrasTick();
             if (tick % 4 == 2) EarbudsTick();
             if (tick % 2 == 1) BatteryTick();   // батарея ноутбука: зарядка, «садится»

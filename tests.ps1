@@ -445,106 +445,23 @@ T 'сеть: мегабайты' ($rt.Invoke($null, @([double]2516582.4))) '2,4 
 T 'сеть: 999 КБ/с — ещё килобайты' ($rt.Invoke($null, @([double](999 * 1024)))) '999 КБ/с'
 T 'сеть: с 1000 КБ/с — мегабайты' ($rt.Invoke($null, @([double](1000 * 1024)))) '1,0 МБ/с'
 
-# --- «Подключить Discord»: на поддельных папках — Discord без Vencord и Discord с Vencord; ничего настоящего не трогаем
-$di = $asm.GetType('Kapsula.DiscordInstall')
-$tmp = Join-Path $env:TEMP ('kapsula-di-' + [Guid]::NewGuid().ToString('N'))
-$roam = Join-Path $tmp 'Roaming'; $loc = Join-Path $tmp 'Local'; $src = Join-Path $tmp 'build'
-$res = Join-Path $loc 'Discord\app-1.0.9268\resources'
-New-Item -ItemType Directory -Force $res, $src, (Join-Path $loc 'Discord\app-1.0.9100\resources') | Out-Null
-foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $src $f) ('// kapsula build ' + $f + (' ' * 120)) }
-Set-Content (Join-Path $res 'app.asar') 'discord'
-$env:KAPSULA_TEST_APPDATA = $roam; $env:KAPSULA_TEST_LOCALAPPDATA = $loc; $env:KAPSULA_TEST_VENCORD_DIR = $src
+# --- Подключён ли Discord (сборку ставит core.txt, Kapsula только смотрит): отметка kapsula.txt и наша сборка в Vencord\dist
+$db = $asm.GetType('Kapsula.DiscordBuild')
+$tmp = Join-Path $env:TEMP ('kapsula-db-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force $tmp | Out-Null
 try {
-    # 1) Discord без Vencord: Kapsula встраивает сама — как установщик Vencord: _app.asar и заглушка app.asar
-    T 'discord: подключение без Vencord' ($di.GetMethod('Install').Invoke($null, @())) $null
-    $dist = Join-Path $roam 'Vencord\dist'
-    T 'discord: сборка на месте' (Get-Content (Join-Path $dist 'renderer.js') -Raw).Contains('kapsula build') $true
-    T 'discord: исходный app.asar сохранён' ((Get-Content (Join-Path $res '_app.asar') -Raw).Trim()) 'discord'
-    T 'discord: папки app нет (с ней Discord не запускался)' (Test-Path (Join-Path $res 'app')) $false
-    $stub = [IO.File]::ReadAllBytes((Join-Path $res 'app.asar'))
-    $hs = [int][BitConverter]::ToUInt32($stub, 4); $jl = [int][BitConverter]::ToUInt32($stub, 12)
-    $hdr = [Text.Encoding]::UTF8.GetString($stub, 16, $jl) | ConvertFrom-Json
-    $ix = $hdr.files.'index.js'; $pk = $hdr.files.'package.json'; $base = 8 + $hs
-    $idxText = [Text.Encoding]::UTF8.GetString($stub, $base + [int]$ix.offset, [int]$ix.size)
-    $pkgText = [Text.Encoding]::UTF8.GetString($stub, $base + [int]$pk.offset, [int]$pk.size)
-    T 'discord: заглушка app.asar — архив asar' (([BitConverter]::ToUInt32($stub, 0) -eq 4) -and ($stub.Length -eq $base + [int]$ix.size + [int]$pk.size)) $true
-    T 'discord: заглушка загружает patcher.js Vencord' ($idxText.StartsWith('require(') -and $idxText.Contains('Vencord\\dist\\patcher.js')) $true
-    T 'discord: заглушка запускает index.js' (($pkgText | ConvertFrom-Json).main) 'index.js'
-    T 'discord: старая версия Discord не тронута' ((Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\_app.asar')) -or (Test-Path (Join-Path $loc 'Discord\app-1.0.9100\resources\app'))) $false
-    # Discord обновился, и Vencord сам перенёс заглушку в новую версию — «Отключить» вернёт и её
-    $res2 = Join-Path $loc 'Discord\app-1.0.9300\resources'
-    New-Item -ItemType Directory -Force $res2 | Out-Null
-    Set-Content (Join-Path $res2 '_app.asar') 'discord new'; Copy-Item (Join-Path $res 'app.asar') (Join-Path $res2 'app.asar')
-    T 'discord: отключение' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: app.asar вернулся' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
-    T 'discord: и в новой версии Discord' (((Get-Content (Join-Path $res2 'app.asar') -Raw).Trim() -eq 'discord new') -and -not (Test-Path (Join-Path $res2 '_app.asar'))) $true
-    T 'discord: нашей сборки не осталось' (Test-Path (Join-Path $dist 'renderer.js')) $false
-    Remove-Item (Join-Path $loc 'Discord\app-1.0.9300') -Recurse -Force
-    # 2) Discord, сломанный подключением из 0.6.1–0.6.2 (папка app рядом с _app.asar, а app.asar нет)
-    $broken = {
-        New-Item -ItemType Directory -Force $dist, (Join-Path $res 'app') | Out-Null
-        foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) ('// kapsula build ' + $f) }
-        Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar')
-        Set-Content (Join-Path $res 'app\index.js') 'require("C:\\Users\\u\\AppData\\Roaming\\Vencord\\dist\\patcher.js");'
-        Set-Content (Join-Path $res 'app\package.json') '{"name":"discord","main":"index.js"}'
-        Set-Content (Join-Path $dist 'kapsula.txt') ("Kapsula`r`nvencord=kapsula`r`ninjected=" + $res)
-    }
-    & $broken
-    T 'discord: починка при запуске' ($di.GetMethod('RepairBroken').Invoke($null, @())) $true
-    T 'discord: после починки — заглушка, рядом исходный Discord' ((-not (Test-Path (Join-Path $res 'app'))) -and ((Get-Content (Join-Path $res '_app.asar') -Raw).Trim() -eq 'discord') -and ([IO.File]::ReadAllBytes((Join-Path $res 'app.asar'))[0] -eq 4)) $true
-    T 'discord: повторная починка ничего не трогает' ($di.GetMethod('RepairBroken').Invoke($null, @())) $false
-    T 'discord: отключение после починки' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: после починки и отключения Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
-    & $broken
-    T 'discord: «Отключить» на сломанном' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: сломанный вернулся как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $res 'app'))) $true
-    # 3) Discord с Vencord: меняются только файлы Vencord, прежние возвращаются
-    Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar'); Set-Content (Join-Path $res 'app.asar') 'vencord stub'
-    New-Item -ItemType Directory -Force $dist | Out-Null
-    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) 'official vencord' }
-    T 'discord: подключение к Vencord' ($di.GetMethod('Install').Invoke($null, @())) $null
-    T 'discord: Discord не тронут' ((Get-Content (Join-Path $res 'app.asar') -Raw).Trim()) 'vencord stub'
-    T 'discord: прежний Vencord в резерве' ((Get-Content (Join-Path $roam 'Vencord\dist-before-kapsula\renderer.js') -Raw).Trim()) 'official vencord'
-    T 'discord: повторное подключение не портит резерв' ($di.GetMethod('Install').Invoke($null, @())) $null
-    T 'discord: резерв прежний' ((Get-Content (Join-Path $roam 'Vencord\dist-before-kapsula\renderer.js') -Raw).Trim()) 'official vencord'
-    T 'discord: отключение от Vencord' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: официальный Vencord вернулся' ((Get-Content (Join-Path $dist 'renderer.js') -Raw).Trim()) 'official vencord'
-    T 'discord: метка снята' ($di.GetProperty('Installed').GetValue($null)) $false
-    # 4) Discord запущен (app.asar занят): «Подключить» не вышло — после него ничего не осталось; вторая попытка — как первая, «Отключить» убирает всё
-    Remove-Item (Join-Path $roam 'Vencord') -Recurse -Force
-    Remove-Item (Join-Path $res 'app.asar') -Force; Move-Item (Join-Path $res '_app.asar') (Join-Path $res 'app.asar')
-    $lock = [IO.File]::Open((Join-Path $res 'app.asar'), 'Open', 'Read', 'Read')
-    try { T 'discord: Discord занят — просим закрыть' ($di.GetMethod('Install').Invoke($null, @())) 'закройте Discord (и в трее у часов) и нажмите ещё раз' } finally { $lock.Close() }
-    T 'discord: после неудачи — ни сборки, ни резерва, ни метки' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula')) -or ($di.GetProperty('Installed').GetValue($null))) $false
-    T 'discord: после неудачи папки Vencord нет' (Test-Path (Join-Path $roam 'Vencord')) $false
-    T 'discord: после неудачи Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
-    T 'discord: вторая попытка' ($di.GetMethod('Install').Invoke($null, @())) $null
-    T 'discord: вторая попытка — Vencord наш' ((Get-Content (Join-Path $dist 'kapsula.txt') -Raw).Contains('vencord=kapsula')) $true
-    $res2 = Join-Path $loc 'Discord\app-1.0.9300\resources'
-    New-Item -ItemType Directory -Force $res2 | Out-Null
-    Set-Content (Join-Path $res2 '_app.asar') 'discord new'; Copy-Item (Join-Path $res 'app.asar') (Join-Path $res2 'app.asar')
-    T 'discord: отключение после неудачи' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: после отключения — оба Discord как были' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and ((Get-Content (Join-Path $res2 'app.asar') -Raw).Trim() -eq 'discord new') -and -not (Test-Path (Join-Path $res2 '_app.asar'))) $true
-    T 'discord: после отключения — ни сборки, ни резерва' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula'))) $false
-    Remove-Item (Join-Path $loc 'Discord\app-1.0.9300') -Recurse -Force
-    # 5) Сломанное прежней версией: в резерве наша же сборка, метка «vencord=before» — «Отключить» всё равно убирает всё
-    $bak = Join-Path $roam 'Vencord\dist-before-kapsula'
-    New-Item -ItemType Directory -Force $dist, $bak | Out-Null
-    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { foreach ($d in $dist, $bak) { Set-Content (Join-Path $d $f) ('// kapsula build "Kapsula" ' + $f + (' ' * 120)) } }
-    Move-Item (Join-Path $res 'app.asar') (Join-Path $res '_app.asar'); [IO.File]::WriteAllBytes((Join-Path $res 'app.asar'), $stub)
-    Set-Content (Join-Path $dist 'kapsula.txt') "Kapsula`r`nvencord=before"
-    T 'discord: в резерве наша сборка — отключение' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: в резерве наша сборка — Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar'))) $true
-    T 'discord: в резерве наша сборка — ни сборки, ни резерва' ((Test-Path (Join-Path $dist 'renderer.js')) -or (Test-Path $bak)) $false
-    # 6) Остатки нашей сборки без метки (неудачная попытка прежней версии) — не «прежний Vencord»: в резерв не уходят
-    foreach ($f in 'patcher.js', 'preload.js', 'renderer.js', 'renderer.css') { Set-Content (Join-Path $dist $f) ('// kapsula build "Kapsula" ' + $f + (' ' * 120)) }
-    T 'discord: подключение поверх своих остатков' ($di.GetMethod('Install').Invoke($null, @())) $null
-    T 'discord: свои остатки не ушли в резерв' (Test-Path (Join-Path $roam 'Vencord\dist-before-kapsula')) $false
-    T 'discord: свои остатки — Vencord наш' ((Get-Content (Join-Path $dist 'kapsula.txt') -Raw).Contains('vencord=kapsula')) $true
-    T 'discord: отключение после своих остатков' ($di.GetMethod('Uninstall').Invoke($null, @())) $null
-    T 'discord: после своих остатков Discord как был' (((Get-Content (Join-Path $res 'app.asar') -Raw).Trim() -eq 'discord') -and -not (Test-Path (Join-Path $res '_app.asar')) -and -not (Test-Path (Join-Path $dist 'renderer.js'))) $true
+    $ci = $db.GetMethod('ConnectedIn')
+    T 'discord: пустая папка — не подключено' ($ci.Invoke($null, @([string]$tmp))) $false
+    Set-Content (Join-Path $tmp 'renderer.js') '// official vencord'
+    Set-Content (Join-Path $tmp 'kapsula.txt') 'Maska'
+    T 'discord: отметка есть, сборка официальная — не подключено' ($ci.Invoke($null, @([string]$tmp))) $false
+    Set-Content (Join-Path $tmp 'renderer.js') '// build "Maska" plugin'
+    T 'discord: сборка Maska с отметкой — подключено' ($ci.Invoke($null, @([string]$tmp))) $true
+    Set-Content (Join-Path $tmp 'renderer.js') '// build "Kapsula" plugin'
+    T 'discord: прежняя сборка Kapsula с отметкой — подключено' ($ci.Invoke($null, @([string]$tmp))) $true
+    Remove-Item (Join-Path $tmp 'kapsula.txt')
+    T 'discord: наша сборка без отметки — не подключено' ($ci.Invoke($null, @([string]$tmp))) $false
 } finally {
-    Remove-Item Env:KAPSULA_TEST_APPDATA, Env:KAPSULA_TEST_LOCALAPPDATA, Env:KAPSULA_TEST_VENCORD_DIR -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 

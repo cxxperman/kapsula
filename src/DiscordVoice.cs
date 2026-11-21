@@ -1,5 +1,5 @@
 // Kapsula — «остров» для Windows. Часть исходного кода: DiscordVoice.cs
-// Звонки Discord напрямую. Плагин Kapsula внутри Discord (наша сборка Vencord — «Подключить Discord» в настройках)
+// Звонки Discord напрямую. Плагин Kapsula внутри Discord (наша сборка Vencord — её ставит core.txt, карточка Maska)
 // раз в полсекунды сообщает сюда, что происходит в голосе: вы в звонке или в голосовом канале и с какого момента,
 // микрофон выключен, полный мут, идёт демонстрация экрана, включена камера, говорит ли кто-нибудь. В ответ остров
 // отдаёт ему команды: выключить микрофон, полный мут, выйти из звонка. Канал только для этого компьютера
@@ -168,13 +168,6 @@ namespace Kapsula
         {
             DiscordVoiceServer.Received += delegate(string json) { Dispatcher.BeginInvoke(new Action(delegate { DiscordVoiceMessage(json); })); };
             DiscordVoiceServer.Start();
-            // Discord, который не запускался после «Подключить» в 0.6.1–0.6.2, — починить сразу при запуске Kapsula
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                bool repaired = false;
-                try { repaired = DiscordInstall.RepairBroken(); } catch { }
-                if (repaired) Dispatcher.BeginInvoke(new Action(delegate { ClaudeAfter(6000, delegate { Toast("", "Починили подключение Discord — можно запускать", null, -1, accent); }); }));
-            });
         }
 
         void DiscordVoiceMessage(string json)
